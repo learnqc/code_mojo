@@ -55,7 +55,7 @@ mojo = "==0.25.6"
 
 ## Running tests and benchmarks
 
-[<img src="/value_encoding.png">]()
+[<img src="/assets/value_encoding.png">]()
 
 ```bash
  pixi run test_basic
