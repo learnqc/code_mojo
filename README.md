@@ -29,6 +29,11 @@ Minimal code to get started with the functional version which will be wrapped in
 </pre>
 
 ## Using pixi as a package manager
+Official documentation:
+
+https://docs.modular.com/max/get-started
+
+Other resources:
 
 https://mojo-lang.com/miji/start/pixi.html
 
