@@ -1,5 +1,5 @@
 from butterfly.core.state import *
-from butterfly.utils.utils import *
+from butterfly.utils.state import *
 from butterfly.algos.value_encoding import encode_value
 
 def main():

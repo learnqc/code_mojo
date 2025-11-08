@@ -1,5 +1,5 @@
 from butterfly.core.state import *
-from butterfly.utils.utils import print_state
+from butterfly.utils.state import print_state
 
 def measurement_circuit() -> State:
     n: UInt = 3

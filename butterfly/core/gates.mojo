@@ -1,10 +1,7 @@
 from math import sqrt, cos, sin, log2, log10, atan2, floor
-from complex import ComplexSIMD
 
 from butterfly import *
 
-alias Amplitude = ComplexSIMD[Type, 1]
-alias State = List[Amplitude]
 alias Gate = InlineArray[InlineArray[Amplitude, 2], 2]
 
 alias sq2: Amplitude = Amplitude(sqrt(0.5).cast[Type](), 0)
