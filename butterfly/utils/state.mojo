@@ -3,14 +3,6 @@ from math import log2, log10
 from butterfly import *
 from butterfly.core import *
 
-def is_close(a: Amplitude, b: Amplitude) -> Bool:
-    try:
-        assert_almost_equal[Type, 1](a.re, b.re)
-        assert_almost_equal[Type, 1](a.im, b.im)
-        return True
-    except e:
-        return False
-
 def to_table(s: State, decimals: UInt=3) -> List[List[String]]:
     n = Int(log2(Float32(len(s))))
 

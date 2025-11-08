@@ -7,10 +7,14 @@ version = "0.1.0"
 
 [tasks]
 package = "pixi run mojo package butterfly"
-bench = "pixi run package && cp butterfly.mojopkg tests/ && pixi run mojo run benches/bench.mojo -I tests/ && rm benches/butterfly.mojopkg"
+
+bench_encode_value = "pixi run package && cp butterfly.mojopkg benches/ && pixi run mojo run benches/bench_encode_value.mojo -I benches/ && rm benches/butterfly.mojopkg"
+bench_target = "pixi run package && cp butterfly.mojopkg benches/ && pixi run mojo run benches/bench_target.mojo -I benches/ && rm benches/butterfly.mojopkg"
+
 test_basic = "pixi run package && cp butterfly.mojopkg tests/ && pixi run mojo run tests/test_basic.mojo -I tests/ && rm tests/butterfly.mojopkg"
 test_encode_value = "pixi run package && cp butterfly.mojopkg tests/ && pixi run mojo run tests/test_encode_value.mojo -I tests/ && rm tests/butterfly.mojopkg"
 test_measure = "pixi run package && cp butterfly.mojopkg tests/ && pixi run mojo run tests/test_measure.mojo -I tests/ && rm tests/butterfly.mojopkg"
+test_adjacent_pairs = "pixi run package && cp butterfly.mojopkg tests/ && pixi run mojo run tests/test_adjacent_pairs.mojo -I tests/ && rm tests/butterfly.mojopkg"
 
 [dependencies]
 mojo = "==0.25.6"

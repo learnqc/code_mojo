@@ -10,7 +10,6 @@ from butterfly.core.gates import *
 
 def init_state(n: UInt) -> State:
     var state:State = [`1` if i == 0 else `0` for i in range(2 ** n)]
-#     state[0] = `1`
     return state^
 
 def generate_state(n:UInt, seed: Int = 555) -> State:
@@ -33,23 +32,51 @@ def generate_state(n:UInt, seed: Int = 555) -> State:
     return state^
 
 
-def process_pair(mut state: State, gate: Gate, k0: UInt, k1: UInt):
+fn process_pair(mut state: State, gate: Gate, k0: UInt, k1: UInt):
     x = state[k0]
     y = state[k1]
     # new amplitudes
     state[k0] = x * gate[0][0] + y * gate[0][1]
     state[k1] = x * gate[1][0] + y * gate[1][1]
 
-def transform(mut state: State, target: UInt, gate: Gate):
+fn transform(mut state: State, target: UInt, gate: Gate):
+    l = len(state)
     stride = 1 << target
     r  = 0
-    for j in range(len(state)//2):
-        start = 2*j - r     # r = j%stride
-        # print('target', target, 'start', start, 'pair', start + stride)
-        process_pair(state, gate, UInt(start), UInt(start + stride))
+    for j in range(l//2):
+        idx = 2*j - r     # r = j%stride
+        process_pair(state, gate, idx, idx + stride)
 
         r += 1
         if r == stride:
+            r = 0
+
+fn transform_swap(mut state: State, target: UInt, gate: Gate):
+    l = len(state)
+    stride = 1 << target
+    # swap
+    r  = 0
+    for j in range(0, l//4):
+        idx = 4*j - r
+        state.swap_elements(idx + 1, idx + stride)
+
+        r += 2
+        if r >= stride:
+            r = 0
+
+#    apply gate to consecutive entries
+    for j in range(0, l//2):
+        idx = 2*j
+        process_pair(state, gate, idx, idx + 1)
+
+#   swap back
+    r  = 0
+    for j in range(0, l//4):
+        idx = 4*j - r
+        state.swap_elements(idx + 1, idx + stride)
+
+        r += 2
+        if r >= stride:
             r = 0
 
 def is_bit_set(m: UInt, k: UInt) -> Bool:
@@ -59,9 +86,9 @@ def c_transform(mut state: State, control: UInt, target: UInt, gate: Gate):
     stride = 1 << target
     r  = 0
     for j in range(len(state)//2):
-        start = 2*j - r     # r = j%stride
-        if is_bit_set(UInt(start), control):
-            process_pair(state, gate, UInt(start), UInt(start + stride))
+        idx = 2*j - r     # r = j%stride
+        if is_bit_set(UInt(idx), control):
+            process_pair(state, gate, UInt(idx), UInt(idx + stride))
 
         r += 1
         if r == stride:
@@ -83,9 +110,9 @@ def measure_qubit(mut state: State, t: UInt, reset:Bool, v: Bool) -> Bool:
 
     r = 0
     for j in range(len(state)//2):
-        start = 2*j - r     # r = j%stride
-        prob0_sq += state[start].re*state[start].re + state[start].im*state[start].im
-        prob1_sq += state[start + stride].re*state[start + stride].re + state[start + stride].im*state[start + stride].im
+        idx = 2*j - r     # r = j%stride
+        prob0_sq += state[idx].re*state[idx].re + state[idx].im*state[idx].im
+        prob1_sq += state[idx + stride].re*state[idx + stride].re + state[idx + stride].im*state[idx + stride].im
 
         r += 1
         if r == stride:
@@ -95,10 +122,10 @@ def measure_qubit(mut state: State, t: UInt, reset:Bool, v: Bool) -> Bool:
     if v == False:
         r = 0
         for j in range(len(state)//2):
-            start = 2*j - r     # r = j%stride
-            state[start].re /= sqrt(prob0_sq)
-            state[start].im /= sqrt(prob0_sq)
-            state[start + stride] = `0`
+            idx = 2*j - r     # r = j%stride
+            state[idx].re /= sqrt(prob0_sq)
+            state[idx].im /= sqrt(prob0_sq)
+            state[idx + stride] = `0`
 
             r += 1
             if r == stride:
@@ -107,10 +134,10 @@ def measure_qubit(mut state: State, t: UInt, reset:Bool, v: Bool) -> Bool:
     else:
         r = 0
         for j in range(len(state)//2):
-            start = 2*j - r     # r = j%stride
-            state[start] = `0`
-            state[start + stride].re /= sqrt(prob1_sq)
-            state[start + stride].im /= sqrt(prob1_sq)
+            idx = 2*j - r     # r = j%stride
+            state[idx] = `0`
+            state[idx + stride].re /= sqrt(prob1_sq)
+            state[idx + stride].im /= sqrt(prob1_sq)
 
             r += 1
             if r == stride:
