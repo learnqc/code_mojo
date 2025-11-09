@@ -12,6 +12,11 @@ def init_state(n: UInt) -> State:
     var state:State = [`1` if i == 0 else `0` for i in range(2 ** n)]
     return state^
 
+def init_state_a[n: UInt]() -> ArrayState[1<<n]:
+    var state = ArrayState[1 << n](fill=`0`)
+    state[0] = `1`
+    return state^
+
 def generate_state(n:UInt, seed: Int = 555) -> State:
     # Choose a seed
     random.seed(seed)
@@ -31,7 +36,6 @@ def generate_state(n:UInt, seed: Int = 555) -> State:
     state = [sqrt(p)*cis(theta) for (p, theta) in zip(probs, angles)]
     return state^
 
-
 fn process_pair(mut state: State, gate: Gate, k0: UInt, k1: UInt):
     x = state[k0]
     y = state[k1]
@@ -46,6 +50,25 @@ fn transform(mut state: State, target: UInt, gate: Gate):
     for j in range(l//2):
         idx = 2*j - r     # r = j%stride
         process_pair(state, gate, idx, idx + stride)
+
+        r += 1
+        if r == stride:
+            r = 0
+
+fn process_pair_a(mut state: ArrayState, gate: Gate, k0: UInt, k1: UInt):
+    x = state[k0]
+    y = state[k1]
+    # new amplitudes
+    state[k0] = x * gate[0][0] + y * gate[0][1]
+    state[k1] = x * gate[1][0] + y * gate[1][1]
+
+fn transform_a(mut state: ArrayState, target: UInt, gate: Gate):
+    l = len(state)
+    stride = 1 << target
+    r  = 0
+    for j in range(l//2):
+        idx = 2*j - r     # r = j%stride
+        process_pair_a(state, gate, idx, idx + stride)
 
         r += 1
         if r == stride:
