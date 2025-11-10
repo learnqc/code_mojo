@@ -1,13 +1,6 @@
-from math import sqrt, cos, sin, log2, log10, atan2, floor
+from math import cos, sin, log2, log10, atan2, floor
 
 from butterfly import *
-
-alias Gate = InlineArray[InlineArray[Amplitude, 2], 2]
-
-alias sq2: Amplitude = Amplitude(sqrt(0.5).cast[Type](), 0)
-alias `0`: Amplitude = Amplitude(0, 0)
-alias `1`: Amplitude = Amplitude(1, 0)
-alias `i`: Amplitude = Amplitude(0, 1)
 
 def cis(theta: FloatType) -> Amplitude:
     return Amplitude(cos(theta), sin(theta))

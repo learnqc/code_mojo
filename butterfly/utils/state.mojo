@@ -3,15 +3,15 @@ from math import log2, log10
 from butterfly import *
 from butterfly.core import *
 
-def to_table(s: State, decimals: UInt=3) -> List[List[String]]:
+def to_table(s: State, prefix: (UInt, UInt) = (0, 0), decimals: UInt=3) -> List[List[String]]:
     n = Int(log2(Float32(len(s))))
 
     m =  Int(log10(Float32(len(s))))
 
     round_state = [Amplitude(round(s[k].re, decimals), round(s[k].im, decimals)) for k in range(len(s))]
     table: List[List[String]] =
-        [['￤' + String(k).rjust(max(5, m+1), ' '), 
-        bin(k, prefix='').rjust(n, '0'),
+        [['￤' + String(k + prefix[0]*len(s)).rjust(max(5, m+1), ' '),
+        bin(k + prefix[0]*len(s), prefix='').rjust(n + prefix[1], '0'),
         (' ' if round_state[k].re >= 0 else '-') + String(abs(round_state[k].re)).rjust(decimals + 2, ' ') +
         (' + ' if round_state[k].im >= 0 else ' - ') + 'i' + String(abs(round_state[k].im)).ljust(decimals + 2, ' '),
         String(round(sqrt(s[k].re*s[k].re + s[k].im*s[k].im), decimals)).rjust(decimals + 2, ' ') ,
@@ -62,12 +62,15 @@ def to_table(s: State, decimals: UInt=3) -> List[List[String]]:
     ret = headers + (table + bottom^)
     return ret^
 
-def print_state(state: State, short: Bool=True):
+def print_state(state: State, prefix: (UInt, UInt) = (0, 0), short: Bool=True):
     rows = 16 if short else max(16, len(state))
-    table = to_table(state[:rows])
+    table = to_table(state[:rows], prefix)
     for i in range(len(table)):
         print('\n')
         for j in range(len(table[i])):
             print(table[i][j], end='---' if i == 0 or i == 2 or i == len(table)-1 else ' ￤')
 
     print('\n')
+
+def print_state_a(state: ArrayState, prefix: (UInt, UInt) = (0, 0), short: Bool=True):
+    print_state([state[i] for i in range(len(state))], prefix)

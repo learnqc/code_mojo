@@ -12,6 +12,17 @@ def init_state(n: UInt) -> State:
     var state:State = [`1` if i == 0 else `0` for i in range(2 ** n)]
     return state^
 
+def init_state_grid(row_bits: UInt, col_bits: UInt) -> GridState:
+    R = 1 << row_bits
+    C = 1 << col_bits
+    grid_state = List[State](capacity=R)
+
+    for _ in range(R):
+        grid_state.append([`0` for _ in range(C)])
+    grid_state[0][0] = `1`
+
+    return grid_state^
+
 def init_state_a[n: UInt]() -> ArrayState[1<<n]:
     var state = ArrayState[1 << n](fill=`0`)
     state[0] = `1`
@@ -36,6 +47,7 @@ def generate_state(n:UInt, seed: Int = 555) -> State:
     state = [sqrt(p)*cis(theta) for (p, theta) in zip(probs, angles)]
     return state^
 
+# @always_inline
 fn process_pair(mut state: State, gate: Gate, k0: UInt, k1: UInt):
     x = state[k0]
     y = state[k1]
@@ -54,6 +66,34 @@ fn transform(mut state: State, target: UInt, gate: Gate):
         r += 1
         if r == stride:
             r = 0
+
+
+fn transform_grid(mut state: GridState, target: UInt, gate: Gate):
+    R = len(state)
+    C = len(state[0])
+
+    col_bits = Int(log2(Float32(C)))
+
+    if target < col_bits:
+        for r in range(R):
+            transform(state[r], target, gate)
+    else:
+        t = target - col_bits
+        stride = 1 << t
+
+        r  = 0
+        for j in range(R//2):
+            idx = 2*j - r     # r = j%stride
+            for c in range(C):
+                x = state[idx][c]
+                y = state[idx + stride][c]
+                # new amplitudes
+                state[idx][c] = x * gate[0][0] + y * gate[0][1]
+                state[idx + stride][c] = x * gate[1][0] + y * gate[1][1]
+
+            r += 1
+            if r == stride:
+                r = 0
 
 fn process_pair_a(mut state: ArrayState, gate: Gate, k0: UInt, k1: UInt):
     x = state[k0]

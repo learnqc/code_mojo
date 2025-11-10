@@ -71,11 +71,15 @@ mojo = "==0.25.6"
 ```
 
 ```bash
+test_adjacent_pairs
+```
+
+```bash
  pixi run test_measure
 ```
 
 ```bash
- pixi run bench
+ pixi run bench_target
 ```
 
 
