@@ -74,3 +74,8 @@ def print_state(state: State, prefix: (UInt, UInt) = (0, 0), short: Bool=True):
 
 def print_state_a(state: ArrayState, prefix: (UInt, UInt) = (0, 0), short: Bool=True):
     print_state([state[i] for i in range(len(state))], prefix)
+
+def print_grid_state(state: GridState, short: Bool=True):
+    col_bits =  Int(log10(Float32(len(state[0]))))
+    for r in range(len(state)):
+        print_state(state[r], (UInt(r), UInt(col_bits)), short)

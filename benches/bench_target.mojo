@@ -3,20 +3,20 @@ import benchmark
 from butterfly.core.state import *
 from butterfly.utils.state import print_state
 
-fn test_target[n: Int, t: Int, swap: Bool = False]():
-    f: fn(mut state: State, target: UInt, gate: Gate) = transform_swap if swap else transform
+fn test_target[n: Int, t: Int, swap: Bool = False, par: UInt = 1]():
+#     f: fn(mut state: State, target: UInt, gate: Gate) = transform_swap if swap else transform
     try:
         state = init_state(n)
         for _ in range(9):
-            f(state, t, H)
+            transform[par](state, t, H)
     except e:
         print("Caught an error:", e)
 
-fn test_target_grid[r: Int, c: Int, t: Int]():
+fn test_target_grid[r: Int, c: Int, t: Int, par: UInt = 1]():
     try:
         state = init_state_grid(r, c)
         for _ in range(9):
-            transform_grid(state, t, H)
+            transform_grid[par](state, t, H)
     except e:
         print("Caught an error:", e)
 
@@ -31,7 +31,7 @@ fn test_target_a[n: Int, t: Int]():
 
 
 def main():
-    alias n: UInt = 31
+    alias n: UInt = 28
 
     alias iter = Int(10)
 
@@ -44,8 +44,11 @@ def main():
     var report_target_high = benchmark.run[test_target[n, n-1]](iter)
     report_target_high.print_full("high target ms")
 
-    var report_target_high_grid_0 = benchmark.run[test_target_grid[0, n, n-1]](iter)
-    report_target_high_grid_0.print_full("high target grid_0 ms")
+#     var report_target_high_par = benchmark.run[test_target[n, n-1, False, 2]](iter)
+#     report_target_high_par.print_full("high target par ms")
+#
+#     var report_target_high_grid_0 = benchmark.run[test_target_grid[0, n, n-1]](iter)
+#     report_target_high_grid_0.print_full("high target grid_0 ms")
 
 #     var report_target_high_grid_1 = benchmark.run[test_target_grid[1, n-1, n-1]](iter)
 #     report_target_high_grid_1.print_full("high target grid_1 ms")
@@ -53,8 +56,11 @@ def main():
 #     var report_target_high_grid_2 = benchmark.run[test_target_grid[2, n-2, n-1]](iter)
 #     report_target_high_grid_2.print_full("high target grid_2 ms")
 #
-#     var report_target_high_grid_3 = benchmark.run[test_target_grid[3, n-3, n-1]](iter)
-#     report_target_high_grid_3.print_full("high target grid_3 ms")
+    var report_target_high_grid_3 = benchmark.run[test_target_grid[5, n-5, n-1]](iter)
+    report_target_high_grid_3.print_full("high target grid_5 ms")
+
+    var report_target_high_grid_0 = benchmark.run[test_target_grid[5, n-5, n-1, 8]](iter)
+    report_target_high_grid_0.print_full("high target par grid_5 ms")
 
 #     var report_target_low_a = benchmark.run[test_target_a[n, 0]](iter)
 #     report_target_low_a.print_full("low target array ms")

@@ -8,6 +8,8 @@ from testing import assert_true, assert_almost_equal
 from butterfly import *
 from butterfly.core.gates import *
 
+from algorithm import parallelize
+
 def init_state(n: UInt) -> State:
     var state:State = [`1` if i == 0 else `0` for i in range(2 ** n)]
     return state^
@@ -55,45 +57,85 @@ fn process_pair(mut state: State, gate: Gate, k0: UInt, k1: UInt):
     state[k0] = x * gate[0][0] + y * gate[0][1]
     state[k1] = x * gate[1][0] + y * gate[1][1]
 
-fn transform(mut state: State, target: UInt, gate: Gate):
+fn transform[par: UInt = 0](mut state: State, target: UInt, gate: Gate):
     l = len(state)
     stride = 1 << target
-    r  = 0
-    for j in range(l//2):
-        idx = 2*j - r     # r = j%stride
+
+    @parameter
+    fn worker(j: Int):
+        idx = 2*j - j%stride     # r = j%stride
         process_pair(state, gate, idx, idx + stride)
 
-        r += 1
-        if r == stride:
-            r = 0
+    if par > 0:
+        parallelize[worker](l//2, par)
+    else:
+        r  = 0
+        for j in range(l//2):
+            idx = 2*j - r     # r = j%stride
+            process_pair(state, gate, idx, idx + stride)
+
+            r += 1
+            if r == stride:
+                r = 0
 
 
-fn transform_grid(mut state: GridState, target: UInt, gate: Gate):
+fn transform_grid[par: UInt = 0](mut state: GridState, target: UInt, gate: Gate) raises:
     R = len(state)
     C = len(state[0])
 
+    assert_true((1 << target) < R*C)
+
     col_bits = Int(log2(Float32(C)))
 
-    if target < col_bits:
-        for r in range(R):
-            transform(state[r], target, gate)
-    else:
+    @parameter
+    fn row_worker(r: Int):
+        transform(state[r], target, gate)
+
+    @parameter
+    fn column_worker(c: Int):
         t = target - col_bits
         stride = 1 << t
 
         r  = 0
         for j in range(R//2):
             idx = 2*j - r     # r = j%stride
-            for c in range(C):
-                x = state[idx][c]
-                y = state[idx + stride][c]
-                # new amplitudes
-                state[idx][c] = x * gate[0][0] + y * gate[0][1]
-                state[idx + stride][c] = x * gate[1][0] + y * gate[1][1]
+            x = state[idx][c]
+            y = state[idx + stride][c]
+            # new amplitudes
+            state[idx][c] = x * gate[0][0] + y * gate[0][1]
+            state[idx + stride][c] = x * gate[1][0] + y * gate[1][1]
 
             r += 1
             if r == stride:
                 r = 0
+
+    if target < col_bits:
+        if par > 0:
+            parallelize[row_worker](R, par)
+        else:
+            for r in range(R):
+#                 transform(state[r], target, gate)
+                row_worker(r)
+    else:
+        if par > 0:
+            parallelize[column_worker](C, par)
+        else:
+#             t = target - col_bits
+#             stride = 1 << t
+            for c in range(C):
+                column_worker(c)
+    #             r  = 0
+    #             for j in range(R//2):
+    #                 idx = 2*j - r     # r = j%stride
+    #                 x = state[idx][c]
+    #                 y = state[idx + stride][c]
+    #                 # new amplitudes
+    #                 state[idx][c] = x * gate[0][0] + y * gate[0][1]
+    #                 state[idx + stride][c] = x * gate[1][0] + y * gate[1][1]
+    #
+    #                 r += 1
+    #                 if r == stride:
+    #                     r = 0
 
 fn process_pair_a(mut state: ArrayState, gate: Gate, k0: UInt, k1: UInt):
     x = state[k0]
