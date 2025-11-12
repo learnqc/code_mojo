@@ -61,14 +61,45 @@ fn transform[par: UInt = 0](mut state: State, target: UInt, gate: Gate):
     l = len(state)
     stride = 1 << target
 
+    double_strides_per_work_item = l//(2*stride)//par
+#     print(stride, double_strides_per_work_item)
+
     @parameter
     fn worker(j: Int):
-        idx = 2*j - j%stride     # r = j%stride
-        process_pair(state, gate, idx, idx + stride)
+        for k in range(double_strides_per_work_item):
+            for idx in range(j*double_strides_per_work_item*2*stride + 2*k*stride, j*double_strides_per_work_item*2*stride + (2*k+1)*stride):
+#                 print(j, idx, idx + stride)
+                process_pair(state, gate, idx, idx + stride)
+
+    @parameter
+    fn worker1(j: Int):
+        item_size = stride//par
+#         print("work item", j, "of size", item_size)
+        offsite = 2*stride*(j//par) + (j%par)*item_size
+        for idx in range(offsite, offsite + item_size):
+#             print(j, idx, idx + stride)
+            process_pair(state, gate, idx, idx + stride)
 
     if par > 0:
-        parallelize[worker](l//2, par)
+        if double_strides_per_work_item > 0:
+#             print("worker for target", target)
+            parallelize[worker](par, par)
+        elif stride >= par:
+#             print("worker1 for target", target)
+            parallelize[worker1](par*l//(2*stride), par)
+        else:
+            print("No parallelism for target", target)
+            r  = 0
+            for j in range(l//2):
+                idx = 2*j - r     # r = j%stride
+                process_pair(state, gate, idx, idx + stride)
+
+                r += 1
+                if r == stride:
+                    r = 0
+
     else:
+#         print("No parallelism for target", target)
         r  = 0
         for j in range(l//2):
             idx = 2*j - r     # r = j%stride

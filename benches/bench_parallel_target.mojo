@@ -24,7 +24,7 @@ fn test_target_grid[n: Int, t: Int, r: Int, par: UInt = 0]():
 
 
 def main():
-    alias n: UInt = 30
+    alias n: UInt = 20
 
     alias iter = Int(5)
 

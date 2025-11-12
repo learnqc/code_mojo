@@ -1,7 +1,7 @@
 import benchmark
 
 from butterfly.core.state import *
-from butterfly.utils.state import print_grid_state
+from butterfly.utils.state import print_state, print_grid_state
 
 alias unit = benchmark.Unit.ms
 
@@ -22,7 +22,7 @@ fn test_uniform_grid[n: Int, r: Int, par: UInt = 0]():
         print("Caught an error:", e)
 
 def main():
-    alias n: UInt = 30
+    alias n: UInt = 25
 
     alias iter = Int(5)
 
@@ -31,7 +31,7 @@ def main():
     alias row_bits = 3
 
     var report_target = benchmark.run[test_uniform[n]](iter)
-    report_target.print("Parallel List. bits={}".format(n))
+    report_target.print("List. bits={}".format(n))
     u0 = report_target.mean(unit)
 
     report_target = benchmark.run[test_uniform[n, threads]](iter)
@@ -50,3 +50,9 @@ def main():
 #         transform_grid[8](state, t, H)
 #
 #     print_grid_state(state)
+
+#     state = init_state(n)
+#     for t in range(n):
+#         transform[8](state, t, H)
+#
+#     print_state(state, (UInt(0), UInt(0)), False)
