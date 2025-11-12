@@ -3,7 +3,7 @@ from butterfly.utils.state import *
 from butterfly.algos.value_encoding import encode_value
 
 def main():
-    n: UInt = 3
+    n: UInt = 20
     v: FloatType = 4.7
 
     state = init_state(n)

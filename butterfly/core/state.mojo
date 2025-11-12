@@ -89,14 +89,17 @@ fn transform[par: UInt = 0](mut state: State, target: UInt, gate: Gate):
             parallelize[worker1](par*l//(2*stride), par)
         else:
             print("No parallelism for target", target)
-            r  = 0
-            for j in range(l//2):
-                idx = 2*j - r     # r = j%stride
-                process_pair(state, gate, idx, idx + stride)
-
-                r += 1
-                if r == stride:
-                    r = 0
+#             r  = 0
+#             for j in range(l//2):
+#                 idx = 2*j - r     # r = j%stride
+#                 process_pair(state, gate, idx, idx + stride)
+#
+#                 r += 1
+#                 if r == stride:
+#                     r = 0
+            for k in range(l//(2*stride)):
+                for idx in range(k*2*stride, k*2*stride + stride):
+                    process_pair(state, gate, idx, idx + stride)
 
     else:
 #         print("No parallelism for target", target)
@@ -108,6 +111,10 @@ fn transform[par: UInt = 0](mut state: State, target: UInt, gate: Gate):
             r += 1
             if r == stride:
                 r = 0
+
+#         for k in range(l//(2*stride)):
+#             for idx in range(k*2*stride, k*2*stride + stride):
+#                 process_pair(state, gate, idx, idx + stride)
 
 
 fn transform_grid[par: UInt = 0](mut state: GridState, target: UInt, gate: Gate) raises:
@@ -127,18 +134,26 @@ fn transform_grid[par: UInt = 0](mut state: GridState, target: UInt, gate: Gate)
         t = target - col_bits
         stride = 1 << t
 
-        r  = 0
-        for j in range(R//2):
-            idx = 2*j - r     # r = j%stride
-            x = state[idx][c]
-            y = state[idx + stride][c]
-            # new amplitudes
-            state[idx][c] = x * gate[0][0] + y * gate[0][1]
-            state[idx + stride][c] = x * gate[1][0] + y * gate[1][1]
+#         r  = 0
+#         for j in range(R//2):
+#             idx = 2*j - r     # r = j%stride
+#             x = state[idx][c]
+#             y = state[idx + stride][c]
+#             # new amplitudes
+#             state[idx][c] = x * gate[0][0] + y * gate[0][1]
+#             state[idx + stride][c] = x * gate[1][0] + y * gate[1][1]
+#
+#             r += 1
+#             if r == stride:
+#                 r = 0
 
-            r += 1
-            if r == stride:
-                r = 0
+        for k in range(R//(2*stride)):
+            for idx in range(k*2*stride, k*2*stride + stride):
+                x = state[idx][c]
+                y = state[idx + stride][c]
+                # new amplitudes
+                state[idx][c] = x * gate[0][0] + y * gate[0][1]
+                state[idx + stride][c] = x * gate[1][0] + y * gate[1][1]
 
     if target < col_bits:
         if par > 0:
