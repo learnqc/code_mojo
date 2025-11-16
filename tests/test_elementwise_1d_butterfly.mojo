@@ -22,7 +22,7 @@ alias stride = 1 << target
 
 alias num_elements = 1 << n
 
-alias num_work_items = 2
+alias num_work_items = 8
 alias num_threads = num_work_items
 
 fn transform_parallel[show: Bool=False]() :
@@ -77,7 +77,7 @@ fn transform_parallel[show: Bool=False]() :
 #         print("\n")
     #     ptr.free()
 
-fn transform[show: Bool=False]() :
+fn transform[show: Bool=False, vectorize: Bool = True]() :
     #     var ptr = UnsafePointer[float_type].alloc(num_elements)
     #     var ptr = InlineArray[float_type, num_elements](uninitialized=True)
     var ptr = List[float_type](capacity=num_elements)
@@ -107,7 +107,17 @@ fn transform[show: Bool=False]() :
         vector.store[width=simd_width](one_idx, elem0 - elem1)
 
     try:
-        elementwise[butterfly, simd_width](num_elements//2)
+        if vectorize:
+            elementwise[butterfly, simd_width](num_elements//2)
+        else:
+            for idx in range(len(vector)//2):
+                zero_idx = 2*idx - idx%stride
+                one_idx = zero_idx + stride
+                var elem0 = vector[zero_idx]
+                var elem1 = vector[one_idx]
+                vector[zero_idx] = elem0 + elem1
+                vector[one_idx] = elem0 - elem1
+
     except e:
         print("Caught an error:", e)
 
@@ -122,12 +132,27 @@ fn transform[show: Bool=False]() :
         #     ptr.free()
 
 def main():
-#     transform_parallel[False]()
-#     transform[False]()
+#     transform_parallel[False, False]()
+#     transform[False, False]()
 
     iters = 10
-    t0 = benchmark.run[transform[False]](iters).mean()
-    print("elementwise", t0)
-    t1 = benchmark.run[transform_parallel[False]](iters).mean()
-    print("parallel elementwise", t1)
-    print("speedup", t0/t1)
+
+    print("n =", n, ", threads =", num_threads)
+    t0 = benchmark.run[transform[False, False]](iters).mean()
+    print("loop", t0)
+    t1 = benchmark.run[transform[False, True]](iters).mean()
+    print("elementwise", t1)
+    t2 = benchmark.run[transform_parallel[False]](iters).mean()
+    print("parallel elementwise", t2)
+
+    print("speedup of elementwise over loop", t0/t1)
+    print("speedup of parallel + elementwise over elementwise", t1/t2)
+    print("speedup of parallel + elementwise over loop", t0/t2)
+
+# n = 25 , threads = 8
+# loop 0.01815319
+# elementwise 0.011958169999999999
+# parallel elementwise 0.01979941
+# speedup of elementwise over loop 1.518057528869384
+# speedup of parallel + elementwise over elementwise 0.603965976763954
+# speedup of parallel + elementwise over loop 0.9168550982074718
