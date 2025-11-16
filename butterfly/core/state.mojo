@@ -2,7 +2,6 @@ import random
 import time
 import math
 from math import sqrt, cos, sin, log2, log10, atan2, floor
-from complex import ComplexSIMD
 from testing import assert_true, assert_almost_equal
 
 from butterfly import *
