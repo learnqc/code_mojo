@@ -5,7 +5,6 @@ from algorithm import elementwise, parallelize
 from buffer import NDBuffer
 from memory import UnsafePointer
 from testing import assert_almost_equal
-# from testing import TestSuite
 
 from utils.index import IndexList
 
