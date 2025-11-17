@@ -1,4 +1,4 @@
-from math import sqrt
+from math import sqrt, log2
 from sys.info import simd_width_of
 
 from complex import ComplexSIMD
@@ -12,8 +12,8 @@ from utils.variant import Variant
 
 import benchmark
 
-alias float_type = Float64
-alias dtype = DType.float64
+alias dtype = DType.float32
+alias float_type = Scalar[dtype]
 
 alias Amplitude = ComplexSIMD[dtype, 1]
 alias sq2: Amplitude = Amplitude(sqrt(0.5).cast[dtype](), 0)
@@ -103,26 +103,38 @@ fn test_loop[N:Int, stride:Int]():
     re[0] = 1.0
     var im = List[float_type](length=N, fill=0.0)
 
-    transform[False, False](re, im, stride)
+    if stride > 0:
+        transform[False, 0](re, im, stride)
+    else:
+        for stride in range(Int(log2(Float32(N)))):
+            transform[False, 0](re, im, stride)
 
-fn test_elementwise[N:Int, stride:Int]():
+fn test_elementwise[N:Int, stride: Int]():
     var re = List[float_type](length=N, fill=0.0)
     re[0] = 1.0
     var im = List[float_type](length=N, fill=0.0)
 
-    transform[False, False](re, im, stride)
+    if stride > 0:
+        transform[False, False](re, im, stride)
+    else:
+        for stride in range(Int(log2(Float32(N)))):
+            transform[False, False](re, im, stride)
 
 fn test_vectorize[N:Int, stride:Int]():
     var re = List[float_type](length=N, fill=0.0)
     re[0] = 1.0
     var im = List[float_type](length=N, fill=0.0)
 
-    transform[False, True](re, im, stride)
+    if stride > 0:
+        transform[False, True](re, im, stride)
+    else:
+        for stride in range(Int(log2(Float32(N)))):
+            transform[False, True](re, im, stride)
 
 def main():
     alias n = 25
     alias target = n-1
-    alias stride = 1 << target
+    alias stride = 0 # 1 << target
 
     alias N = 1 << n
 
@@ -173,7 +185,7 @@ def main():
 
     iters = 5
 
-    print("n =", n, ", stride =", stride)
+    print("n =", n, ", stride =", stride, ", iterations=", iters)
     t0 = benchmark.run[test_loop[N, stride]](iters).mean()
     print("loop", t0)
     t1 = benchmark.run[test_elementwise[N, stride]](iters).mean()
