@@ -17,4 +17,4 @@ test_measure = "pixi run package && cp butterfly.mojopkg tests/ && pixi run mojo
 test_adjacent_pairs = "pixi run package && cp butterfly.mojopkg tests/ && pixi run mojo run tests/test_adjacent_pairs.mojo -I tests/ && rm tests/butterfly.mojopkg"
 
 [dependencies]
-mojo = "==0.25.6"
+mojo = "==0.25.7"

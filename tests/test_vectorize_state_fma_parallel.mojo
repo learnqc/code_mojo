@@ -36,8 +36,6 @@ alias X_im: InlineArray[InlineArray[float_type, 2], 2]  = [[X[0][0].im, X[0][1].
 
 fn transform[N: Int, use_vectorize: simd_type = 0, show: Bool=False](mut re: List[float_type], mut im: List[float_type],
     gate_re: InlineArray[InlineArray[float_type, 2], 2], gate_im: InlineArray[InlineArray[float_type, 2], 2], stride: Int) :
-#     state = List[ComplexSIMD[dtype, 2*simd_width]](capacity=N//2//simd_width)
-
 
     alias num_work_items = 8
     alias num_threads = num_work_items
@@ -61,51 +59,16 @@ fn transform[N: Int, use_vectorize: simd_type = 0, show: Bool=False](mut re: Lis
         var elem1_re = vector_re.load[width=simd_width](one_idx)
         var elem1_im = vector_im.load[width=simd_width](one_idx)
 
-#         sq2_simd = sqrt(0.5).cast[dtype]()
-
         elem0_orig_re = elem0_re
         elem0_orig_im = elem0_im
 
         elem1_orig_re = elem1_re
         elem1_orig_im = elem1_im
 
-#         z0*g00 + z1*g01: z0.re.fma(g00.re, -z0.im * g00.im) + z1.re.fma(g01.re, -z1.im * g01.im)
-#         z0.re.fma(gate[0][0].re, -gate[0][0].im*z0.im + z1.re.fma(gate[0][1].re, -gate[0][1].im*z1.im)),
-
-#         z0*g00 + z1*g01: z0.re.fma(g00.im, z0.im * g00.re) + z1.re.fma(g01.im, z1.im * g01.re)
-#         z0.re.fma(gate[0][0].im, gate[0][0].im*z0.re + z1.re.fma(gate[0][1].im, gate[0][1].im*z1.re))
-
-#         z0*g10 + z1*g11: z0.re.fma(g10.re, -z0.im * g10.im) + z1.re.fma(g11.re, -z1.im * g11.im)
-#         z.re.fma(gate[1][0].re, -gate[1][0].im*z0.im + z1.re.fma(gate[1][1].re, -gate[1][1].im*z1.im)),
-
-#         z0*g10 + z1*g11: z0.re.fma(g10.im, z0.im * g10.re) + z1.re.fma(g11.im, z1.im * g11.re)
-#         z.re.fma(gate[1][0].im, gate[1][0].im*z0.re + z1.re.fma(gate[1][1].im, gate[1][1].im*z1.re))
-
-#     z0.re.fma(z1.re, -z1.im * z0.im),
-#     z0.re.fma(z1.im, z1.re * z0.im),
-
         elem0_re = elem0_orig_re.fma(gate_re[0][0], -gate_im[0][0]*elem0_orig_im + elem1_orig_re.fma(gate_re[0][1], -gate_im[0][1]*elem1_orig_im))
         elem0_im = elem0_orig_re.fma(gate_im[0][0], gate_re[0][0]*elem0_orig_im + elem1_orig_re.fma(gate_im[0][1], gate_re[0][1]*elem1_orig_im))
         elem1_re = elem0_orig_re.fma(gate_re[1][0], -gate_im[1][0]*elem0_orig_im + elem1_orig_re.fma(gate_re[1][1], -gate_im[1][1]*elem1_orig_im))
         elem1_im = elem0_orig_re.fma(gate_im[1][0], gate_re[1][0]*elem0_orig_im + elem1_orig_re.fma(gate_im[1][1], gate_re[1][1]*elem1_orig_im))
-
-#         elem0_re = elem0_orig_re.fma(0, -0*elem0_orig_im + elem1_orig_re.fma(1, -0*elem1_orig_im))
-#         elem0_im = elem0_orig_re.fma(0, gate_re[0][0]*elem0_orig_im + elem1_orig_re.fma(0, 1*elem1_orig_im))
-#         elem1_re = elem0_orig_re.fma(1, -0*elem0_orig_im + elem1_orig_re.fma(0, -0*elem1_orig_im))
-#         elem1_im = elem0_orig_re.fma(0, 1*elem0_orig_im + elem1_orig_re.fma(0, 1*elem1_orig_im))
-
-#         elem0_re = elem1_orig_re
-#         elem0_im = elem1_orig_im
-#         elem1_re = elem0_orig_re
-#         elem1_im = elem0_orig_im
-
-#         res0_re = (elem0_orig_re + elem1_re)*sq2_simd
-#         res0_im = (elem0_im + elem1_im)*sq2_simd
-#         res1_re = (elem0_orig_re - elem1_re)*sq2_simd
-#         res1_im = (elem0_im - elem1_im)*sq2_simd
-
-#         if show:
-#             print("loaded SIMDs:", elem0_re, elem0_im, elem1_re, elem1_im, "->", res0_re, res0_im, res1_re, res1_im)
 
         vector_re.store[width=simd_width](zero_idx, elem0_re)
         vector_im.store[width=simd_width](zero_idx, elem0_im)
@@ -119,16 +82,6 @@ fn transform[N: Int, use_vectorize: simd_type = 0, show: Bool=False](mut re: Lis
         if show:
             print("idx:", idx, ", pairs:", zero_idx, one_idx)
 
-#         var elem0 = Amplitude(vector_re.data[zero_idx], vector_im.data[zero_idx])
-#         var elem1 = Amplitude(vector_re.data[one_idx], vector_im.data[one_idx])
-# #         s = (elem0 + elem1)*sq2
-# #         d = (elem0 - elem1)*sq2
-#         s = elem1
-#         d = elem0
-#         vector_re.data[zero_idx] = s.re
-#         vector_im.data[zero_idx] = s.im
-#         vector_re.data[one_idx] = d.re
-#         vector_im.data[one_idx] = d.im
 
         var elem0_re = vector_re.data[zero_idx]
         var elem0_im = vector_im.data[zero_idx]
@@ -160,10 +113,17 @@ fn transform[N: Int, use_vectorize: simd_type = 0, show: Bool=False](mut re: Lis
 
     @parameter
     @always_inline
-    fn worker(thread_id: Int):
+    fn worker_loop(thread_id: Int):
         start = thread_id*chunk_size
         for idx in range(start, start + chunk_size):
             butterfly_loop(idx)
+
+    @parameter
+    @always_inline
+    fn worker_simd(thread_id: Int):
+        start = thread_id*chunk_size
+        for idx in range(start, start + chunk_size, simd_width):
+            butterfly_simd[simd_width](idx)
 
     try:
         if use_vectorize.isa[Bool]():
@@ -175,7 +135,9 @@ fn transform[N: Int, use_vectorize: simd_type = 0, show: Bool=False](mut re: Lis
             for idx in range(N//2):
                 butterfly_loop(idx)
         elif use_vectorize[Int] == 1:
-            parallelize[worker](num_work_items, num_threads)
+            parallelize[worker_loop](num_work_items, num_threads)
+        elif use_vectorize[Int] == 2:
+            parallelize[worker_simd](num_work_items, num_threads)
         else:
             print("Unexpected use_vectorize parameter", use_vectorize[Int])
     except e:
@@ -221,7 +183,7 @@ fn test_vectorize[N:Int, gate_re: InlineArray[InlineArray[float_type, 2], 2], ga
         for stride in range(Int(log2(Float32(N)))):
             transform[N, True](re, im, gate_re, gate_im, stride)
 
-fn test_parallelize[N:Int, gate_re: InlineArray[InlineArray[float_type, 2], 2], gate_im: InlineArray[InlineArray[float_type, 2], 2], stride:Int]():
+fn test_parallelize_loop[N:Int, gate_re: InlineArray[InlineArray[float_type, 2], 2], gate_im: InlineArray[InlineArray[float_type, 2], 2], stride:Int]():
     var re = List[float_type](length=N, fill=0.0)
     re[0] = 1.0
     var im = List[float_type](length=N, fill=0.0)
@@ -231,6 +193,17 @@ fn test_parallelize[N:Int, gate_re: InlineArray[InlineArray[float_type, 2], 2], 
     else:
         for stride in range(Int(log2(Float32(N)))):
             transform[N, 1](re, im, gate_re, gate_im, stride)
+
+fn test_parallelize_simd[N:Int, gate_re: InlineArray[InlineArray[float_type, 2], 2], gate_im: InlineArray[InlineArray[float_type, 2], 2], stride:Int]():
+    var re = List[float_type](length=N, fill=0.0)
+    re[0] = 1.0
+    var im = List[float_type](length=N, fill=0.0)
+
+    if stride > 0:
+        transform[N, 2](re, im, gate_re, gate_im, stride)
+    else:
+        for stride in range(Int(log2(Float32(N)))):
+            transform[N, 2](re, im, gate_re, gate_im, stride)
 
 fn test_correctness[n: Int, stride: Int]() raises:
     alias N = 1 << n
@@ -243,21 +216,20 @@ fn test_correctness[n: Int, stride: Int]() raises:
         for i in range(n):
             transform[N](re, im, gate_re, gate_im, 1 << i)
 
+        print("\n\nLoop")
         for i in range(min(8, len(re))):
             print(re[i], "+ i *", im[i], end=", ")
-        print("\n")
 
         var re1 = List[float_type](length=N, fill=0.0)
         re1[0] = 1.0
         var im1 = List[float_type](length=N, fill=0.0)
 
-
         for i in range(n):
             transform[N, False](re1, im1, gate_re, gate_im, 1 << i)
 
+        print("\n\nElemntwise")
         for i in range(min(8, len(re))):
             print(re1[i], "+ i *", im1[i], end=", ")
-        print("\n")
 
         for i in range(N):
             assert_almost_equal(re[i], re1[i])
@@ -271,9 +243,9 @@ fn test_correctness[n: Int, stride: Int]() raises:
         for i in range(n):
             transform[N, True](re2, im2, gate_re, gate_im, 1 << i)
 
+        print("\n\nVectorize")
         for i in range(min(8, len(re))):
             print(re2[i], "+ i *", im2[i], end=", ")
-        print("\n")
 
         for i in range(N):
             assert_almost_equal(re[i], re2[i])
@@ -286,17 +258,32 @@ fn test_correctness[n: Int, stride: Int]() raises:
         for i in range(n):
             transform[N, 1](re3, im3, gate_re, gate_im, 1 << i)
 
+        print("\n\nParallel Loop")
         for i in range(min(8, len(re))):
             print(re3[i], "+ i *", im3[i], end=", ")
-        print("\n")
 
         for i in range(N):
             assert_almost_equal(re[i], re3[i])
             assert_almost_equal(im[i], im3[i])
 
+        var re4 = List[float_type](length=N, fill=0.0)
+        re4[0] = 1.0
+        var im4 = List[float_type](length=N, fill=0.0)
+
+        for i in range(n):
+            transform[N, 2](re4, im4, gate_re, gate_im, 1 << i)
+
+        print("\n\nParallel SIMD")
+        for i in range(min(8, len(re))):
+            print(re4[i], "+ i *", im4[i], end=", ")
+
+        for i in range(N):
+            assert_almost_equal(re[i], re4[i])
+            assert_almost_equal(im[i], im4[i])
+
 def main():
-    alias n = 20
-#     alias target = n-1
+    alias n = 25
+    alias target = n//2
     alias stride = 0 # 1 << target
 
     alias N = 1 << n
@@ -305,7 +292,7 @@ def main():
 
     iters = 3
 
-    print("Gate H\n===================")
+    print("\nGate H\n===================")
 
     print("n =", n, ", stride =", stride, ", iterations=", iters)
     t0 = benchmark.run[test_loop[N, H_re, H_im, stride]](2, iters).mean()
@@ -319,9 +306,14 @@ def main():
     print("vectorize", t2)
     print("speedup of vectorize over loop", t0/t2)
 
-    t3 = benchmark.run[test_parallelize[N, H_re, H_im, stride]](2, iters).mean()
+    t3 = benchmark.run[test_parallelize_loop[N, H_re, H_im, stride]](2, iters).mean()
     print("parallelize loop", t3)
     print("speedup of parallelize loop over loop", t0/t3)
+
+    t4 = benchmark.run[test_parallelize_simd[N, H_re, H_im, stride]](2, iters).mean()
+    print("parallelize loop", t4)
+    print("speedup of parallelize simd over loop", t0/t4)
+
 
     print("\nGate X\n===================")
 
@@ -337,21 +329,36 @@ def main():
     print("vectorize", t2)
     print("speedup of vectorize over loop", t0/t2)
 
-    t3 = benchmark.run[test_parallelize[N, X_re, X_im, stride]](2, iters).mean()
+    t3 = benchmark.run[test_parallelize_loop[N, X_re, X_im, stride]](2, iters).mean()
     print("parallelize loop", t3)
     print("speedup of parallelize loop over loop", t0/t3)
 
+    t4 = benchmark.run[test_parallelize_simd[N, X_re, X_im, stride]](2, iters).mean()
+    print("parallelize loop", t4)
+    print("speedup of parallelize simd over loop", t0/t4)
 
 # Gate H
 # ===================
-# n = 18 , stride = 0 , iterations= 10
-# loop 0.0036177
-# vectorize 0.0011246000000000001
-# speedup of vectorize over loop 3.216877111861995
+# n = 25 , stride = 0 , iterations= 3
+# loop 0.6555483333333333
+# elementwise 0.06367666666666667
+# speedup of elementwise over loop 10.294953672198082
+# vectorize 0.210143
+# speedup of vectorize over loop 3.1195344757300187
+# parallelize loop 0.207108
+# speedup of parallelize loop over loop 3.165248726912207
+# parallelize loop 0.073976
+# speedup of parallelize simd over loop 8.86163530514401
 #
 # Gate X
 # ===================
-# n = 18 , stride = 0 , iterations= 10
-# loop 0.0032176999999999996
-# vectorize 0.001125
-# speedup of vectorize over loop 2.8601777777777775
+# n = 25 , stride = 0 , iterations= 3
+# loop 0.579932
+# elementwise 0.06832133333333333
+# speedup of elementwise over loop 8.488300384457759
+# vectorize 0.20959133333333335
+# speedup of vectorize over loop 2.7669655551915313
+# parallelize loop 0.20850766666666667
+# speedup of parallelize loop over loop 2.781346169525341
+# parallelize loop 0.07186133333333333
+# speedup of parallelize simd over loop 8.070153629211816
