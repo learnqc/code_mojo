@@ -295,18 +295,14 @@ def main():
 
 # Gate H
 # ===================
-# n = 25 , stride = 0 , iterations= 5
-# loop 0.002426
-# elementwise 0.0024392
-# speedup of elementwise over loop 0.9945883896359463
-# vectorize 0.0024267
-# speedup of vectorize over loop 0.999711542423868
+# n = 18 , stride = 0 , iterations= 10
+# loop 0.0036177
+# vectorize 0.0011246000000000001
+# speedup of vectorize over loop 3.216877111861995
 #
 # Gate X
 # ===================
-# n = 25 , stride = 0 , iterations= 5
-# loop 0.0034228
-# elementwise 0.0024438000000000003
-# speedup of elementwise over loop 1.4006056142073817
-# vectorize 0.0024386
-# speedup of vectorize over loop 1.4035922250471582
+# n = 18 , stride = 0 , iterations= 10
+# loop 0.0032176999999999996
+# vectorize 0.001125
+# speedup of vectorize over loop 2.8601777777777775
