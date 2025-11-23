@@ -159,6 +159,9 @@ fn transform[N: Int, use_vectorize: simd_type = 0, show: Bool=False](mut re: Lis
                 vectorize[butterfly_simd, simd_width](N//2)
             else:
                 elementwise[elementwise_fn, simd_width](N//2)
+
+#                 for idx in range(0, N//2, simd_width):
+#                     butterfly_simd[simd_width](idx)
         else:
             for idx in range(N//2):
                 butterfly_loop(idx)

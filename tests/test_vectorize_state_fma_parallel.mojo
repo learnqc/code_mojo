@@ -113,15 +113,16 @@ fn transform[N: Int, use_vectorize: simd_type = 0, show: Bool=False](mut re: Lis
 
     @parameter
     @always_inline
-    fn worker_loop(thread_id: Int):
-        start = thread_id*chunk_size
+    fn worker_loop(item_id: Int):
+        start = item_id*chunk_size
         for idx in range(start, start + chunk_size):
             butterfly_loop(idx)
 
+
     @parameter
     @always_inline
-    fn worker_simd(thread_id: Int):
-        start = thread_id*chunk_size
+    fn worker_simd(item_id: Int):
+        start = item_id*chunk_size
         for idx in range(start, start + chunk_size, simd_width):
             butterfly_simd[simd_width](idx)
 
@@ -131,6 +132,8 @@ fn transform[N: Int, use_vectorize: simd_type = 0, show: Bool=False](mut re: Lis
                 vectorize[butterfly_simd, simd_width](N//2)
             else:
                 elementwise[elementwise_fn, simd_width](N//2)
+#                 for idx in range(0, N//2, simd_width):
+#                     butterfly_simd[simd_width](idx)
         elif use_vectorize[Int] == 0:
             for idx in range(N//2):
                 butterfly_loop(idx)
