@@ -3,7 +3,7 @@ from sys.info import simd_width_of
 
 from complex import ComplexSIMD
 
-from algorithm import elementwise, vectorize
+from algorithm import elementwise, vectorize, parallelize
 from buffer import NDBuffer
 from testing import assert_almost_equal
 
@@ -37,6 +37,11 @@ alias X_im: InlineArray[InlineArray[float_type, 2], 2]  = [[X[0][0].im, X[0][1].
 fn transform[N: Int, use_vectorize: simd_type = 0, show: Bool=False](mut re: List[float_type], mut im: List[float_type],
     gate_re: InlineArray[InlineArray[float_type, 2], 2], gate_im: InlineArray[InlineArray[float_type, 2], 2], stride: Int) :
 #     state = List[ComplexSIMD[dtype, 2*simd_width]](capacity=N//2//simd_width)
+
+
+    alias num_work_items = 8
+    alias num_threads = num_work_items
+    alias chunk_size = N//2//num_work_items
 
     var vector_re = NDBuffer[dtype, 1, _, N](re)
     var vector_im = NDBuffer[dtype, 1, _, N](im)
@@ -153,15 +158,26 @@ fn transform[N: Int, use_vectorize: simd_type = 0, show: Bool=False](mut re: Lis
     ](idx: IndexList[rank]):
         butterfly_simd[simd_width](idx[0])
 
+    @parameter
+    @always_inline
+    fn worker(thread_id: Int):
+        start = thread_id*chunk_size
+        for idx in range(start, start + chunk_size):
+            butterfly_loop(idx)
+
     try:
         if use_vectorize.isa[Bool]():
             if use_vectorize[Bool]:
                 vectorize[butterfly_simd, simd_width](N//2)
             else:
                 elementwise[elementwise_fn, simd_width](N//2)
-        else:
+        elif use_vectorize[Int] == 0:
             for idx in range(N//2):
                 butterfly_loop(idx)
+        elif use_vectorize[Int] == 1:
+            parallelize[worker](num_work_items, num_threads)
+        else:
+            print("Unexpected use_vectorize parameter", use_vectorize[Int])
     except e:
         print("Caught an error:", e)
 
@@ -204,6 +220,17 @@ fn test_vectorize[N:Int, gate_re: InlineArray[InlineArray[float_type, 2], 2], ga
     else:
         for stride in range(Int(log2(Float32(N)))):
             transform[N, True](re, im, gate_re, gate_im, stride)
+
+fn test_parallelize[N:Int, gate_re: InlineArray[InlineArray[float_type, 2], 2], gate_im: InlineArray[InlineArray[float_type, 2], 2], stride:Int]():
+    var re = List[float_type](length=N, fill=0.0)
+    re[0] = 1.0
+    var im = List[float_type](length=N, fill=0.0)
+
+    if stride > 0:
+        transform[N, 1](re, im, gate_re, gate_im, stride)
+    else:
+        for stride in range(Int(log2(Float32(N)))):
+            transform[N, 1](re, im, gate_re, gate_im, stride)
 
 fn test_correctness[n: Int, stride: Int]() raises:
     alias N = 1 << n
@@ -252,9 +279,24 @@ fn test_correctness[n: Int, stride: Int]() raises:
             assert_almost_equal(re[i], re2[i])
             assert_almost_equal(im[i], im2[i])
 
+        var re3 = List[float_type](length=N, fill=0.0)
+        re3[0] = 1.0
+        var im3 = List[float_type](length=N, fill=0.0)
+
+        for i in range(n):
+            transform[N, 1](re3, im3, gate_re, gate_im, 1 << i)
+
+        #     for i in range(len(re)):
+        #         print(re3[i], "+ i *", im3[i], end=", ")
+        #     print("\n")
+
+        for i in range(N):
+            assert_almost_equal(re[i], re3[i])
+            assert_almost_equal(im[i], im3[i])
+
 def main():
     alias n = 25
-    #     alias target = n-1
+#     alias target = n-1
     alias stride = 0 # 1 << target
 
     alias N = 1 << n
@@ -277,6 +319,10 @@ def main():
     print("vectorize", t2)
     print("speedup of vectorize over loop", t0/t2)
 
+    t3 = benchmark.run[test_parallelize[N, H_re, H_im, stride]](2, iters).mean()
+    print("parallelize loop", t3)
+    print("speedup of parallelize loop over loop", t0/t3)
+
     print("\nGate X\n===================")
 
     print("n =", n, ", stride =", stride, ", iterations=", iters)
@@ -290,6 +336,10 @@ def main():
     t2 = benchmark.run[test_vectorize[N, X_re, X_im, stride]](2, iters).mean()
     print("vectorize", t2)
     print("speedup of vectorize over loop", t0/t2)
+
+    t3 = benchmark.run[test_parallelize[N, X_re, X_im, stride]](2, iters).mean()
+    print("parallelize loop", t3)
+    print("speedup of parallelize loop over loop", t0/t3)
 
 
 # Gate H
