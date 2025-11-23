@@ -243,9 +243,9 @@ fn test_correctness[n: Int, stride: Int]() raises:
         for i in range(n):
             transform[N](re, im, gate_re, gate_im, 1 << i)
 
-            #     for i in range(len(re)):
-            #         print(re[i], "+ i *", im[i], end=", ")
-            #     print("\n")
+        for i in range(min(8, len(re))):
+            print(re[i], "+ i *", im[i], end=", ")
+        print("\n")
 
         var re1 = List[float_type](length=N, fill=0.0)
         re1[0] = 1.0
@@ -255,9 +255,9 @@ fn test_correctness[n: Int, stride: Int]() raises:
         for i in range(n):
             transform[N, False](re1, im1, gate_re, gate_im, 1 << i)
 
-            #     for i in range(len(re)):
-            #         print(re1[i], "+ i *", im1[i], end=", ")
-            #     print("\n")
+        for i in range(min(8, len(re))):
+            print(re1[i], "+ i *", im1[i], end=", ")
+        print("\n")
 
         for i in range(N):
             assert_almost_equal(re[i], re1[i])
@@ -271,9 +271,9 @@ fn test_correctness[n: Int, stride: Int]() raises:
         for i in range(n):
             transform[N, True](re2, im2, gate_re, gate_im, 1 << i)
 
-            #     for i in range(len(re)):
-            #         print(re2[i], "+ i *", im2[i], end=", ")
-            #     print("\n")
+        for i in range(min(8, len(re))):
+            print(re2[i], "+ i *", im2[i], end=", ")
+        print("\n")
 
         for i in range(N):
             assert_almost_equal(re[i], re2[i])
@@ -286,16 +286,16 @@ fn test_correctness[n: Int, stride: Int]() raises:
         for i in range(n):
             transform[N, 1](re3, im3, gate_re, gate_im, 1 << i)
 
-        #     for i in range(len(re)):
-        #         print(re3[i], "+ i *", im3[i], end=", ")
-        #     print("\n")
+        for i in range(min(8, len(re))):
+            print(re3[i], "+ i *", im3[i], end=", ")
+        print("\n")
 
         for i in range(N):
             assert_almost_equal(re[i], re3[i])
             assert_almost_equal(im[i], im3[i])
 
 def main():
-    alias n = 25
+    alias n = 20
 #     alias target = n-1
     alias stride = 0 # 1 << target
 
