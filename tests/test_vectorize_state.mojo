@@ -22,7 +22,7 @@ alias simd_width = simd_width_of[dtype]()
 
 alias simd_type = Variant[Int, Bool]
 
-fn transform[N: Int, show: Bool=False, use_vectorize: simd_type = 0](mut re: List[float_type], mut im: List[float_type], stride: Int) :
+fn transform[N: Int, use_vectorize: simd_type = 0, show: Bool=False](mut re: List[float_type], mut im: List[float_type], stride: Int) :
 
     var vector_re = NDBuffer[dtype, 1, _, N](re)
     var vector_im = NDBuffer[dtype, 1, _, N](im)
@@ -104,10 +104,10 @@ fn test_loop[N:Int, stride:Int]():
     var im = List[float_type](length=N, fill=0.0)
 
     if stride > 0:
-        transform[False, 0](re, im, stride)
+        transform[N](re, im, stride)
     else:
         for stride in range(Int(log2(Float32(N)))):
-            transform[False, 0](re, im, stride)
+            transform[N](re, im, stride)
 
 fn test_elementwise[N:Int, stride: Int]():
     var re = List[float_type](length=N, fill=0.0)
@@ -115,10 +115,10 @@ fn test_elementwise[N:Int, stride: Int]():
     var im = List[float_type](length=N, fill=0.0)
 
     if stride > 0:
-        transform[False, False](re, im, stride)
+        transform[N, False](re, im, stride)
     else:
         for stride in range(Int(log2(Float32(N)))):
-            transform[False, False](re, im, stride)
+            transform[N, False](re, im, stride)
 
 fn test_vectorize[N:Int, stride:Int]():
     var re = List[float_type](length=N, fill=0.0)
@@ -126,13 +126,13 @@ fn test_vectorize[N:Int, stride:Int]():
     var im = List[float_type](length=N, fill=0.0)
 
     if stride > 0:
-        transform[False, True](re, im, stride)
+        transform[N, True](re, im, stride)
     else:
         for stride in range(Int(log2(Float32(N)))):
-            transform[False, True](re, im, stride)
+            transform[N, True](re, im, stride)
 
 def main():
-    alias n = 25
+    alias n = 16
     alias target = n-1
     alias stride = 0 # 1 << target
 
@@ -146,7 +146,7 @@ def main():
     var im = List[float_type](length=N, fill=0.0)
 
     for i in range(n):
-        transform[N, False, 0](re, im, 1 << i)
+        transform[N](re, im, 1 << i)
 
 #     for i in range(len(re)):
 #         print(re[i], "+ i *", im[i], end=", ")
@@ -158,7 +158,7 @@ def main():
 
 
     for i in range(n):
-        transform[N, False, True](re1, im1, 1 << i)
+        transform[N, True](re1, im1, 1 << i)
 
 #     for i in range(len(re)):
 #         print(re1[i], "+ i *", im1[i], end=", ")
@@ -170,7 +170,7 @@ def main():
 
 
     for i in range(n):
-        transform[N, False, False](re2, im2, 1 << i)
+        transform[N, False](re2, im2, 1 << i)
 
         #     for i in range(len(re)):
         #         print(re2[i], "+ i *", im2[i], end=", ")

@@ -34,7 +34,7 @@ alias X_re: InlineArray[InlineArray[float_type, 2], 2] =  [[X[0][0].re, X[0][1].
 alias X_im: InlineArray[InlineArray[float_type, 2], 2]  = [[X[0][0].im, X[0][1].im], [X[1][0].im, X[1][1].im]]
 
 
-fn transform[N: Int, show: Bool=False, use_vectorize: simd_type = 0](mut re: List[float_type], mut im: List[float_type],
+fn transform[N: Int, use_vectorize: simd_type = 0, show: Bool=False](mut re: List[float_type], mut im: List[float_type],
     gate_re: InlineArray[InlineArray[float_type, 2], 2], gate_im: InlineArray[InlineArray[float_type, 2], 2], stride: Int) :
 #     state = List[ComplexSIMD[dtype, 2*simd_width]](capacity=N//2//simd_width)
 
@@ -178,10 +178,10 @@ fn test_loop[N:Int, gate_re: InlineArray[InlineArray[float_type, 2], 2], gate_im
     var im = List[float_type](length=N, fill=0.0)
 
     if stride > 0:
-        transform[False, 0](re, im, gate_re, gate_im, stride)
+        transform[N](re, im, gate_re, gate_im, stride)
     else:
         for stride in range(Int(log2(Float32(N)))):
-            transform[False, 0](re, im, gate_re, gate_im, stride)
+            transform[N](re, im, gate_re, gate_im, stride)
 
 fn test_elementwise[N:Int, gate_re: InlineArray[InlineArray[float_type, 2], 2], gate_im: InlineArray[InlineArray[float_type, 2], 2], stride: Int]():
     var re = List[float_type](length=N, fill=0.0)
@@ -189,10 +189,10 @@ fn test_elementwise[N:Int, gate_re: InlineArray[InlineArray[float_type, 2], 2], 
     var im = List[float_type](length=N, fill=0.0)
 
     if stride > 0:
-        transform[False, False](re, im, gate_re, gate_im, stride)
+        transform[N, False](re, im, gate_re, gate_im, stride)
     else:
         for stride in range(Int(log2(Float32(N)))):
-            transform[False, False](re, im, gate_re, gate_im, stride)
+            transform[N, False](re, im, gate_re, gate_im, stride)
 
 fn test_vectorize[N:Int, gate_re: InlineArray[InlineArray[float_type, 2], 2], gate_im: InlineArray[InlineArray[float_type, 2], 2], stride:Int]():
     var re = List[float_type](length=N, fill=0.0)
@@ -200,13 +200,13 @@ fn test_vectorize[N:Int, gate_re: InlineArray[InlineArray[float_type, 2], 2], ga
     var im = List[float_type](length=N, fill=0.0)
 
     if stride > 0:
-        transform[False, True](re, im, gate_re, gate_im, stride)
+        transform[N, True](re, im, gate_re, gate_im, stride)
     else:
         for stride in range(Int(log2(Float32(N)))):
-            transform[False, True](re, im, gate_re, gate_im, stride)
+            transform[N, True](re, im, gate_re, gate_im, stride)
 
 def main():
-    alias n = 30
+    alias n = 18
     alias target = n-1
     alias stride = 0 # 1 << target
 
@@ -221,23 +221,28 @@ def main():
         var im = List[float_type](length=N, fill=0.0)
 
         for i in range(n):
-            transform[N, False, 0](re, im, gate_re, gate_im, 1 << i)
+            transform[N](re, im, gate_re, gate_im, 1 << i)
 
     #     for i in range(len(re)):
     #         print(re[i], "+ i *", im[i], end=", ")
     #     print("\n")
 
-        var re1 = List[float_type](length=N, fill=0.0)
-        re1[0] = 1.0
-        var im1 = List[float_type](length=N, fill=0.0)
+        if N <= 1 << 16:
+            var re1 = List[float_type](length=N, fill=0.0)
+            re1[0] = 1.0
+            var im1 = List[float_type](length=N, fill=0.0)
 
 
-        for i in range(n):
-            transform[N, False, True](re1, im1, gate_re, gate_im, 1 << i)
+            for i in range(n):
+                transform[N, False](re1, im1, gate_re, gate_im, 1 << i)
 
-    #     for i in range(len(re)):
-    #         print(re1[i], "+ i *", im1[i], end=", ")
-    #     print("\n")
+        #     for i in range(len(re)):
+        #         print(re1[i], "+ i *", im1[i], end=", ")
+        #     print("\n")
+
+            for i in range(N):
+                            assert_almost_equal(re[i], re1[i])
+                            assert_almost_equal(im[i], im1[i])
 
         var re2 = List[float_type](length=N, fill=0.0)
         re2[0] = 1.0
@@ -245,42 +250,45 @@ def main():
 
 
         for i in range(n):
-            transform[N, False, False](re2, im2, gate_re, gate_im, 1 << i)
+            transform[N, True](re2, im2, gate_re, gate_im, 1 << i)
 
             #     for i in range(len(re)):
             #         print(re2[i], "+ i *", im2[i], end=", ")
             #     print("\n")
 
         for i in range(N):
-            assert_almost_equal(re[i], re1[i])
-            assert_almost_equal(im[i], im1[i])
-
             assert_almost_equal(re[i], re2[i])
             assert_almost_equal(im[i], im2[i])
 
-    iters = 5
+    iters = 10
 
     print("Gate H\n===================")
 
     print("n =", n, ", stride =", stride, ", iterations=", iters)
-    t0 = benchmark.run[test_loop[N, H_re, H_im, stride]](iters).mean()
+    t0 = benchmark.run[test_loop[N, H_re, H_im, stride]](2, iters).mean()
     print("loop", t0)
-    t1 = benchmark.run[test_elementwise[N, H_re, H_im, stride]](iters).mean()
-    print("elementwise", t1)
-    print("speedup of elementwise over loop", t0/t1)
-    t2 = benchmark.run[test_vectorize[N, H_re, H_im, stride]](iters).mean()
+
+    if N <= 1 << 16:
+        t1 = benchmark.run[test_elementwise[N, H_re, H_im, stride]](2, iters).mean()
+        print("elementwise", t1)
+        print("speedup of elementwise over loop", t0/t1)
+
+    t2 = benchmark.run[test_vectorize[N, H_re, H_im, stride]](2, iters).mean()
     print("vectorize", t2)
     print("speedup of vectorize over loop", t0/t2)
 
     print("\nGate X\n===================")
 
     print("n =", n, ", stride =", stride, ", iterations=", iters)
-    t0 = benchmark.run[test_loop[N, X_re, X_im, stride]](iters).mean()
+    t0 = benchmark.run[test_loop[N, X_re, X_im, stride]](2, iters).mean()
     print("loop", t0)
-    t1 = benchmark.run[test_elementwise[N, X_re, X_im, stride]](iters).mean()
-    print("elementwise", t1)
-    print("speedup of elementwise over loop", t0/t1)
-    t2 = benchmark.run[test_vectorize[N, X_re, X_im, stride]](iters).mean()
+
+    if N <= 1 << 16:
+        t1 = benchmark.run[test_elementwise[N, X_re, X_im, stride]](2, iters).mean()
+        print("elementwise", t1)
+        print("speedup of elementwise over loop", t0/t1)
+
+    t2 = benchmark.run[test_vectorize[N, X_re, X_im, stride]](2, iters).mean()
     print("vectorize", t2)
     print("speedup of vectorize over loop", t0/t2)
 
