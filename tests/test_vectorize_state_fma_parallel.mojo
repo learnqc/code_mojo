@@ -306,6 +306,7 @@ def main():
     print("\nGate H\n===================")
 
     print("n =", n, ", stride =", stride, ", iterations=", iters)
+
     t0 = benchmark.run[test_loop[N, H, stride]](2, iters).mean()
     print("loop", t0)
 
@@ -332,9 +333,9 @@ def main():
     t0 = benchmark.run[test_loop[N, X, stride]](2, iters).mean()
     print("loop", t0)
 
-    t1 = benchmark.run[test_elementwise[N, X, stride]](2, iters).mean()
-    print("elementwise", t1)
-    print("speedup of elementwise over loop", t0/t1)
+#     t1 = benchmark.run[test_elementwise[N, X, stride]](2, iters).mean()
+#     print("elementwise", t1)
+#     print("speedup of elementwise over loop", t0/t1)
 
     t2 = benchmark.run[test_vectorize[N, X, stride]](2, iters).mean()
     print("vectorize", t2)
