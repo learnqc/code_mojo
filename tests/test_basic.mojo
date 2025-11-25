@@ -4,7 +4,12 @@ from butterfly.utils.state import *
 
 
 def main():
-    n: UInt = 5
+    alias n = 6
+    alias N = 1 << n
+
+
+    f = transform_simd[N]
+#     f = transform[0]
 
     gates = [X, Y, Z, H, P(pi/3), RX(pi/3), RY(pi/5), RZ(pi/7)]
 
@@ -16,8 +21,8 @@ def main():
     start = time.perf_counter_ns()
     print("\n***************** {} iterations of Mojo transform for {} qubits"
         .format(iterations, n))
-    for i in range(iterations):
-        transform(state, UInt(i%n), gates[i%UInt(len(gates))])
+    for i in range(Int(iterations)):
+        f(state, i%n, gates[i%len(gates)])
     elapsed = time.perf_counter_ns() - start
     print("average time for transform: {} ns\n".format(elapsed/iterations))
     for i in range(min(len(state), 64)):
@@ -26,7 +31,7 @@ def main():
 
     st = init_state(n)
     for i in range(len(gates)):
-        transform(st, UInt(i%n), gates[i])
+        transform(st, i%n, gates[i])
     # print('\n', len(st))
     table = to_table(st)
     print('\n')

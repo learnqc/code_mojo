@@ -4,10 +4,20 @@ import math
 from math import sqrt, cos, sin, log2, log10, atan2, floor
 from testing import assert_true, assert_almost_equal
 
+from sys.info import simd_width_of
+
+from algorithm import vectorize, parallelize
+from buffer import NDBuffer
+
 from butterfly import *
 from butterfly.core.gates import *
 
 from algorithm import parallelize
+
+alias dtype = Type
+alias float_type = Scalar[dtype]
+
+alias simd_width = simd_width_of[dtype]()
 
 def init_state(n: Int) -> State:
     var state:State = [`1` if i == 0 else `0` for i in range(2 ** n)]
@@ -115,6 +125,92 @@ fn transform[par: Int = 0](mut state: State, target: Int, gate: Gate):
 #             for idx in range(k*2*stride, k*2*stride + stride):
 #                 process_pair(state, gate, idx, idx + stride)
 
+fn transform_simd[N: Int](mut state: State, target: Int, gate: Gate):
+    stride = 1 << target
+
+    gate_re = [[gate[0][0].re, gate[0][1].re], [gate[1][0].re, gate[1][1].re]]
+    gate_im = [[gate[0][0].im, gate[0][1].im], [gate[1][0].im, gate[1][1].im]]
+
+    re = [a.re for a in state]
+    im = [a.im for a in state]
+
+    alias num_work_items = 8
+    alias num_threads = num_work_items
+    alias chunk_size = N//2//num_work_items
+
+    var vector_re = NDBuffer[dtype, 1, _, N](re)
+    var vector_im = NDBuffer[dtype, 1, _, N](im)
+
+    @always_inline
+    @parameter
+    fn butterfly_simd[simd_width: Int](idx: Int):
+        zero_idx = 2*idx - idx%stride
+        one_idx = zero_idx + stride
+
+        var elem0_re = vector_re.load[width=simd_width](zero_idx)
+        var elem0_im = vector_im.load[width=simd_width](zero_idx)
+        var elem1_re = vector_re.load[width=simd_width](one_idx)
+        var elem1_im = vector_im.load[width=simd_width](one_idx)
+
+        elem0_orig_re = elem0_re
+        elem0_orig_im = elem0_im
+
+        elem1_orig_re = elem1_re
+        elem1_orig_im = elem1_im
+
+        elem0_re = elem0_orig_re.fma(gate_re[0][0], -gate_im[0][0]*elem0_orig_im + elem1_orig_re.fma(gate_re[0][1], -gate_im[0][1]*elem1_orig_im))
+        elem0_im = elem0_orig_re.fma(gate_im[0][0], gate_re[0][0]*elem0_orig_im + elem1_orig_re.fma(gate_im[0][1], gate_re[0][1]*elem1_orig_im))
+        elem1_re = elem0_orig_re.fma(gate_re[1][0], -gate_im[1][0]*elem0_orig_im + elem1_orig_re.fma(gate_re[1][1], -gate_im[1][1]*elem1_orig_im))
+        elem1_im = elem0_orig_re.fma(gate_im[1][0], gate_re[1][0]*elem0_orig_im + elem1_orig_re.fma(gate_im[1][1], gate_re[1][1]*elem1_orig_im))
+
+        vector_re.store[width=simd_width](zero_idx, elem0_re)
+        vector_im.store[width=simd_width](zero_idx, elem0_im)
+        vector_re.store[width=simd_width](one_idx, elem1_re)
+        vector_im.store[width=simd_width](one_idx, elem1_im)
+
+    @always_inline
+    @parameter
+    fn butterfly_loop(idx: Int):
+        zero_idx = 2*idx - idx%stride
+        one_idx = zero_idx + stride
+
+        var elem0_re = vector_re.data[zero_idx]
+        var elem0_im = vector_im.data[zero_idx]
+        var elem1_re = vector_re.data[one_idx]
+        var elem1_im = vector_im.data[one_idx]
+
+        elem0_orig_re = elem0_re
+        elem0_orig_im = elem0_im
+
+        elem1_orig_re = elem1_re
+        elem1_orig_im = elem1_im
+
+        elem0_re = elem0_orig_re.fma(gate_re[0][0], -gate_im[0][0]*elem0_orig_im + elem1_orig_re.fma(gate_re[0][1], -gate_im[0][1]*elem1_orig_im))
+        elem0_im = elem0_orig_re.fma(gate_im[0][0], gate_re[0][0]*elem0_orig_im + elem1_orig_re.fma(gate_im[0][1], gate_re[0][1]*elem1_orig_im))
+        elem1_re = elem0_orig_re.fma(gate_re[1][0], -gate_im[1][0]*elem0_orig_im + elem1_orig_re.fma(gate_re[1][1], -gate_im[1][1]*elem1_orig_im))
+        elem1_im = elem0_orig_re.fma(gate_im[1][0], gate_re[1][0]*elem0_orig_im + elem1_orig_re.fma(gate_im[1][1], gate_re[1][1]*elem1_orig_im))
+
+        vector_re.data[zero_idx] = elem0_re
+        vector_im.data[zero_idx] = elem0_im
+        vector_re.data[one_idx] = elem1_re
+        vector_im.data[one_idx] = elem1_im
+
+    @parameter
+    @always_inline
+    fn worker_simd(item_id: Int):
+        var start = item_id*chunk_size
+        for idx in range(start, start + chunk_size, simd_width):
+            butterfly_simd[simd_width](idx)
+
+            #         @parameter
+            #         @always_inline
+            #         fn butterfly_simd_wrapper[width: Int](idx: Int):
+            #             butterfly_simd[simd_width](start + idx)
+            #
+            #         vectorize[butterfly_simd_wrapper, simd_width](chunk_size)
+
+    parallelize[worker_simd](num_work_items, num_threads)
+    state = [Amplitude(re[i], im[i]) for i in range(N)]
 
 fn transform_grid[par: Int = 0](mut state: GridState, target: Int, gate: Gate) raises:
     R = len(state)
