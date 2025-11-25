@@ -1,5 +1,6 @@
 alias Type = DType.float32
-alias FloatType = SIMD[Type, 1]
+# alias FloatType = SIMD[Type, 1]
+alias FloatType = Scalar[Type]
 
 from complex import ComplexSIMD
 alias Amplitude = ComplexSIMD[Type, 1]
