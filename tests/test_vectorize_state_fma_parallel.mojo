@@ -239,7 +239,7 @@ fn test_correctness[n: Int, stride: Int]() raises:
         for i in range(n):
             transform[N, False](re1, im1, gate, 1 << i)
 
-        print("\n\nElemntwise")
+        print("\n\nElementwise")
         for i in range(min(8, len(re))):
             print(re1[i], "+ i *", im1[i], end=", ")
 
