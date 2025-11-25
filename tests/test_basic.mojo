@@ -15,7 +15,7 @@ def main():
 
     state = init_state(n)
     for t in range(n):
-        transform(state, t, H)
+        f(state, t, H)
 
     iterations: UInt = 1_000
     start = time.perf_counter_ns()
@@ -31,7 +31,7 @@ def main():
 
     st = init_state(n)
     for i in range(len(gates)):
-        transform(st, i%n, gates[i])
+        f(st, i%n, gates[i])
     # print('\n', len(st))
     table = to_table(st)
     print('\n')
