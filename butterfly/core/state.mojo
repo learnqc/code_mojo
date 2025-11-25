@@ -14,10 +14,7 @@ from butterfly.core.gates import *
 
 from algorithm import parallelize
 
-alias dtype = Type
-alias float_type = Scalar[dtype]
-
-alias simd_width = simd_width_of[dtype]()
+alias simd_width = simd_width_of[Type]()
 
 def init_state(n: Int) -> State:
     var state:State = [`1` if i == 0 else `0` for i in range(2 ** n)]
@@ -138,8 +135,8 @@ fn transform_simd[N: Int](mut state: State, target: Int, gate: Gate):
     alias num_threads = num_work_items
     alias chunk_size = N//2//num_work_items
 
-    var vector_re = NDBuffer[dtype, 1, _, N](re)
-    var vector_im = NDBuffer[dtype, 1, _, N](im)
+    var vector_re = NDBuffer[Type, 1, _, N](re)
+    var vector_im = NDBuffer[Type, 1, _, N](im)
 
     @always_inline
     @parameter
