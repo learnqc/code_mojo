@@ -3,8 +3,8 @@ import benchmark
 from butterfly.core.state import *
 from butterfly.utils.state import print_state
 
-fn test_target[n: Int, t: Int, swap: Bool = False, par: UInt = 1]():
-#     f: fn(mut state: State, target: UInt, gate: Gate) = transform_swap if swap else transform
+fn test_target[n: Int, t: Int, swap: Bool = False, par: Int = 1]():
+#     f: fn(mut state: State, target: Int, gate: Gate) = transform_swap if swap else transform
     try:
         state = init_state(n)
         for _ in range(9):
@@ -12,7 +12,7 @@ fn test_target[n: Int, t: Int, swap: Bool = False, par: UInt = 1]():
     except e:
         print("Caught an error:", e)
 
-fn test_target_grid[r: Int, c: Int, t: Int, par: UInt = 1]():
+fn test_target_grid[r: Int, c: Int, t: Int, par: Int = 1]():
     try:
         state = init_state_grid(r, c)
         for _ in range(9):
@@ -31,9 +31,9 @@ fn test_target_a[n: Int, t: Int]():
 
 
 def main():
-    alias n: UInt = 28
+    alias n: Int = 20
 
-    alias iter = Int(10)
+    alias iter = 2
 
 #     var report_target_low = benchmark.run[test_target[n, 0]](iter)
 #     report_target_low.print_full("low target ms")

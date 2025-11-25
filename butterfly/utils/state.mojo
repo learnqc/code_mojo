@@ -1,9 +1,10 @@
 from math import log2, log10
+# from utils.static_tuple import StaticTuple
 
 from butterfly import *
 from butterfly.core import *
 
-def to_table(s: State, prefix: (UInt, UInt) = (0, 0), decimals: UInt=3) -> List[List[String]]:
+def to_table(s: State, prefix: Tuple[Int, Int] = (0, 0), decimals: Int=3) -> List[List[String]]:
     n = Int(log2(Float32(len(s))))
 
     m =  Int(log10(Float32(len(s))))
@@ -62,7 +63,7 @@ def to_table(s: State, prefix: (UInt, UInt) = (0, 0), decimals: UInt=3) -> List[
     ret = headers + (table + bottom^)
     return ret^
 
-def print_state(state: State, prefix: (UInt, UInt) = (0, 0), short: Bool=True):
+def print_state(state: State, prefix: Tuple[Int, Int] = (0, 0), short: Bool=True):
     rows = 16 if short else max(16, len(state))
     table = to_table(state[:rows], prefix)
     for i in range(len(table)):
@@ -72,10 +73,10 @@ def print_state(state: State, prefix: (UInt, UInt) = (0, 0), short: Bool=True):
 
     print('\n')
 
-def print_state_a(state: ArrayState, prefix: (UInt, UInt) = (0, 0), short: Bool=True):
+def print_state_a(state: ArrayState, prefix: Tuple[Int, Int] = (0, 0), short: Bool=True):
     print_state([state[i] for i in range(len(state))], prefix)
 
 def print_grid_state(state: GridState, short: Bool=True):
     col_bits =  Int(log10(Float32(len(state[0]))))
     for r in range(len(state)):
-        print_state(state[r], (UInt(r), UInt(col_bits)), short)
+        print_state(state[r], (Int(r), Int(col_bits)), short)

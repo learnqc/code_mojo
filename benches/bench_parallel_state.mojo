@@ -9,7 +9,7 @@ alias unit = benchmark.Unit.ms
 alias type = DType.float32
 alias scalar = Scalar[type]
 
-fn test_traverse[n: Int, par: UInt = 0]():
+fn test_traverse[n: Int, par: Int = 0]():
     alias N = 1 << n
 
 #     state = NDBuffer[type, 1, _, N](UnsafePointer[Scalar[type]].alloc(N))

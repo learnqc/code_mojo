@@ -5,7 +5,7 @@ from butterfly.utils.state import print_state, print_grid_state
 
 alias unit = benchmark.Unit.ms
 
-fn test_uniform[n: Int, par: UInt = 0]():
+fn test_uniform[n: Int, par: Int = 0]():
     try:
         state = init_state(n)
         for t in range(n):
@@ -13,7 +13,7 @@ fn test_uniform[n: Int, par: UInt = 0]():
     except e:
         print("Caught an error:", e)
 
-fn test_uniform_grid[n: Int, r: Int, par: UInt = 0]():
+fn test_uniform_grid[n: Int, r: Int, par: Int = 0]():
     try:
         state = init_state_grid(r, n - r)
         for t in range(n):
@@ -22,7 +22,7 @@ fn test_uniform_grid[n: Int, r: Int, par: UInt = 0]():
         print("Caught an error:", e)
 
 def main():
-    alias n: UInt = 25
+    alias n: Int = 25
 
     alias iter = Int(5)
 
@@ -55,4 +55,4 @@ def main():
 #     for t in range(n):
 #         transform[8](state, t, H)
 #
-#     print_state(state, (UInt(0), UInt(0)), False)
+#     print_state(state, (Int(0), Int(0)), False)

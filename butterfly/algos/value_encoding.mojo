@@ -1,6 +1,6 @@
 from butterfly.core.state import *
 
-def encode_value(n: UInt, v: FloatType) -> State:
+def encode_value(n: Int, v: FloatType) -> State:
     state = init_state(n)
 
     for j in range(n):
@@ -14,7 +14,7 @@ def encode_value(n: UInt, v: FloatType) -> State:
     iqft(state, [n-1-j for j in range(n)])
     return state^
 
-def encode_value_swap(n: UInt, v: FloatType) -> State:
+def encode_value_swap(n: Int, v: FloatType) -> State:
     state = init_state(n)
 
     for j in range(n):
@@ -29,7 +29,7 @@ def encode_value_swap(n: UInt, v: FloatType) -> State:
     return state^
 
 
-def encode_value_mix(n: UInt, v: FloatType) -> State:
+def encode_value_mix(n: Int, v: FloatType) -> State:
     state = init_state(n)
 
     threshold = 3*n//4

@@ -4,14 +4,14 @@ from butterfly.core.state import *
 from butterfly.algos.value_encoding import encode_value, encode_value_swap, encode_value_mix
 from butterfly.utils.state import print_state
 
-fn test_encode_value[n: UInt, v: FloatType]():
+fn test_encode_value[n: Int, v: FloatType]():
     try:
         _state = encode_value(n, v)
 #         print_state(_state)
     except e:
         print("Caught an error:", e)
 
-fn test_encode_value_swap[n: UInt, v: FloatType]():
+fn test_encode_value_swap[n: Int, v: FloatType]():
     try:
         _ = encode_value_swap(n, v)
 #         print_state(state)
@@ -19,7 +19,7 @@ fn test_encode_value_swap[n: UInt, v: FloatType]():
         print("Caught an error:", e)
 
 
-fn test_encode_value_mix[n: UInt, v: FloatType]():
+fn test_encode_value_mix[n: Int, v: FloatType]():
     try:
         _state = encode_value_mix(n, v)
 #         print_state(_state)
@@ -27,7 +27,7 @@ fn test_encode_value_mix[n: UInt, v: FloatType]():
         print("Caught an error:", e)
 
 def main():
-    alias n: UInt = 25
+    alias n: Int = 25
     alias v = 4.7
 
     alias iter = Int(1)

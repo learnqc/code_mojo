@@ -9,11 +9,11 @@ from butterfly.core.gates import *
 
 from algorithm import parallelize
 
-def init_state(n: UInt) -> State:
+def init_state(n: Int) -> State:
     var state:State = [`1` if i == 0 else `0` for i in range(2 ** n)]
     return state^
 
-def init_state_grid(row_bits: UInt, col_bits: UInt) -> GridState:
+def init_state_grid(row_bits: Int, col_bits: Int) -> GridState:
     R = 1 << row_bits
     C = 1 << col_bits
     grid_state = List[State](capacity=R)
@@ -24,12 +24,12 @@ def init_state_grid(row_bits: UInt, col_bits: UInt) -> GridState:
 
     return grid_state^
 
-def init_state_a[n: UInt]() -> ArrayState[1<<n]:
+def init_state_a[n: Int]() -> ArrayState[1<<n]:
     var state = ArrayState[1 << n](fill=`0`)
     state[0] = `1`
     return state^
 
-def generate_state(n:UInt, seed: Int = 555) -> State:
+def generate_state(n:Int, seed: Int = 555) -> State:
     # Choose a seed
     random.seed(seed)
     # Generate random probabilities that add up to 1
@@ -49,14 +49,14 @@ def generate_state(n:UInt, seed: Int = 555) -> State:
     return state^
 
 # @always_inline
-fn process_pair(mut state: State, gate: Gate, k0: UInt, k1: UInt):
+fn process_pair(mut state: State, gate: Gate, k0: Int, k1: Int):
     x = state[k0]
     y = state[k1]
     # new amplitudes
     state[k0] = x * gate[0][0] + y * gate[0][1]
     state[k1] = x * gate[1][0] + y * gate[1][1]
 
-fn transform[par: UInt = 0](mut state: State, target: UInt, gate: Gate):
+fn transform[par: Int = 0](mut state: State, target: Int, gate: Gate):
     l = len(state)
     stride = 1 << target
 
@@ -116,7 +116,7 @@ fn transform[par: UInt = 0](mut state: State, target: UInt, gate: Gate):
 #                 process_pair(state, gate, idx, idx + stride)
 
 
-fn transform_grid[par: UInt = 0](mut state: GridState, target: UInt, gate: Gate) raises:
+fn transform_grid[par: Int = 0](mut state: GridState, target: Int, gate: Gate) raises:
     R = len(state)
     C = len(state[0])
 
@@ -182,14 +182,14 @@ fn transform_grid[par: UInt = 0](mut state: GridState, target: UInt, gate: Gate)
     #                 if r == stride:
     #                     r = 0
 
-fn process_pair_a(mut state: ArrayState, gate: Gate, k0: UInt, k1: UInt):
+fn process_pair_a(mut state: ArrayState, gate: Gate, k0: Int, k1: Int):
     x = state[k0]
     y = state[k1]
     # new amplitudes
     state[k0] = x * gate[0][0] + y * gate[0][1]
     state[k1] = x * gate[1][0] + y * gate[1][1]
 
-fn transform_a(mut state: ArrayState, target: UInt, gate: Gate):
+fn transform_a(mut state: ArrayState, target: Int, gate: Gate):
     l = len(state)
     stride = 1 << target
     r  = 0
@@ -201,7 +201,7 @@ fn transform_a(mut state: ArrayState, target: UInt, gate: Gate):
         if r == stride:
             r = 0
 
-fn transform_swap(mut state: State, target: UInt, gate: Gate):
+fn transform_swap(mut state: State, target: Int, gate: Gate):
     l = len(state)
     stride = 1 << target
     # swap
@@ -229,29 +229,29 @@ fn transform_swap(mut state: State, target: UInt, gate: Gate):
         if r >= stride:
             r = 0
 
-def is_bit_set(m: UInt, k: UInt) -> Bool:
-    return m & UInt(1 << k) != 0
+def is_bit_set(m: Int, k: Int) -> Bool:
+    return m & Int(1 << k) != 0
 
-def c_transform(mut state: State, control: UInt, target: UInt, gate: Gate):
+def c_transform(mut state: State, control: Int, target: Int, gate: Gate):
     stride = 1 << target
     r  = 0
     for j in range(len(state)//2):
         idx = 2*j - r     # r = j%stride
-        if is_bit_set(UInt(idx), control):
-            process_pair(state, gate, UInt(idx), UInt(idx + stride))
+        if is_bit_set(Int(idx), control):
+            process_pair(state, gate, Int(idx), Int(idx + stride))
 
         r += 1
         if r == stride:
             r = 0
 
-def iqft(mut state: State, targets: List[UInt]):
+def iqft(mut state: State, targets: List[Int]):
     for j in reversed(range(len(targets))):
         transform(state, targets[j], H)
         for k in reversed(range(j)):
             c_transform(state, targets[j], targets[k], P(-pi / 2 ** (j - k)))
 
-def measure_qubit(mut state: State, t: UInt, reset:Bool, v: Bool) -> Bool:
-    # n = UInt(log2(len(state)))
+def measure_qubit(mut state: State, t: Int, reset:Bool, v: Bool) -> Bool:
+    # n = Int(log2(len(state)))
 
     stride = 1<<t
 
