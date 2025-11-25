@@ -8,7 +8,6 @@ from buffer import NDBuffer
 from testing import assert_almost_equal
 
 from utils.index import IndexList
-from utils.static_tuple import StaticTuple
 from utils.variant import Variant
 
 import benchmark
