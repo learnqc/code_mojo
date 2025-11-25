@@ -374,3 +374,79 @@ def main():
 # speedup of parallelize loop over loop 3.6089423582477793
 # parallelize loop 0.081637
 # speedup of parallelize simd over loop 10.650101465430298
+
+# Architecture:             x86_64
+# CPU op-mode(s):         32-bit, 64-bit
+# Address sizes:          46 bits physical, 57 bits virtual
+# Byte Order:             Little Endian
+# CPU(s):                   30
+# On-line CPU(s) list:    0-29
+# Vendor ID:                GenuineIntel
+# Model name:             Intel(R) Xeon(R) Platinum 8358 CPU @ 2.60GHz
+# CPU family:           6
+# Model:                106
+# Thread(s) per core:   1
+# Core(s) per socket:   1
+# Socket(s):            30
+# Stepping:             6
+# BogoMIPS:             5187.93
+# Flags:                fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss syscall nx pdpe1gb rdtsc
+# p lm constant_tsc arch_perfmon rep_good nopl xtopology cpuid tsc_known_freq pni pclmulqdq vmx ssse3 fma cx16 pdcm pcid sse4_1
+# sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch cpuid_fault ssb
+# d ibrs ibpb stibp ibrs_enhanced tpr_shadow flexpriority ept vpid ept_ad fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid
+# avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves
+# wbnoinvd arat vnmi avx512vbmi umip pku ospke avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq la5
+# 7 rdpid fsrm md_clear arch_capabilities
+# Virtualization features:
+# Virtualization:         VT-x
+# Hypervisor vendor:      KVM
+# Virtualization type:    full
+# Caches (sum of all):
+# L1d:                    960 KiB (30 instances)
+# L1i:                    960 KiB (30 instances)
+# L2:                     120 MiB (30 instances)
+# L3:                     480 MiB (30 instances)
+# NUMA:
+# NUMA node(s):           1
+# NUMA node0 CPU(s):      0-29
+# Vulnerabilities:
+# Gather data sampling:   Unknown: Dependent on hypervisor status
+# Itlb multihit:          Not affected
+# L1tf:                   Not affected
+# Mds:                    Not affected
+# Meltdown:               Not affected
+# Mmio stale data:        Vulnerable: Clear CPU buffers attempted, no microcode; SMT Host state unknown
+# Reg file data sampling: Not affected
+# Retbleed:               Not affected
+# Spec rstack overflow:   Not affected
+# Spec store bypass:      Mitigation; Speculative Store Bypass disabled via prctl
+# Spectre v1:             Mitigation; usercopy/swapgs barriers and __user pointer sanitization
+# Spectre v2:             Mitigation; Enhanced / Automatic IBRS; IBPB conditional; RSB filling; PBRSB-eIBRS SW sequence; BHI SW loop, KVM SW loop
+# Srbds:                  Not affected
+# Tsx async abort:        Mitigation; TSX disabled
+
+# Gate H
+# ===================
+# n = 27 , stride = 0 , iterations= 3
+# loop 8.522051395666667
+# elementwise 0.4810115156666666
+# speedup of elementwise over loop 17.716938406049128
+# vectorize 2.0300095823333333
+# speedup of vectorize over loop 4.198035058470636
+# parallelize loop 1.418304324
+# speedup of parallelize loop over loop 6.008619766195303
+# parallelize loop 0.5622232976666667
+# speedup of parallelize simd over loop 15.15776993062151
+#
+# Gate X
+# ===================
+# n = 27 , stride = 0 , iterations= 3
+# loop 8.524472887333333
+# elementwise 0.47970799866666664
+# speedup of elementwise over loop 17.77012872628107
+# vectorize 2.028346640666667
+# speedup of vectorize over loop 4.202670646340584
+# parallelize loop 1.4226437433333334
+# speedup of parallelize loop over loop 5.991994079529721
+# parallelize loop 0.5617238403333333
+# speedup of parallelize simd over loop 15.175558299741763
