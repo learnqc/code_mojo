@@ -122,14 +122,10 @@ fn transform[par: Int = 0](mut state: State, target: Int, gate: Gate):
 #             for idx in range(k*2*stride, k*2*stride + stride):
 #                 process_pair(state, gate, idx, idx + stride)
 
-fn transform_simd[N: Int](mut state: State, target: Int, gate: Gate):
-    stride = 1 << target
+fn transform_simd_base[N: Int](mut re: List[FloatType], mut im: List[FloatType], stride: Int, gate: Gate):
 
     gate_re = [[gate[0][0].re, gate[0][1].re], [gate[1][0].re, gate[1][1].re]]
     gate_im = [[gate[0][0].im, gate[0][1].im], [gate[1][0].im, gate[1][1].im]]
-
-    re = [a.re for a in state]
-    im = [a.im for a in state]
 
     alias num_work_items = 8
     alias num_threads = num_work_items
@@ -207,6 +203,15 @@ fn transform_simd[N: Int](mut state: State, target: Int, gate: Gate):
             #         vectorize[butterfly_simd_wrapper, simd_width](chunk_size)
 
     parallelize[worker_simd](num_work_items, num_threads)
+
+fn transform_simd[N: Int](mut state: State, target: Int, gate: Gate):
+    stride = 1 << target
+
+    re = [a.re for a in state]
+    im = [a.im for a in state]
+
+    transform_simd_base[N](re, im, stride, gate)
+
     state = [Amplitude(re[i], im[i]) for i in range(N)]
 
 fn transform_grid[par: Int = 0](mut state: GridState, target: Int, gate: Gate) raises:
