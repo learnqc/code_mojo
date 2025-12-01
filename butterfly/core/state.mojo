@@ -13,7 +13,7 @@ from butterfly.core.gates import *
 alias simd_width = simd_width_of[Type]()
 
 
-struct QuantumState(Copyable, Movable, Writable):
+struct QuantumState:
     var re: List[FloatType]
     var im: List[FloatType]
 
@@ -29,10 +29,6 @@ struct QuantumState(Copyable, Movable, Writable):
     fn __init__(out self, var re: List[FloatType], var im: List[FloatType]):
         self.re = re^
         self.im = im^
-
-    fn __init__(out self, var amplitudes: List[ComplexSIMD[Type, 1]]):
-        self.re = [a.re for a in amplitudes]
-        self.im = [a.im for a in amplitudes]
 
     fn __copyinit__(out self, existing: Self):
         self.re = List[FloatType](capacity=len(existing.re))
@@ -58,16 +54,13 @@ struct QuantumState(Copyable, Movable, Writable):
         self.re[idx] = val.re
         self.im[idx] = val.im
 
-    fn write_to[W: Writer](self, mut writer: W):
-        writer.write("QuantumState(size=", String(self.size()), ")")
-
 
 alias State = QuantumState
 
 
 def init_state(n: Int) -> QuantumState:
     var state = QuantumState(n)
-    #     state[0] = `1`
+    state[0] = `1`
     return state^
 
 
@@ -177,7 +170,7 @@ fn transform_simd_base[
 
     alias num_work_items = 8
     alias num_threads = num_work_items
-    alias chunk_size = N // 2 // num_work_items
+    alias chunk_size = max(1, N // 2 // num_work_items)
 
     var vector_re = NDBuffer[Type, 1, _, N](state.re)
     var vector_im = NDBuffer[Type, 1, _, N](state.im)
@@ -240,10 +233,9 @@ fn transform_simd[N: Int](mut state: QuantumState, target: Int, gate: Gate):
 
     if stride < simd_width:
         transform(state, target, gate)
-        return
-
-    # Optimized: No copy needed!
-    transform_simd_base[N](state, stride, gate)
+    else:
+        # Optimized: No copy needed!
+        transform_simd_base[N](state, stride, gate)
 
 
 fn transform_grid[
@@ -362,11 +354,11 @@ fn transform_swap(mut state: QuantumState, target: Int, gate: Gate):
             r = 0
 
 
-def is_bit_set(m: Int, k: Int) -> Bool:
+fn is_bit_set(m: Int, k: Int) -> Bool:
     return m & Int(1 << k) != 0
 
 
-def c_transform(mut state: QuantumState, control: Int, target: Int, gate: Gate):
+fn c_transform(mut state: QuantumState, control: Int, target: Int, gate: Gate):
     stride = 1 << target
     r = 0
     for j in range(state.size() // 2):
@@ -378,11 +370,119 @@ def c_transform(mut state: QuantumState, control: Int, target: Int, gate: Gate):
             r = 0
 
 
+fn c_transform_simd_base[
+    N: Int
+](mut state: QuantumState, control: Int, stride: Int, gate: Gate):
+    gate_re = [[gate[0][0].re, gate[0][1].re], [gate[1][0].re, gate[1][1].re]]
+    gate_im = [[gate[0][0].im, gate[0][1].im], [gate[1][0].im, gate[1][1].im]]
+
+    alias num_work_items = 8
+    alias num_threads = num_work_items
+    alias chunk_size = max(1, N // 2 // num_work_items)
+
+    var vector_re = NDBuffer[Type, 1, _, N](state.re)
+    var vector_im = NDBuffer[Type, 1, _, N](state.im)
+
+    @always_inline
+    @parameter
+    fn butterfly_simd[simd_width: Int](idx: Int):
+        zero_idx = 2 * idx - idx % stride
+        one_idx = zero_idx + stride
+
+        var elem0_re = vector_re.load[width=simd_width](zero_idx)
+        var elem0_im = vector_im.load[width=simd_width](zero_idx)
+        var elem1_re = vector_re.load[width=simd_width](one_idx)
+        var elem1_im = vector_im.load[width=simd_width](one_idx)
+
+        # Construct indices vector: zero_idx, zero_idx+1, ...
+        # We need to cast zero_idx to SIMD[DType.int64, simd_width] to add iota
+        var offsets = SIMD[DType.int64, simd_width]()
+        for i in range(simd_width):
+            offsets[i] = i
+        var indices = SIMD[DType.int64, simd_width](zero_idx) + offsets
+
+        var mask_val = indices & (1 << control)
+        var mask = mask_val.cast[DType.bool]()
+
+        # Optimization: If no control bits set, skip
+        # reduce_or seems to be missing or mask is inferred as Bool?
+        # Commenting out optimization for now to ensure correctness of logic first.
+        # if not mask.reduce_or():
+        #    return
+
+        elem0_orig_re = elem0_re
+        elem0_orig_im = elem0_im
+
+        elem1_orig_re = elem1_re
+        elem1_orig_im = elem1_im
+
+        new_elem0_re = elem0_orig_re.fma(
+            gate_re[0][0],
+            -gate_im[0][0] * elem0_orig_im
+            + elem1_orig_re.fma(gate_re[0][1], -gate_im[0][1] * elem1_orig_im),
+        )
+        new_elem0_im = elem0_orig_re.fma(
+            gate_im[0][0],
+            gate_re[0][0] * elem0_orig_im
+            + elem1_orig_re.fma(gate_im[0][1], gate_re[0][1] * elem1_orig_im),
+        )
+        new_elem1_re = elem0_orig_re.fma(
+            gate_re[1][0],
+            -gate_im[1][0] * elem0_orig_im
+            + elem1_orig_re.fma(gate_re[1][1], -gate_im[1][1] * elem1_orig_im),
+        )
+        new_elem1_im = elem0_orig_re.fma(
+            gate_im[1][0],
+            gate_re[1][0] * elem0_orig_im
+            + elem1_orig_re.fma(gate_im[1][1], gate_re[1][1] * elem1_orig_im),
+        )
+
+        # Blend results based on mask
+        elem0_re = mask.select(new_elem0_re, elem0_re)
+        elem0_im = mask.select(new_elem0_im, elem0_im)
+        elem1_re = mask.select(new_elem1_re, elem1_re)
+        elem1_im = mask.select(new_elem1_im, elem1_im)
+
+        vector_re.store[width=simd_width](zero_idx, elem0_re)
+        vector_im.store[width=simd_width](zero_idx, elem0_im)
+        vector_re.store[width=simd_width](one_idx, elem1_re)
+        vector_im.store[width=simd_width](one_idx, elem1_im)
+
+    @parameter
+    @always_inline
+    fn worker_simd(item_id: Int):
+        var start = item_id * chunk_size
+        var end = min(start + chunk_size, N // 2)
+        for idx in range(start, end, simd_width):
+            butterfly_simd[simd_width](idx)
+
+    parallelize[worker_simd](num_work_items, num_threads)
+
+
+fn c_transform_simd[
+    N: Int
+](mut state: QuantumState, control: Int, target: Int, gate: Gate):
+    stride = 1 << target
+    if stride < simd_width:
+        c_transform(state, control, target, gate)
+    else:
+        c_transform_simd_base[N](state, control, stride, gate)
+
+
 def iqft(mut state: QuantumState, targets: List[Int]):
     for j in reversed(range(len(targets))):
         transform(state, targets[j], H)
         for k in reversed(range(j)):
             c_transform(state, targets[j], targets[k], P(-pi / 2 ** (j - k)))
+
+
+def iqft_simd[N: Int](mut state: QuantumState, targets: List[Int]):
+    for j in reversed(range(len(targets))):
+        transform_simd[N](state, targets[j], H)
+        for k in reversed(range(j)):
+            c_transform_simd[N](
+                state, targets[j], targets[k], P(-pi / 2 ** (j - k))
+            )
 
 
 def measure_qubit(
