@@ -1,9 +1,10 @@
 import benchmark
 
 from butterfly.core.state import *
-from butterfly.utils.state import print_state, print_grid_state
+from butterfly.utils.visualization import print_state, print_grid_state
 
 alias unit = benchmark.Unit.ms
+
 
 fn test_uniform[n: Int, par: Int = 0]():
     try:
@@ -13,6 +14,7 @@ fn test_uniform[n: Int, par: Int = 0]():
     except e:
         print("Caught an error:", e)
 
+
 fn test_uniform_grid[n: Int, r: Int, par: Int = 0]():
     try:
         state = init_state_grid(r, n - r)
@@ -20,6 +22,7 @@ fn test_uniform_grid[n: Int, r: Int, par: Int = 0]():
             transform_grid[par](state, t, H)
     except e:
         print("Caught an error:", e)
+
 
 def main():
     alias n: Int = 25
@@ -39,11 +42,16 @@ def main():
     u1 = report_target.mean(unit)
 
     report_target = benchmark.run[test_uniform_grid[n, row_bits, threads]](iter)
-    report_target.print("Uniform Parallel Grid. bits={}, row_bits={}, threads={}".format(n, row_bits, threads))
+    report_target.print(
+        "Uniform Parallel Grid. bits={}, row_bits={}, threads={}".format(
+            n, row_bits, threads
+        )
+    )
     u2 = report_target.mean(unit)
 
-    print("Uniform Parallel List over List speedup:", u0/u1)
-    print("Uniform Parallel Grid over List speedup:", u0/u2)
+    print("Uniform Parallel List over List speedup:", u0 / u1)
+    print("Uniform Parallel Grid over List speedup:", u0 / u2)
+
 
 #     state = init_state_grid(row_bits, n - row_bits)
 #     for t in range(n):

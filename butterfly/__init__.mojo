@@ -1,20 +1,16 @@
-alias Type = DType.float32
-# alias FloatType = SIMD[Type, 1]
-alias FloatType = Scalar[Type]
+from butterfly.core.types import *
+from butterfly.core.state import *
 
-from complex import ComplexSIMD
-alias Amplitude = ComplexSIMD[Type, 1]
-alias State = List[Amplitude]
-alias ArrayState = InlineArray[Amplitude]
-alias GridState = List[State]
+# from butterfly.core.gates import *
 
-alias Gate = InlineArray[InlineArray[Amplitude, 2], 2]
-
-import math
-alias pi: FloatType = math.pi
-
-alias `0`: Amplitude = Amplitude(0, 0)
-alias `1`: Amplitude = Amplitude(1, 0)
-alias `i`: Amplitude = Amplitude(0, 1)
-
-alias sq2: Amplitude = Amplitude(math.sqrt(0.5).cast[Type](), 0)
+# GridState is now List[List[Amplitude]] as defined in core/state.mojo or types?
+# core/state.mojo uses GridState but doesn't define it?
+# Wait, core/state.mojo imports types.
+# types.mojo doesn't define GridState.
+# __init__.mojo defined GridState.
+# I should define GridState in types.mojo or state.mojo.
+# Let's put it in types.mojo or keep it here.
+# core/state.mojo uses GridState in init_state_grid signature.
+# So GridState MUST be defined in types.mojo or state.mojo.
+# I missed that.
+# I will add GridState to types.mojo.
