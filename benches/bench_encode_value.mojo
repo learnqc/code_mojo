@@ -54,7 +54,7 @@ def main():
     var report_encode_value_simd = benchmark.run[test_encode_value_simd[n, v]](
         2, iter
     )
-    report_encode_value_simd.print_full("encode_value simds")
+    report_encode_value_simd.print_full("encode_value simd")
 
     var report_encode_value_swap = benchmark.run[test_encode_value_swap[n, v]](
         2, iter

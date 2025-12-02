@@ -416,32 +416,48 @@ fn c_transform_simd_base[
         elem1_orig_re = elem1_re
         elem1_orig_im = elem1_im
 
-        new_elem0_re = elem0_orig_re.fma(
-            gate_re[0][0],
-            -gate_im[0][0] * elem0_orig_im
-            + elem1_orig_re.fma(gate_re[0][1], -gate_im[0][1] * elem1_orig_im),
-        )
-        new_elem0_im = elem0_orig_re.fma(
-            gate_im[0][0],
-            gate_re[0][0] * elem0_orig_im
-            + elem1_orig_re.fma(gate_im[0][1], gate_re[0][1] * elem1_orig_im),
-        )
-        new_elem1_re = elem0_orig_re.fma(
-            gate_re[1][0],
-            -gate_im[1][0] * elem0_orig_im
-            + elem1_orig_re.fma(gate_re[1][1], -gate_im[1][1] * elem1_orig_im),
-        )
-        new_elem1_im = elem0_orig_re.fma(
-            gate_im[1][0],
-            gate_re[1][0] * elem0_orig_im
-            + elem1_orig_re.fma(gate_im[1][1], gate_re[1][1] * elem1_orig_im),
-        )
+#         new_elem0_re = elem0_orig_re.fma(
+#             gate_re[0][0],
+#             -gate_im[0][0] * elem0_orig_im
+#             + elem1_orig_re.fma(gate_re[0][1], -gate_im[0][1] * elem1_orig_im),
+#         )
+#         new_elem0_im = elem0_orig_re.fma(
+#             gate_im[0][0],
+#             gate_re[0][0] * elem0_orig_im
+#             + elem1_orig_re.fma(gate_im[0][1], gate_re[0][1] * elem1_orig_im),
+#         )
+#         new_elem1_re = elem0_orig_re.fma(
+#             gate_re[1][0],
+#             -gate_im[1][0] * elem0_orig_im
+#             + elem1_orig_re.fma(gate_re[1][1], -gate_im[1][1] * elem1_orig_im),
+#         )
+#         new_elem1_im = elem0_orig_re.fma(
+#             gate_im[1][0],
+#             gate_re[1][0] * elem0_orig_im
+#             + elem1_orig_re.fma(gate_im[1][1], gate_re[1][1] * elem1_orig_im),
+#         )
 
         # Blend results based on mask
-        elem0_re = mask.select(new_elem0_re, elem0_re)
-        elem0_im = mask.select(new_elem0_im, elem0_im)
-        elem1_re = mask.select(new_elem1_re, elem1_re)
-        elem1_im = mask.select(new_elem1_im, elem1_im)
+        elem0_re = mask.select(elem0_orig_re.fma(
+            gate_re[0][0],
+            -gate_im[0][0] * elem0_orig_im
+                + elem1_orig_re.fma(gate_re[0][1], -gate_im[0][1] * elem1_orig_im),
+        ), elem0_re)
+        elem0_im = mask.select(elem0_orig_re.fma(
+            gate_im[0][0],
+            gate_re[0][0] * elem0_orig_im
+                + elem1_orig_re.fma(gate_im[0][1], gate_re[0][1] * elem1_orig_im),
+        ), elem0_im)
+        elem1_re = mask.select(elem0_orig_re.fma(
+            gate_re[1][0],
+            -gate_im[1][0] * elem0_orig_im
+                + elem1_orig_re.fma(gate_re[1][1], -gate_im[1][1] * elem1_orig_im),
+        ), elem1_re)
+        elem1_im = mask.select(elem0_orig_re.fma(
+            gate_im[1][0],
+            gate_re[1][0] * elem0_orig_im
+                + elem1_orig_re.fma(gate_im[1][1], gate_re[1][1] * elem1_orig_im),
+        ), elem1_im)
 
         vector_re.store[width=simd_width](zero_idx, elem0_re)
         vector_im.store[width=simd_width](zero_idx, elem0_im)
