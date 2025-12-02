@@ -231,7 +231,7 @@ fn transform_simd_base[
 fn transform_simd[N: Int](mut state: QuantumState, target: Int, gate: Gate):
     stride = 1 << target
 
-    if stride <= 4 * simd_width:  # TODO: check
+    if stride < 4 * simd_width:  # TODO: check
         transform(state, target, gate)
     else:
         # Optimized: No copy needed!
@@ -499,7 +499,7 @@ fn c_transform_simd[
     N: Int
 ](mut state: QuantumState, control: Int, target: Int, gate: Gate):
     stride = 1 << target
-    if stride <= 4 * simd_width:  # TODO: check
+    if stride < 4 * simd_width:  # TODO: check
         c_transform(state, control, target, gate)
     else:
         c_transform_simd_base[N](state, control, stride, gate)
