@@ -4,7 +4,9 @@ from butterfly.core.state import QuantumState, ArrayState, GridState
 
 
 def to_table(
-    s: QuantumState, prefix: Tuple[Int, Int] = (0, 0), decimals: Int = 3
+    s: QuantumState,
+    prefix: Tuple[Int, Int] = (0, 0),
+    decimals: Int = 3,
 ) -> List[List[String]]:
     n = Int(log2(Float32(s.size())))
     m = Int(log10(Float32(s.size())))
@@ -53,11 +55,17 @@ def to_table(
         var dir_str = (" " if angle >= 0 else "-") + String(angle_deg) + "°"
         row.append(dir_str.rjust(decimals + 6, " "))
 
-        row.append(("#" * Int(floor(16 * mag))).ljust(16, " "))
+        var bar_char = "█"
+        var mag_len = Int(floor(16 * mag))
+        var mag_bar = bar_char * mag_len
+        row.append(mag_bar + (" " * (16 - mag_len)))
 
         var prob = s[k].re * s[k].re + s[k].im * s[k].im
         row.append(String(round(prob, decimals)).rjust(decimals + 2, " "))
-        row.append(("#" * Int(floor(16 * prob))).ljust(16, " "))
+
+        var prob_len = Int(floor(16 * prob))
+        var prob_bar = bar_char * prob_len
+        row.append(prob_bar + (" " * (16 - prob_len)))
 
         table.append(row^)
 
@@ -65,7 +73,10 @@ def to_table(
 
 
 def print_state(
-    state: QuantumState, prefix: Tuple[Int, Int] = (0, 0), short: Bool = True
+    state: QuantumState,
+    prefix: Tuple[Int, Int] = (0, 0),
+    short: Bool = True,
+    use_color: Bool = True,
 ):
     rows = 16 if short else max(16, state.size())
 
@@ -77,16 +88,25 @@ def print_state(
         sub_im.append(state[i].im)
     var sub_state = QuantumState(sub_re^, sub_im^)
 
-    table = to_table(sub_state, prefix)
+    table = to_table(sub_state, prefix, 3)
     for i in range(len(table)):
         print("\n")
         for j in range(len(table[i])):
-            print(table[i][j], end=" ￤")
+            var cell = table[i][j]
+            if use_color:
+                if j == 5:  # MagBar
+                    cell = "\033[92m" + cell + "\033[0m"
+                elif j == 7:  # ProbBar
+                    cell = "\033[94m" + cell + "\033[0m"
+            print(cell, end=" ￤")
     print("\n")
 
 
 def print_state_a(
-    state: ArrayState, prefix: Tuple[Int, Int] = (0, 0), short: Bool = True
+    state: ArrayState,
+    prefix: Tuple[Int, Int] = (0, 0),
+    short: Bool = True,
+    use_color: Bool = True,
 ):
     var re = List[FloatType]()
     var im = List[FloatType]()
@@ -94,10 +114,12 @@ def print_state_a(
         re.append(state[i].re)
         im.append(state[i].im)
     var qs = QuantumState(re^, im^)
-    print_state(qs, prefix, short)
+    print_state(qs, prefix, short, use_color)
 
 
-def print_grid_state(state: GridState, short: Bool = True):
+def print_grid_state(
+    state: GridState, short: Bool = True, use_color: Bool = True
+):
     col_bits = Int(log10(Float32(len(state[0]))))
     for r in range(len(state)):
         var row_re = List[FloatType]()
@@ -106,4 +128,4 @@ def print_grid_state(state: GridState, short: Bool = True):
             row_re.append(state[r][c].re)
             row_im.append(state[r][c].im)
         var qs = QuantumState(row_re^, row_im^)
-        print_state(qs, (Int(r), Int(col_bits)), short)
+        print_state(qs, (Int(r), Int(col_bits)), short, use_color)
