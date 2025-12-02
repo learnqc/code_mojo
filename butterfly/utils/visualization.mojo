@@ -844,7 +844,7 @@ def to_table(
         var dir_str = (" " if angle >= 0 else "-") + String(angle_deg) + "°"
         row.append(dir_str.rjust(decimals + 6, " "))
 
-        var bar_char = "█"
+        var bar_char = "█" #"▇"
         var mag_len = Int(floor(16 * mag))
         var mag_bar = bar_char * mag_len
         row.append(mag_bar + (" " * (16 - mag_len)))
