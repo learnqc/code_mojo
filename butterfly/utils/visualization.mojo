@@ -791,6 +791,26 @@ def get_color_code(re: FloatType, im: FloatType) -> String:
     # TrueColor ANSI: \033[38;2;R;G;Bm
     return "\033[38;2;" + String(r) + ";" + String(g) + ";" + String(b) + "m"
 
+def get_bar(value: FloatType) -> String:
+    if value >= 1:
+        return "█"*Int(floor(value)) + get_bar(value - Int(floor(value)))
+    elif value < 1 and value >= 7.0/8.0:
+        return "▉"
+    elif value <  7.0/8.0 and value >= 0.75:
+        return "▊"
+    elif value <  0.75 and value >= 5.0/8.0:
+        return "▋"
+    elif value <  5.0/8.0 and value >= 0.5:
+        return "▌"
+    elif value <  0.5 and value >= 3.0/8.0:
+        return "▍"
+    elif value <  3.0/8.0 and value >= 0.25:
+        return "▎"
+    elif value <  0.25 and value >= 1.0/8.0:
+        return "▏"
+    else:
+        return " "
+
 
 def to_table(
     s: QuantumState,
@@ -844,17 +864,16 @@ def to_table(
         var dir_str = (" " if angle >= 0 else "-") + String(angle_deg) + "°"
         row.append(dir_str.rjust(decimals + 6, " "))
 
-        var bar_char = "█" #"▇"
         var mag_len = Int(floor(16 * mag))
-        var mag_bar = bar_char * mag_len
-        row.append(mag_bar + (" " * (16 - mag_len)))
+        var mag_bar = get_bar(16*mag)
+        row.append(mag_bar + (" " * (15 - mag_len)))
 
         var prob = s[k].re * s[k].re + s[k].im * s[k].im
         row.append(String(round(prob, decimals)).rjust(decimals + 2, " "))
 
         var prob_len = Int(floor(16 * prob))
-        var prob_bar = bar_char * prob_len
-        row.append(prob_bar + (" " * (16 - prob_len)))
+        prob_bar = get_bar(16*prob)
+        row.append(prob_bar + (" " * (15-prob_len)))
 
         table.append(row^)
 
