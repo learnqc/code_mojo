@@ -1,6 +1,207 @@
 from math import log2, log10, sqrt, atan2, floor
 from butterfly.core.types import *
 from butterfly.core.state import QuantumState, ArrayState, GridState
+from collections import InlineArray
+
+alias c6_data = InlineArray[Int, 180](
+    237,
+    94,
+    147,
+    239,
+    93,
+    136,
+    240,
+    94,
+    125,
+    240,
+    96,
+    115,
+    239,
+    98,
+    105,
+    237,
+    101,
+    95,
+    234,
+    105,
+    85,
+    229,
+    109,
+    76,
+    225,
+    113,
+    67,
+    219,
+    117,
+    59,
+    212,
+    122,
+    51,
+    205,
+    126,
+    44,
+    198,
+    130,
+    37,
+    189,
+    134,
+    31,
+    181,
+    138,
+    27,
+    171,
+    142,
+    24,
+    162,
+    145,
+    24,
+    152,
+    149,
+    26,
+    141,
+    152,
+    31,
+    130,
+    154,
+    37,
+    119,
+    157,
+    44,
+    106,
+    159,
+    52,
+    93,
+    161,
+    60,
+    78,
+    163,
+    69,
+    59,
+    164,
+    79,
+    31,
+    166,
+    89,
+    0,
+    167,
+    99,
+    0,
+    168,
+    110,
+    0,
+    168,
+    121,
+    0,
+    169,
+    132,
+    0,
+    169,
+    143,
+    0,
+    170,
+    154,
+    0,
+    170,
+    165,
+    0,
+    170,
+    176,
+    0,
+    169,
+    186,
+    0,
+    169,
+    196,
+    0,
+    168,
+    205,
+    0,
+    167,
+    214,
+    0,
+    166,
+    222,
+    0,
+    165,
+    229,
+    0,
+    163,
+    236,
+    0,
+    161,
+    241,
+    0,
+    159,
+    245,
+    0,
+    157,
+    248,
+    0,
+    154,
+    250,
+    0,
+    151,
+    251,
+    31,
+    147,
+    250,
+    77,
+    143,
+    248,
+    104,
+    139,
+    246,
+    125,
+    135,
+    242,
+    144,
+    131,
+    237,
+    160,
+    126,
+    231,
+    174,
+    121,
+    224,
+    187,
+    116,
+    216,
+    198,
+    112,
+    207,
+    208,
+    107,
+    198,
+    217,
+    103,
+    189,
+    224,
+    100,
+    179,
+    229,
+    97,
+    168,
+    234,
+    95,
+    158,
+)
+
+
+def get_color_code(re: FloatType, im: FloatType) -> String:
+    var angle = atan2(im, re)
+    var deg = angle * 180.0 / pi
+    if deg < 0:
+        deg += 360.0
+
+    # Map 0-360 to 0-59
+    var idx = Int(deg / 6.0) % 60
+
+    var r = c6_data[3 * idx]
+    var g = c6_data[3 * idx + 1]
+    var b = c6_data[3 * idx + 2]
+
+    # TrueColor ANSI: \033[38;2;R;G;Bm
+    return "\033[38;2;" + String(r) + ";" + String(g) + ";" + String(b) + "m"
 
 
 def to_table(
@@ -89,15 +290,21 @@ def print_state(
     var sub_state = QuantumState(sub_re^, sub_im^)
 
     table = to_table(sub_state, prefix, 3)
+    real_color_code = get_color_code(1, 0)
     for i in range(len(table)):
         print("\n")
+
+        var color_code = "\033[0m"
+        if use_color:
+            color_code = get_color_code(sub_state[i].re, sub_state[i].im)
+
         for j in range(len(table[i])):
             var cell = table[i][j]
             if use_color:
                 if j == 5:  # MagBar
-                    cell = "\033[92m" + cell + "\033[0m"
-                elif j == 7:  # ProbBar
-                    cell = "\033[94m" + cell + "\033[0m"
+                    cell = color_code + cell + "\033[0m"
+                if j == 7:  # ProbBar
+                    cell = real_color_code + cell + "\033[0m"
             print(cell, end=" ￤")
     print("\n")
 
