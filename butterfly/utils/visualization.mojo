@@ -848,7 +848,7 @@ def to_table(
         row.append(re_str + im_str)
 
         var mag = sqrt(s[k].re * s[k].re + s[k].im * s[k].im)
-        row.append(String(round(mag, decimals)).rjust(decimals + 2, " "))
+        row.append(String(round(mag, decimals))[:decimals + 2].rjust(decimals + 2, " "))
 
         var angle = atan2(s[k].im, s[k].re)
         var angle_deg: Float64 = 0.0
@@ -895,23 +895,38 @@ def print_state(
         sub_re.append(state[i].re)
         sub_im.append(state[i].im)
     var sub_state = QuantumState(sub_re^, sub_im^)
-
     table = to_table(sub_state, prefix, 3)
+
+    headers = ['￤' + 'Out'.rjust(len(table[0][0])-2, ' '),
+        'Bin'.rjust(len(table[0][1])+1, ' '),
+        'Ampl'.rjust(len(table[0][2])+1, ' '),
+        'Mag'.rjust(len(table[0][3])+1, ' '),
+        'Dir'.rjust(len(table[0][4]), ' '),
+        'Ampl Bar'.rjust(17, ' '),
+        'Prob'.rjust(len(table[0][6])+1, ' '),
+        'Prob Bar'.rjust(17, ' ')]
+
+    print(' ', end='')
+    print('-'*97, end='\n')
+    for i in range(len(headers)):
+        print(headers[i], end='￤')
+    print()
+    print(' ', end='')
+    print('-'*97, end='')
+
     real_color_code = get_color_code(1, 0)
+    reset_color_code = "\033[0m"
+
     for i in range(len(table)):
         print("\n")
-
-        var color_code = "\033[0m"
-        if use_color:
-            color_code = get_color_code(sub_state[i].re, sub_state[i].im)
 
         for j in range(len(table[i])):
             var cell = table[i][j]
             if use_color:
                 if j == 5:  # MagBar
-                    cell = color_code + cell + "\033[0m"
+                    cell = get_color_code(sub_state[i].re, sub_state[i].im) + cell + reset_color_code
                 if j == 7:  # ProbBar
-                    cell = real_color_code + cell + "\033[0m"
+                    cell = real_color_code + cell + reset_color_code
             print(cell, end=" ￤")
     print("\n")
 
