@@ -18,3 +18,4 @@ test_adjacent_pairs = "pixi run package && cp butterfly.mojopkg tests/ && pixi r
 
 [dependencies]
 mojo = "==0.25.7"
+numpy = ">=2.3.5,<3"
