@@ -370,6 +370,141 @@ fn c_transform(mut state: QuantumState, control: Int, target: Int, gate: Gate):
             r = 0
 
 
+fn c_transform_interval(
+    mut state: QuantumState, control: Int, target: Int, gate: Gate
+):
+    var c_stride = 1 << control
+    var t_stride = 1 << target
+    var size = state.size()
+
+    if target < control:
+        # Iterate over control blocks
+        # Each block is [k*2*c_stride + c_stride, k*2*c_stride + 2*c_stride)
+        for k in range(size // (2 * c_stride)):
+            var block_start = k * 2 * c_stride + c_stride
+            # Inside the block, perform standard transform logic for target
+            # Since c_stride > t_stride and block_start is a multiple of 2*t_stride,
+            # we can just iterate over the sub-blocks of target.
+            for j in range(c_stride // (2 * t_stride)):
+                var sub_start = block_start + j * 2 * t_stride
+                for idx in range(sub_start, sub_start + t_stride):
+                    process_pair(state, gate, idx, idx + t_stride)
+    else:
+        # target > control
+        # Iterate over target blocks
+        for k in range(size // (2 * t_stride)):
+            var base = k * 2 * t_stride
+            # Inside [base, base + t_stride), select indices with control bit 1
+            # The control bit pattern repeats every 2*c_stride
+            var num_periods = t_stride // (2 * c_stride)
+            for p in range(num_periods):
+                var p_start = base + p * 2 * c_stride + c_stride
+                for idx in range(p_start, p_start + c_stride):
+                    process_pair(state, gate, idx, idx + t_stride)
+
+
+fn process_contiguous_simd[
+    N: Int
+](mut state: QuantumState, start: Int, count: Int, stride: Int, gate: Gate):
+    var gate_re = [
+        [gate[0][0].re, gate[0][1].re],
+        [gate[1][0].re, gate[1][1].re],
+    ]
+    var gate_im = [
+        [gate[0][0].im, gate[0][1].im],
+        [gate[1][0].im, gate[1][1].im],
+    ]
+
+    var vector_re = NDBuffer[Type, 1, _, N](state.re)
+    var vector_im = NDBuffer[Type, 1, _, N](state.im)
+
+    @parameter
+    fn butterfly_simd[simd_width: Int](i: Int):
+        var zero_idx = start + i
+        var one_idx = zero_idx + stride
+
+        var elem0_re = vector_re.load[width=simd_width](zero_idx)
+        var elem0_im = vector_im.load[width=simd_width](zero_idx)
+        var elem1_re = vector_re.load[width=simd_width](one_idx)
+        var elem1_im = vector_im.load[width=simd_width](one_idx)
+
+        var elem0_orig_re = elem0_re
+        var elem0_orig_im = elem0_im
+
+        var elem1_orig_re = elem1_re
+        var elem1_orig_im = elem1_im
+
+        elem0_re = elem0_orig_re.fma(
+            gate_re[0][0],
+            -gate_im[0][0] * elem0_orig_im
+            + elem1_orig_re.fma(gate_re[0][1], -gate_im[0][1] * elem1_orig_im),
+        )
+        elem0_im = elem0_orig_re.fma(
+            gate_im[0][0],
+            gate_re[0][0] * elem0_orig_im
+            + elem1_orig_re.fma(gate_im[0][1], gate_re[0][1] * elem1_orig_im),
+        )
+        elem1_re = elem0_orig_re.fma(
+            gate_re[1][0],
+            -gate_im[1][0] * elem0_orig_im
+            + elem1_orig_re.fma(gate_re[1][1], -gate_im[1][1] * elem1_orig_im),
+        )
+        elem1_im = elem0_orig_re.fma(
+            gate_im[1][0],
+            gate_re[1][0] * elem0_orig_im
+            + elem1_orig_re.fma(gate_im[1][1], gate_re[1][1] * elem1_orig_im),
+        )
+
+        vector_re.store[width=simd_width](zero_idx, elem0_re)
+        vector_im.store[width=simd_width](zero_idx, elem0_im)
+        vector_re.store[width=simd_width](one_idx, elem1_re)
+        vector_im.store[width=simd_width](one_idx, elem1_im)
+
+    vectorize[butterfly_simd, simd_width](count)
+
+
+fn c_transform_interval_simd[
+    N: Int
+](mut state: QuantumState, control: Int, target: Int, gate: Gate):
+    var c_stride = 1 << control
+    var t_stride = 1 << target
+    var size = state.size()
+
+    # If the contiguous block size (t_stride) is too small for SIMD, fall back to scalar
+    # Or if we just want to be safe. Let's say if t_stride < simd_width, we can't do the inner loop easily.
+    if t_stride < simd_width:
+        c_transform_interval(state, control, target, gate)
+        return
+
+    if target < control:
+        # Iterate over control blocks
+        for k in range(size // (2 * c_stride)):
+            var block_start = k * 2 * c_stride + c_stride
+            # Inside the block, iterate over sub-blocks
+            for j in range(c_stride // (2 * t_stride)):
+                var sub_start = block_start + j * 2 * t_stride
+                # Here, [sub_start, sub_start + t_stride) is a contiguous block of pairs
+                # with indices (idx, idx + t_stride).
+                # We can vectorize this loop:
+                # for idx in range(sub_start, sub_start + t_stride): ...
+                process_contiguous_simd[N](
+                    state, sub_start, t_stride, t_stride, gate
+                )
+    else:
+        # target > control
+        for k in range(size // (2 * t_stride)):
+            var base = k * 2 * t_stride
+            var num_periods = t_stride // (2 * c_stride)
+            for p in range(num_periods):
+                var p_start = base + p * 2 * c_stride + c_stride
+                # Here [p_start, p_start + c_stride) is a contiguous block
+                # where control bit is 1.
+                # Pairs are (idx, idx + t_stride).
+                process_contiguous_simd[N](
+                    state, p_start, c_stride, t_stride, gate
+                )
+
+
 fn c_transform_simd_base[
     N: Int
 ](mut state: QuantumState, control: Int, stride: Int, gate: Gate):
@@ -512,11 +647,29 @@ def iqft(mut state: QuantumState, targets: List[Int]):
             c_transform(state, targets[j], targets[k], P(-pi / 2 ** (j - k)))
 
 
+def iqft_interval(mut state: QuantumState, targets: List[Int]):
+    for j in reversed(range(len(targets))):
+        transform(state, targets[j], H)
+        for k in reversed(range(j)):
+            c_transform_interval(
+                state, targets[j], targets[k], P(-pi / 2 ** (j - k))
+            )
+
+
 def iqft_simd[N: Int](mut state: QuantumState, targets: List[Int]):
     for j in reversed(range(len(targets))):
         transform_simd[N](state, targets[j], H)
         for k in reversed(range(j)):
             c_transform_simd[N](
+                state, targets[j], targets[k], P(-pi / 2 ** (j - k))
+            )
+
+
+def iqft_simd_interval[N: Int](mut state: QuantumState, targets: List[Int]):
+    for j in reversed(range(len(targets))):
+        transform_simd[N](state, targets[j], H)
+        for k in reversed(range(j)):
+            c_transform_interval_simd[N](
                 state, targets[j], targets[k], P(-pi / 2 ** (j - k))
             )
 

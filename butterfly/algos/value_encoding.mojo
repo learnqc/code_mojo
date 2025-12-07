@@ -15,6 +15,20 @@ def encode_value(n: Int, v: FloatType) -> State:
     return state^
 
 
+def encode_value_interval(n: Int, v: FloatType) -> State:
+    state = init_state(n)
+
+    for j in range(n):
+        transform(state, j, H)
+
+    for j in range(n):
+        # transform(state, j, P(2 * pi / 2 ** (n - j) * v))
+        transform(state, j, P(2 * pi / 2 ** (j + 1) * v))
+
+    iqft_interval(state, [n - 1 - j for j in range(n)])
+    return state^
+
+
 def encode_value_simd[n: Int](v: FloatType) -> State:
     state = init_state(n)
 
@@ -26,6 +40,20 @@ def encode_value_simd[n: Int](v: FloatType) -> State:
         transform_simd[1 << n](state, j, P(2 * pi / 2 ** (j + 1) * v))
 
     iqft_simd[1 << n](state, [n - 1 - j for j in range(n)])
+    return state^
+
+
+def encode_value_simd_interval[n: Int](v: FloatType) -> State:
+    state = init_state(n)
+
+    for j in range(n):
+        transform_simd[1 << n](state, j, H)
+
+    for j in range(n):
+        # transform(state, j, P(2 * pi / 2 ** (n - j) * v))
+        transform_simd[1 << n](state, j, P(2 * pi / 2 ** (j + 1) * v))
+
+    iqft_simd_interval[1 << n](state, [n - 1 - j for j in range(n)])
     return state^
 
 
