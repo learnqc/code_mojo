@@ -1,4 +1,5 @@
 import random
+from bit.bit import bit_reverse
 import time
 import math
 from math import sqrt, cos, sin, log2, log10, atan2, floor
@@ -56,6 +57,20 @@ struct QuantumState:
 
 
 alias State = QuantumState
+
+
+fn bit_reverse_state(mut state: QuantumState):
+    n = Int(log2(Float64(state.size())))
+    s_re = List[FloatType](length=1 << n, fill=0.0)
+    s_im = List[FloatType](length=1 << n, fill=0.0)
+
+    for i in range(1 << n):
+        idx = Int(bit_reverse(SIMD[DType.uint64, 1](i))[0] >> (64 - n))
+        s_re[i] = state.re[idx]
+        s_im[i] = state.im[idx]
+
+    state.re = s_re^
+    state.im = s_im^
 
 
 def init_state(n: Int) -> QuantumState:
@@ -640,14 +655,19 @@ fn c_transform_simd[
         c_transform_simd_base[N](state, control, stride, gate)
 
 
-def iqft(mut state: QuantumState, targets: List[Int]):
+def iqft(mut state: QuantumState, targets: List[Int], swap: Bool = False):
     for j in reversed(range(len(targets))):
         transform(state, targets[j], H)
         for k in reversed(range(j)):
             c_transform(state, targets[j], targets[k], P(-pi / 2 ** (j - k)))
 
+    if swap:
+        bit_reverse_state(state)
 
-def iqft_interval(mut state: QuantumState, targets: List[Int]):
+
+def iqft_interval(
+    mut state: QuantumState, targets: List[Int], swap: Bool = False
+):
     for j in reversed(range(len(targets))):
         transform(state, targets[j], H)
         for k in reversed(range(j)):
@@ -655,8 +675,13 @@ def iqft_interval(mut state: QuantumState, targets: List[Int]):
                 state, targets[j], targets[k], P(-pi / 2 ** (j - k))
             )
 
+    if swap:
+        bit_reverse_state(state)
 
-def iqft_simd[N: Int](mut state: QuantumState, targets: List[Int]):
+
+def iqft_simd[
+    N: Int
+](mut state: QuantumState, targets: List[Int], swap: Bool = False):
     for j in reversed(range(len(targets))):
         transform_simd[N](state, targets[j], H)
         for k in reversed(range(j)):
@@ -664,14 +689,22 @@ def iqft_simd[N: Int](mut state: QuantumState, targets: List[Int]):
                 state, targets[j], targets[k], P(-pi / 2 ** (j - k))
             )
 
+    if swap:
+        bit_reverse_state(state)
 
-def iqft_simd_interval[N: Int](mut state: QuantumState, targets: List[Int]):
+
+def iqft_simd_interval[
+    N: Int
+](mut state: QuantumState, targets: List[Int], swap: Bool = False):
     for j in reversed(range(len(targets))):
         transform_simd[N](state, targets[j], H)
         for k in reversed(range(j)):
             c_transform_interval_simd[N](
                 state, targets[j], targets[k], P(-pi / 2 ** (j - k))
             )
+
+    if swap:
+        bit_reverse_state(state)
 
 
 def measure_qubit(

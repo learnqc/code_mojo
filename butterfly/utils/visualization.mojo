@@ -791,22 +791,23 @@ def get_color_code(re: FloatType, im: FloatType) -> String:
     # TrueColor ANSI: \033[38;2;R;G;Bm
     return "\033[38;2;" + String(r) + ";" + String(g) + ";" + String(b) + "m"
 
+
 def get_bar(value: FloatType) -> String:
     if value >= 1:
-        return "█"*Int(floor(value)) + get_bar(value - Int(floor(value)))
-    elif value < 1 and value >= 7.0/8.0:
+        return "█" * Int(floor(value)) + get_bar(value - Int(floor(value)))
+    elif value < 1 and value >= 7.0 / 8.0:
         return "▉"
-    elif value <  7.0/8.0 and value >= 0.75:
+    elif value < 7.0 / 8.0 and value >= 0.75:
         return "▊"
-    elif value <  0.75 and value >= 5.0/8.0:
+    elif value < 0.75 and value >= 5.0 / 8.0:
         return "▋"
-    elif value <  5.0/8.0 and value >= 0.5:
+    elif value < 5.0 / 8.0 and value >= 0.5:
         return "▌"
-    elif value <  0.5 and value >= 3.0/8.0:
+    elif value < 0.5 and value >= 3.0 / 8.0:
         return "▍"
-    elif value <  3.0/8.0 and value >= 0.25:
+    elif value < 3.0 / 8.0 and value >= 0.25:
         return "▎"
-    elif value <  0.25 and value >= 1.0/8.0:
+    elif value < 0.25 and value >= 1.0 / 8.0:
         return "▏"
     else:
         return " "
@@ -848,7 +849,11 @@ def to_table(
         row.append(re_str + im_str)
 
         var mag = sqrt(s[k].re * s[k].re + s[k].im * s[k].im)
-        row.append(String(round(mag, decimals))[:decimals + 2].rjust(decimals + 2, " "))
+        row.append(
+            String(round(mag, decimals))[: decimals + 2].rjust(
+                decimals + 2, " "
+            )
+        )
 
         var angle = atan2(s[k].im, s[k].re)
         var angle_deg: Float64 = 0.0
@@ -865,19 +870,23 @@ def to_table(
         row.append(dir_str.rjust(decimals + 6, " "))
 
         var mag_len = Int(floor(16 * mag))
-        var mag_bar = get_bar(16*mag)
+        var mag_bar = get_bar(16 * mag)
         row.append(mag_bar + (" " * (15 - mag_len)))
 
         var prob = s[k].re * s[k].re + s[k].im * s[k].im
         row.append(String(round(prob, decimals)).rjust(decimals + 2, " "))
 
         var prob_len = Int(floor(16 * prob))
-        prob_bar = get_bar(16*prob)
-        row.append(prob_bar + (" " * (15-prob_len)))
+        prob_bar = get_bar(16 * prob)
+        row.append(prob_bar + (" " * (15 - prob_len)))
 
         table.append(row^)
 
     return table^
+
+
+def center(s: String, width: Int) -> String:
+    return s.center(width, " ")
 
 
 def print_state(
@@ -897,22 +906,24 @@ def print_state(
     var sub_state = QuantumState(sub_re^, sub_im^)
     table = to_table(sub_state, prefix, 3)
 
-    headers = ['￤' + 'Out'.rjust(len(table[0][0])-2, ' '),
-        'Bin'.rjust(len(table[0][1])+1, ' '),
-        'Ampl'.rjust(len(table[0][2])+1, ' '),
-        'Mag'.rjust(len(table[0][3])+1, ' '),
-        'Dir'.rjust(len(table[0][4]), ' '),
-        'Ampl Bar'.rjust(17, ' '),
-        'Prob'.rjust(len(table[0][6])+1, ' '),
-        'Prob Bar'.rjust(17, ' ')]
+    headers = [
+        "￤" + "Out".center(len(table[0][0]) - 2, " "),
+        "Bin".center(len(table[0][1]) + 1, " "),
+        "Ampl".center(len(table[0][2]) + 1, " "),
+        "Mag".center(len(table[0][3]) + 1, " "),
+        "Dir".center(len(table[0][4]), " "),
+        "Ampl Bar".center(17, " "),
+        "Prob".center(len(table[0][6]) + 1, " "),
+        "Prob Bar".center(17, " "),
+    ]
 
-    print(' ', end='')
-    print('-'*97, end='\n')
+    print(" ", end="")
+    print("-" * 97, end="\n")
     for i in range(len(headers)):
-        print(headers[i], end='￤')
+        print(headers[i], end="￤")
     print()
-    print(' ', end='')
-    print('-'*97, end='')
+    print(" ", end="")
+    print("-" * 97, end="")
 
     real_color_code = get_color_code(1, 0)
     reset_color_code = "\033[0m"
@@ -924,7 +935,11 @@ def print_state(
             var cell = table[i][j]
             if use_color:
                 if j == 5:  # MagBar
-                    cell = get_color_code(sub_state[i].re, sub_state[i].im) + cell + reset_color_code
+                    cell = (
+                        get_color_code(sub_state[i].re, sub_state[i].im)
+                        + cell
+                        + reset_color_code
+                    )
                 if j == 7:  # ProbBar
                     cell = real_color_code + cell + reset_color_code
             print(cell, end=" ￤")
