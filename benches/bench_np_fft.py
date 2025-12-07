@@ -2,9 +2,6 @@ from timeit import repeat
 import time
 import numpy as np
 
-small = np.random.rand(100_000, 128)
-big = np.random.rand(1_000_000, 128)
-
 n = 14
 # s = [1 +1j*0 if i == 1 else 0 for i in range(1<<n)]
 signal = [np.random.rand() +1j*np.random.rand() for _ in range(1<<n)]
