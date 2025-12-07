@@ -840,11 +840,13 @@ def to_table(
 
         var re_str = (" " if round_state[k].re >= 0 else "-") + String(
             abs(round_state[k].re)
-        ).rjust(decimals + 2, " ")
+        )[: decimals + 2].rjust(decimals + 2, " ")
         var im_str = (
             (" + " if round_state[k].im >= 0 else " - ")
             + "i"
-            + String(abs(round_state[k].im)).ljust(decimals + 2, " ")
+            + String(abs(round_state[k].im))[: decimals + 2].ljust(
+                decimals + 2, " "
+            )
         )
         row.append(re_str + im_str)
 
@@ -883,10 +885,6 @@ def to_table(
         table.append(row^)
 
     return table^
-
-
-def center(s: String, width: Int) -> String:
-    return s.center(width, " ")
 
 
 def print_state(

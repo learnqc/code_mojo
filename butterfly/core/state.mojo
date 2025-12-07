@@ -14,7 +14,7 @@ from butterfly.core.gates import *
 alias simd_width = simd_width_of[Type]()
 
 
-struct QuantumState:
+struct QuantumState(ImplicitlyCopyable):
     var re: List[FloatType]
     var im: List[FloatType]
 
@@ -98,7 +98,7 @@ def init_state_a[n: Int]() -> ArrayState[1 << n]:
     return state^
 
 
-def generate_state(n: Int, seed: Int = 555) -> QuantumState:
+fn generate_state(n: Int, seed: Int = 555) -> QuantumState:
     random.seed(seed)
     var probs = List[FloatType](capacity=1 << n)
     for _ in range(1 << n):
