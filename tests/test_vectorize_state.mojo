@@ -16,7 +16,7 @@ alias dtype = DType.float32
 alias float_type = Scalar[dtype]
 
 alias Amplitude = ComplexSIMD[dtype, 1]
-alias sq2: Amplitude = Amplitude(sqrt(0.5).cast[dtype](), 0)
+alias sq_half: Amplitude = Amplitude(sqrt(0.5).cast[dtype](), 0)
 
 alias simd_width = simd_width_of[dtype]()
 
@@ -42,11 +42,11 @@ fn transform[N: Int, use_vectorize: simd_type = 0, show: Bool=False](mut re: Lis
         var elem1_re = vector_re.load[width=simd_width](one_idx)
         var elem1_im = vector_im.load[width=simd_width](one_idx)
 
-        sq2_simd = sqrt(0.5).cast[dtype]()
-        res0_re = (elem0_re + elem1_re)*sq2_simd
-        res0_im = (elem0_im + elem1_im)*sq2_simd
-        res1_re = (elem0_re - elem1_re)*sq2_simd
-        res1_im = (elem0_im - elem1_im)*sq2_simd
+        sq_half_simd = sqrt(0.5).cast[dtype]()
+        res0_re = (elem0_re + elem1_re)*sq_half_simd
+        res0_im = (elem0_im + elem1_im)*sq_half_simd
+        res1_re = (elem0_re - elem1_re)*sq_half_simd
+        res1_im = (elem0_im - elem1_im)*sq_half_simd
 
         if show:
             print("loaded SIMDs:", elem0_re, elem0_im, elem1_re, elem1_im, "->", res0_re, res0_im, res1_re, res1_im)
@@ -65,8 +65,8 @@ fn transform[N: Int, use_vectorize: simd_type = 0, show: Bool=False](mut re: Lis
 
         var elem0 = Amplitude(vector_re.data[zero_idx], vector_im.data[zero_idx])
         var elem1 = Amplitude(vector_re.data[one_idx], vector_im.data[one_idx])
-        s = (elem0 + elem1)*sq2
-        d = (elem0 - elem1)*sq2
+        s = (elem0 + elem1)*sq_half
+        d = (elem0 - elem1)*sq_half
         vector_re.data[zero_idx] = s.re
         vector_im.data[zero_idx] = s.im
         vector_re.data[one_idx] = d.re

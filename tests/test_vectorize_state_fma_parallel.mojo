@@ -16,7 +16,7 @@ alias dtype = DType.float32
 alias float_type = Scalar[dtype]
 
 alias Amplitude = ComplexSIMD[dtype, 1]
-alias sq2: Amplitude = Amplitude(sqrt(0.5).cast[dtype](), 0)
+alias sq_half: Amplitude = Amplitude(sqrt(0.5).cast[dtype](), 0)
 
 alias simd_width = simd_width_of[dtype]()
 
@@ -26,8 +26,8 @@ alias Gate = InlineArray[InlineArray[Amplitude, 2], 2]
 alias FloatGate = InlineArray[InlineArray[Amplitude, 2], 2]
 
 
-# alias sq2_float = sqrt(0.5).cast[dtype]()
-alias H: Gate = [[sq2, sq2], [sq2, -sq2]]
+# alias sq_half_float = sqrt(0.5).cast[dtype]()
+alias H: Gate = [[sq_half, sq_half], [sq_half, -sq_half]]
 
 
 alias X: Gate = [[Amplitude(sqrt(0.0).cast[dtype](), 0.0), Amplitude(sqrt(1.0).cast[dtype](), 0)],

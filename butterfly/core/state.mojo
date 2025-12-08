@@ -161,7 +161,7 @@ fn transform[par: Int = 0](mut state: QuantumState, target: Int, gate: Gate):
         elif stride >= par:
             parallelize[worker1](par * l // (2 * stride), par)
         else:
-            print("No parallelism for target", target)
+            # no parallelism
             for k in range(l // (2 * stride)):
                 for idx in range(k * 2 * stride, k * 2 * stride + stride):
                     process_pair(state, gate, idx, idx + stride)
@@ -175,6 +175,53 @@ fn transform[par: Int = 0](mut state: QuantumState, target: Int, gate: Gate):
             r += 1
             if r == stride:
                 r = 0
+
+
+fn transform_h(mut state: QuantumState, target: Int):
+    l = state.size()
+    stride = 1 << target
+    r = 0
+    for j in range(l // 2):
+        idx = 2 * j - r  # r = j%stride
+        state[idx] = (state[idx] + state[idx + stride]) * sq_half
+        state[idx + stride] = state[idx] - state[idx + stride] * sq2
+
+        r += 1
+        if r == stride:
+            r = 0
+
+
+fn c_transform_interval_p(
+    mut state: QuantumState, control: Int, target: Int, angle: FloatType
+):
+    var c_stride = 1 << control
+    var t_stride = 1 << target
+    var size = state.size()
+
+    if target < control:
+        # Iterate over control blocks
+        # Each block is [k*2*c_stride + c_stride, k*2*c_stride + 2*c_stride)
+        for k in range(size // (2 * c_stride)):
+            var block_start = k * 2 * c_stride + c_stride
+            # Inside the block, perform standard transform logic for target
+            # Since c_stride > t_stride and block_start is a multiple of 2*t_stride,
+            # we can just iterate over the sub-blocks of target.
+            for j in range(c_stride // (2 * t_stride)):
+                var sub_start = block_start + j * 2 * t_stride
+                for idx in range(sub_start, sub_start + t_stride):
+                    state[idx + t_stride] = state[idx + t_stride] * cis(angle)
+    else:
+        # target > control
+        # Iterate over target blocks
+        for k in range(size // (2 * t_stride)):
+            var base = k * 2 * t_stride
+            # Inside [base, base + t_stride), select indices with control bit 1
+            # The control bit pattern repeats every 2*c_stride
+            var num_periods = t_stride // (2 * c_stride)
+            for p in range(num_periods):
+                var p_start = base + p * 2 * c_stride + c_stride
+                for idx in range(p_start, p_start + c_stride):
+                    state[idx + t_stride] = state[idx + t_stride] * cis(angle)
 
 
 fn transform_simd_base[
@@ -669,10 +716,11 @@ def iqft_interval(
     mut state: QuantumState, targets: List[Int], swap: Bool = False
 ):
     for j in reversed(range(len(targets))):
-        transform(state, targets[j], H)
+        # transform(state, targets[j], H)
+        transform_h(state, targets[j])
         for k in reversed(range(j)):
-            c_transform_interval(
-                state, targets[j], targets[k], P(-pi / 2 ** (j - k))
+            c_transform_interval_p(
+                state, targets[j], targets[k], -pi / 2 ** (j - k)
             )
 
     if swap:

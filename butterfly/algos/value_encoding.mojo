@@ -19,13 +19,15 @@ def encode_value_interval(n: Int, v: FloatType) -> State:
     state = init_state(n)
 
     for j in range(n):
-        transform(state, j, H)
+        # transform(state, j, H)
+        transform_h(state, j)
 
     for j in range(n):
-        # transform(state, j, P(2 * pi / 2 ** (n - j) * v))
-        transform(state, j, P(2 * pi / 2 ** (j + 1) * v))
+        transform(state, j, P(2 * pi / 2 ** (n - j) * v))
+        # transform(state, j, P(2 * pi / 2 ** (j + 1) * v))
 
-    iqft_interval(state, [n - 1 - j for j in range(n)])
+    # iqft_interval(state, [n - 1 - j for j in range(n)])
+    iqft_interval(state, [j for j in range(n)], True)
     return state^
 
 

@@ -5,15 +5,20 @@ from butterfly.core.state import (
     iqft_simd,
     generate_state,
 )
+from butterfly.algos.value_encoding import encode_value_interval
 from butterfly.utils.visualization import print_state
 
 
 fn main() raises:
     alias n = 14
-    print("Benchmarking IQFT n={}...".format(String(n)))
 
     # Initialize random_state once locally
     var random_state = generate_state(n)
+
+    state = encode_value_interval(n, 4.7)
+    print_state(state)
+
+    print("Benchmarking IQFT n={}...".format(String(n)))
 
     @parameter
     fn bench_iqft_interval_no_swap():

@@ -15,7 +15,7 @@ fn P(theta: FloatType) -> Gate:
     return gate^
 
 
-alias H: Gate = [[sq2, sq2], [sq2, -sq2]]
+alias H: Gate = [[sq_half, sq_half], [sq_half, -sq_half]]
 
 
 fn RZ(theta: FloatType) -> Gate:
