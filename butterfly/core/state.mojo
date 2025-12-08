@@ -73,13 +73,13 @@ fn bit_reverse_state(mut state: QuantumState):
     state.im = s_im^
 
 
-def init_state(n: Int) -> QuantumState:
+fn init_state(n: Int) -> QuantumState:
     var state = QuantumState(n)
     state[0] = `1`
     return state^
 
 
-def init_state_grid(row_bits: Int, col_bits: Int) -> GridState:
+fn init_state_grid(row_bits: Int, col_bits: Int) -> GridState:
     R = 1 << row_bits
     C = 1 << col_bits
     grid_state = List[List[Amplitude]](capacity=R)
@@ -92,7 +92,7 @@ def init_state_grid(row_bits: Int, col_bits: Int) -> GridState:
     return grid_state^
 
 
-def init_state_a[n: Int]() -> ArrayState[1 << n]:
+fn init_state_a[n: Int]() -> ArrayState[1 << n]:
     var state = ArrayState[1 << n](fill=`0`)
     state[0] = `1`
     return state^
@@ -432,6 +432,76 @@ fn c_transform(mut state: QuantumState, control: Int, target: Int, gate: Gate):
             r = 0
 
 
+fn mc_transform(
+    mut state: QuantumState, controls: List[Int], target: Int, gate: Gate
+):
+    var mask = 0
+    for i in range(len(controls)):
+        mask |= 1 << controls[i]
+
+    stride = 1 << target
+    r = 0
+    for j in range(state.size() // 2):
+        idx = 2 * j - r
+        # Check if all control bits are set (idx & mask == mask)
+        if (Int(idx) & mask) == mask:
+            process_pair(state, gate, Int(idx), Int(idx + stride))
+        r += 1
+        if r == stride:
+            r = 0
+
+
+fn mc_transform_interval(
+    mut state: QuantumState, controls: List[Int], target: Int, gate: Gate
+):
+    if len(controls) == 0:
+        transform(state, target, gate)
+        return
+
+    # Find the largest control bit to use for interval skipping
+    var c_max = -1
+    var mask = 0
+    for i in range(len(controls)):
+        var c = controls[i]
+        mask |= 1 << c
+        if c > c_max:
+            c_max = c
+
+    # We can reuse the logic from c_transform_interval for c_max,
+    # but inside the inner loops, we must check the rest of the mask.
+    # Actually, c_transform_interval logic is specific to ONE control.
+    # We can adapt it: iterate blocks defined by c_max.
+
+    var c_stride = 1 << c_max
+    var t_stride = 1 << target
+    var size = state.size()
+
+    # Remaining mask excluding c_max (already implicitly checked by interval logic)
+    var sub_mask = mask ^ (1 << c_max)
+
+    if target < c_max:
+        # Iterate over control blocks of c_max
+        for k in range(size // (2 * c_stride)):
+            var block_start = k * 2 * c_stride + c_stride
+            for j in range(c_stride // (2 * t_stride)):
+                var sub_start = block_start + j * 2 * t_stride
+                for idx in range(sub_start, sub_start + t_stride):
+                    # Check remaining controls
+                    if (Int(idx) & sub_mask) == sub_mask:
+                        process_pair(state, gate, idx, idx + t_stride)
+    else:
+        # target > c_max
+        for k in range(size // (2 * t_stride)):
+            var base = k * 2 * t_stride
+            var num_periods = t_stride // (2 * c_stride)
+            for p in range(num_periods):
+                var p_start = base + p * 2 * c_stride + c_stride
+                for idx in range(p_start, p_start + c_stride):
+                    # Check remaining controls
+                    if (Int(idx) & sub_mask) == sub_mask:
+                        process_pair(state, gate, idx, idx + t_stride)
+
+
 fn c_transform_interval(
     mut state: QuantumState, control: Int, target: Int, gate: Gate
 ):
@@ -523,6 +593,93 @@ fn process_contiguous_simd[
         vector_im.store[width=simd_width](one_idx, elem1_im)
 
     vectorize[butterfly_simd, simd_width](count)
+
+
+fn _get_highest_bit(n: Int) -> Int:
+    # Simple implementation for small n (qubit counts < 64)
+    # Could utilize ctlz for optimization
+    if n == 0:
+        return -1
+    var temp = n
+    var pos = 0
+    if temp >= 1 << 32:
+        temp >>= 32
+        pos += 32
+    if temp >= 1 << 16:
+        temp >>= 16
+        pos += 16
+    if temp >= 1 << 8:
+        temp >>= 8
+        pos += 8
+    if temp >= 1 << 4:
+        temp >>= 4
+        pos += 4
+    if temp >= 1 << 2:
+        temp >>= 2
+        pos += 2
+    if temp >= 1 << 1:
+        temp >>= 1
+        pos += 1
+    return pos
+
+
+fn _mc_transform_simd_recursive[
+    N: Int
+](
+    mut state: QuantumState,
+    start: Int,
+    count: Int,
+    mask: Int,
+    target: Int,
+    gate: Gate,
+):
+    if mask == 0:
+        # Base case: All controls satisfied, target bit resolved to 0 (implied)
+        # Apply gate with SIMD. t_stride is 1 << target
+        process_contiguous_simd[N](state, start, count, 1 << target, gate)
+        return
+
+    var c = _get_highest_bit(mask)
+    var stride = 1 << c
+    var remaining_mask = mask ^ stride
+
+    # We iterate over blocks of size 2*stride
+    # Because we are inside a recursion "block" of size 'count',
+    # and 'count' MUST be a multiple of '2*stride' if we did this right?
+    # Actually, start is aligned, count is power of 2.
+
+    for block_start in range(start, start + count, 2 * stride):
+        if c == target:
+            # This is the target bit. We must process the '0' side.
+            # Recursion enters the lower half: [block_start, block_start + stride)
+            _mc_transform_simd_recursive[N](
+                state, block_start, stride, remaining_mask, target, gate
+            )
+        else:
+            # This is a control bit. We must process the '1' side.
+            # Recursion enters the upper half: [block_start + stride, block_start + 2*stride)
+            _mc_transform_simd_recursive[N](
+                state,
+                block_start + stride,
+                stride,
+                remaining_mask,
+                target,
+                gate,
+            )
+
+
+fn mc_transform_simd[
+    N: Int
+](mut state: QuantumState, controls: List[Int], target: Int, gate: Gate):
+    var mask = 0
+    for i in range(len(controls)):
+        mask |= 1 << controls[i]
+
+    # Add target to mask to handle it in the recursion hierarchy
+    mask |= 1 << target
+
+    # Start recursion covering the whole state
+    _mc_transform_simd_recursive[N](state, 0, state.size(), mask, target, gate)
 
 
 fn c_transform_interval_simd[
