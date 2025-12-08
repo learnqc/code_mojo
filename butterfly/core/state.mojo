@@ -712,7 +712,7 @@ def iqft(mut state: QuantumState, targets: List[Int], swap: Bool = False):
         bit_reverse_state(state)
 
 
-def iqft_interval(
+fn iqft_interval(
     mut state: QuantumState, targets: List[Int], swap: Bool = False
 ):
     for j in reversed(range(len(targets))):
@@ -727,7 +727,7 @@ def iqft_interval(
         bit_reverse_state(state)
 
 
-def iqft_simd[
+fn iqft_simd[
     N: Int
 ](mut state: QuantumState, targets: List[Int], swap: Bool = False):
     for j in reversed(range(len(targets))):

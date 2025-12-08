@@ -10,47 +10,33 @@ from butterfly.utils.visualization import print_state
 
 
 fn main() raises:
-    alias n = 14
+    print_state(encode_value_interval(3, 4.7))
 
+    alias n = 14
     # Initialize random_state once locally
     var random_state = generate_state(n)
-
-    state = encode_value_interval(n, 4.7)
-    print_state(state)
 
     print("Benchmarking IQFT n={}...".format(String(n)))
 
     @parameter
     fn bench_iqft_interval_no_swap():
-        try:
-            var state = random_state
-            iqft_interval(state, [j for j in range(n)], swap=False)
-        except:
-            pass
+        var state = random_state
+        iqft_interval(state, [j for j in range(n)], swap=False)
 
     @parameter
     fn bench_iqft_interval_with_swap():
-        try:
-            var state = random_state
-            iqft_interval(state, [j for j in range(n)], swap=True)
-        except:
-            pass
+        var state = random_state
+        iqft_interval(state, [j for j in range(n)], swap=True)
 
     @parameter
     fn bench_iqft_simd_no_swap():
-        try:
-            var state = random_state
-            iqft_simd[1 << n](state, [j for j in range(n)], swap=False)
-        except:
-            pass
+        var state = random_state
+        iqft_simd[1 << n](state, [j for j in range(n)], swap=False)
 
     @parameter
     fn bench_iqft_simd_with_swap():
-        try:
-            var state = random_state
-            iqft_simd[1 << n](state, [j for j in range(n)], swap=True)
-        except:
-            pass
+        var state = random_state
+        iqft_simd[1 << n](state, [j for j in range(n)], swap=True)
 
     var report_interval_no_swap = benchmark.run[bench_iqft_interval_no_swap](
         5, 100
