@@ -1,4 +1,5 @@
 from butterfly.core.state import *
+from butterfly.core.fft import fft
 
 
 def encode_value(n: Int, v: FloatType) -> State:
@@ -15,7 +16,20 @@ def encode_value(n: Int, v: FloatType) -> State:
     return state^
 
 
-def encode_value_interval(n: Int, v: FloatType) -> State:
+fn iqft_via_fft(mut state: State, inverse: Bool = False):
+    fft(state, inverse=inverse)
+    var norm: FloatType = 0.0
+    for k in range(state.size()):
+        norm += state[k].re * state[k].re + state[k].im * state[k].im
+    factor = sqrt(FloatType(state.size()))
+    for i in range(state.size()):
+        state[i] = Amplitude(
+            state[i].re / factor,
+            state[i].im / factor,
+        )
+
+
+fn encode_value_interval(n: Int, v: FloatType) -> State:
     state = init_state(n)
 
     for j in range(n):
@@ -26,12 +40,15 @@ def encode_value_interval(n: Int, v: FloatType) -> State:
         transform(state, j, P(2 * pi / 2 ** (n - j) * v))
         # transform(state, j, P(2 * pi / 2 ** (j + 1) * v))
 
+    # iqft_interval(state, [j for j in range(n)], swap=True)
+    iqft_via_fft(state, inverse=False)
+
     # iqft_interval(state, [n - 1 - j for j in range(n)])
-    iqft_interval(state, [j for j in range(n)], True)
+
     return state^
 
 
-def encode_value_simd[n: Int](v: FloatType) -> State:
+fn encode_value_simd[n: Int](v: FloatType) -> State:
     state = init_state(n)
 
     for j in range(n):
@@ -45,7 +62,7 @@ def encode_value_simd[n: Int](v: FloatType) -> State:
     return state^
 
 
-def encode_value_simd_interval[n: Int](v: FloatType) -> State:
+fn encode_value_simd_interval[n: Int](v: FloatType) -> State:
     state = init_state(n)
 
     for j in range(n):
@@ -59,7 +76,7 @@ def encode_value_simd_interval[n: Int](v: FloatType) -> State:
     return state^
 
 
-def encode_value_swap(n: Int, v: FloatType) -> State:
+fn encode_value_swap(n: Int, v: FloatType) -> State:
     state = init_state(n)
 
     for j in range(n):
@@ -73,7 +90,7 @@ def encode_value_swap(n: Int, v: FloatType) -> State:
     return state^
 
 
-def encode_value_mix(n: Int, v: FloatType) -> State:
+fn encode_value_mix(n: Int, v: FloatType) -> State:
     state = init_state(n)
 
     threshold = 3 * n // 4

@@ -859,7 +859,7 @@ fn c_transform_simd[
         c_transform_simd_base[N](state, control, stride, gate)
 
 
-def iqft(mut state: QuantumState, targets: List[Int], swap: Bool = False):
+fn iqft(mut state: QuantumState, targets: List[Int], swap: Bool = False):
     for j in reversed(range(len(targets))):
         transform(state, targets[j], H)
         for k in reversed(range(j)):
@@ -898,7 +898,7 @@ fn iqft_simd[
         bit_reverse_state(state)
 
 
-def iqft_simd_interval[
+fn iqft_simd_interval[
     N: Int
 ](mut state: QuantumState, targets: List[Int], swap: Bool = False):
     for j in reversed(range(len(targets))):

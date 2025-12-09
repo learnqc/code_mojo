@@ -5,8 +5,10 @@ from butterfly.core.state import (
     iqft_simd,
     generate_state,
 )
-from butterfly.algos.value_encoding import encode_value_interval
+from butterfly.algos.value_encoding import encode_value_interval, iqft_via_fft
 from butterfly.utils.visualization import print_state
+
+from butterfly.core.fft import fft
 
 
 fn main() raises:
@@ -37,6 +39,12 @@ fn main() raises:
     fn bench_iqft_simd_with_swap():
         var state = random_state
         iqft_simd[1 << n](state, [j for j in range(n)], swap=True)
+
+    @parameter
+    fn bench_fft():
+        var state = random_state
+        # fft(state)
+        iqft_via_fft(state)
 
     var report_interval_no_swap = benchmark.run[bench_iqft_interval_no_swap](
         5, 100
@@ -69,5 +77,12 @@ fn main() raises:
     print(
         "Simd With Swap:",
         report_simd_swap.mean(benchmark.Unit.ms),
+        "ms",
+    )
+
+    var report_fft = benchmark.run[bench_fft](5, 100)
+    print(
+        "FFT:",
+        report_fft.mean(benchmark.Unit.ms),
         "ms",
     )
