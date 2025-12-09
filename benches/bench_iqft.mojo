@@ -16,7 +16,7 @@ from butterfly.core.fft import fft
 
 
 fn main() raises:
-    print_state(encode_value_interval(3, 4.7))
+    print_state(encode_value_interval[3](4.7))
 
     alias n = 14
     # Initialize random_state once locally
@@ -47,6 +47,7 @@ fn main() raises:
     @parameter
     fn bench_fft():
         var state = random_state
+        benchmark.keep(state[0])
         # fft(state)
         # iqft_via_fft(state)
         qfft(state)

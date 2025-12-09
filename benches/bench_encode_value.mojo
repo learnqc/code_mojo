@@ -11,39 +11,27 @@ from butterfly.utils.visualization import print_state
 
 
 fn test_encode_value[n: Int, v: FloatType]():
-    try:
-        _state = encode_value(n, v)
+    _state = encode_value(n, v)
     #         print_state(_state)
-    except e:
-        print("Caught an error:", e)
 
 
 fn test_encode_value_simd[n: Int, v: FloatType]():
-    try:
-        _state = encode_value_simd[n](v)
+    _state = encode_value_simd[n](v)
     #         print_state(_state)
-    except e:
-        print("Caught an error:", e)
 
 
 fn test_encode_value_swap[n: Int, v: FloatType]():
-    try:
-        _ = encode_value_swap(n, v)
+    _ = encode_value_swap(n, v)
     #         print_state(state)
-    except e:
-        print("Caught an error:", e)
 
 
 fn test_encode_value_mix[n: Int, v: FloatType]():
-    try:
-        _state = encode_value_mix(n, v)
+    _state = encode_value_mix(n, v)
     #         print_state(_state)
-    except e:
-        print("Caught an error:", e)
 
 
 def main():
-    alias n: Int = 25
+    alias n: Int = 10
     alias v = 4.7
 
     alias iter = 5

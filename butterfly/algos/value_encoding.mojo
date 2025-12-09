@@ -1,5 +1,6 @@
 from butterfly.core.state import *
 from butterfly.core.fft import fft
+from butterfly.core.fft_fma_optimized import fft_fma_opt
 
 
 fn encode_value(n: Int, v: FloatType) -> State:
@@ -93,7 +94,7 @@ fn iqft_via_fft(mut state: State, inverse: Bool = False):
         )
 
 
-fn encode_value_interval(n: Int, v: FloatType) -> State:
+fn encode_value_interval[n: Int](v: FloatType) -> State:
     state = init_state(n)
 
     for j in range(n):
@@ -107,6 +108,7 @@ fn encode_value_interval(n: Int, v: FloatType) -> State:
 
     # iqft_interval(state, [j for j in range(n)], swap=True)
     qfft(state)
+    # fft_fma_opt[1 << n](state)
     # iqft_via_fft(state, inverse=False)
 
     # iqft_interval(state, [n - 1 - j for j in range(n)])
