@@ -252,6 +252,7 @@ fn c_transform_interval_p(
     var t_stride = 1 << target
     var size = state.size()
 
+    z = cis(angle)
     if target < control:
         # Iterate over control blocks
         # Each block is [k*2*c_stride + c_stride, k*2*c_stride + 2*c_stride)
@@ -263,7 +264,7 @@ fn c_transform_interval_p(
             for j in range(c_stride // (2 * t_stride)):
                 var sub_start = block_start + j * 2 * t_stride
                 for idx in range(sub_start, sub_start + t_stride):
-                    state[idx + t_stride] = state[idx + t_stride] * cis(angle)
+                    state[idx + t_stride] = state[idx + t_stride] * z
     else:
         # target > control
         # Iterate over target blocks
@@ -275,7 +276,42 @@ fn c_transform_interval_p(
             for p in range(num_periods):
                 var p_start = base + p * 2 * c_stride + c_stride
                 for idx in range(p_start, p_start + c_stride):
-                    state[idx + t_stride] = state[idx + t_stride] * cis(angle)
+                    state[idx + t_stride] = state[idx + t_stride] * z
+
+
+fn c_transform_interval_p_precomputed(
+    mut state: QuantumState, control: Int, target: Int, angle: FloatType
+):
+    """FFT-style implementation with precomputed twiddle factor."""
+    var c_stride = 1 << control
+    var t_stride = 1 << target
+    var size = state.size()
+
+    # Precompute twiddle factor ONCE
+    var w_re = cos(angle)
+    var w_im = sin(angle)
+
+    if target < control:
+        for k in range(size // (2 * c_stride)):
+            var block_start = k * 2 * c_stride + c_stride
+            for j in range(c_stride // (2 * t_stride)):
+                var sub_start = block_start + j * 2 * t_stride
+                for idx in range(sub_start, sub_start + t_stride):
+                    var re = state.re[idx + t_stride]
+                    var im = state.im[idx + t_stride]
+                    state.re[idx + t_stride] = re * w_re - im * w_im
+                    state.im[idx + t_stride] = re * w_im + im * w_re
+    else:
+        for k in range(size // (2 * t_stride)):
+            var base = k * 2 * t_stride
+            var num_periods = t_stride // (2 * c_stride)
+            for p in range(num_periods):
+                var p_start = base + p * 2 * c_stride + c_stride
+                for idx in range(p_start, p_start + c_stride):
+                    var re = state.re[idx + t_stride]
+                    var im = state.im[idx + t_stride]
+                    state.re[idx + t_stride] = re * w_re - im * w_im
+                    state.im[idx + t_stride] = re * w_im + im * w_re
 
 
 fn transform_simd_base[
@@ -934,6 +970,9 @@ fn iqft_interval(
             c_transform_interval_p(
                 state, targets[j], targets[k], -pi / 2 ** (j - k)
             )
+            # c_transform_interval_p_precomputed(
+            #     state, targets[j], targets[k], -pi / 2 ** (j - k)
+            # )
 
     if swap:
         bit_reverse_state(state)
