@@ -62,6 +62,7 @@ struct QuantumState(ImplicitlyCopyable, Sized):
 
 struct _QuantumStateIterator:
     """Iterator for QuantumState that yields Amplitude values."""
+
     var state: QuantumState
     var index: Int
 
@@ -217,6 +218,31 @@ fn transform_h(mut state: QuantumState, target: Int):
         r += 1
         if r == stride:
             r = 0
+
+
+fn transform_h_block_style(mut state: QuantumState, target: Int):
+    """Block-based implementation avoiding modulo.
+
+    Processes blocks of 2*stride elements, computing butterflies
+    for the first stride elements in each block.
+    """
+    var l = state.size()
+    var stride = 1 << target
+    var scale = FloatType(1.0 / sqrt(2.0))
+
+    for k in range(l // (2 * stride)):
+        for idx in range(k * 2 * stride, k * 2 * stride + stride):
+            # Load u and v
+            var u_re = state.re[idx]
+            var u_im = state.im[idx]
+            var v_re = state.re[idx + stride]
+            var v_im = state.im[idx + stride]
+
+            # Butterfly: (u+v)/√2 and (u-v)/√2
+            state.re[idx] = (u_re + v_re) * scale
+            state.im[idx] = (u_im + v_im) * scale
+            state.re[idx + stride] = (u_re - v_re) * scale
+            state.im[idx + stride] = (u_im - v_im) * scale
 
 
 fn c_transform_interval_p(
@@ -902,7 +928,8 @@ fn iqft_interval(
 ):
     for j in reversed(range(len(targets))):
         # transform(state, targets[j], H)
-        transform_h(state, targets[j])
+        # transform_h(state, targets[j])
+        transform_h_block_style(state, targets[j])
         for k in reversed(range(j)):
             c_transform_interval_p(
                 state, targets[j], targets[k], -pi / 2 ** (j - k)

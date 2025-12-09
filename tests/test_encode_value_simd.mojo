@@ -8,7 +8,7 @@ from butterfly.algos.value_encoding import (
 
 
 def main():
-    alias n: Int = 15  # non-SIMD interval is better for n <= 14
+    alias n: Int = 14  # non-SIMD interval is better for n <= 14
     v: FloatType = 4.7
 
     state = init_state(n)

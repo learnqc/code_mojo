@@ -5,7 +5,11 @@ from butterfly.core.state import (
     iqft_simd,
     generate_state,
 )
-from butterfly.algos.value_encoding import encode_value_interval, iqft_via_fft
+from butterfly.algos.value_encoding import (
+    encode_value_interval,
+    iqft_via_fft,
+    qfft,
+)
 from butterfly.utils.visualization import print_state
 
 from butterfly.core.fft import fft
@@ -44,7 +48,8 @@ fn main() raises:
     fn bench_fft():
         var state = random_state
         # fft(state)
-        iqft_via_fft(state)
+        # iqft_via_fft(state)
+        qfft(state)
 
     var report_interval_no_swap = benchmark.run[bench_iqft_interval_no_swap](
         5, 100
