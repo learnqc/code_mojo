@@ -11,14 +11,7 @@ def main():
     #         l[i] = i
 
     for target in range(n):
-        swap_to_adjacent_pairs(l, target)
+        swap_to_adjacent_pairs(l, UInt(target))
         stride = 1 << target
         for j in range(len(l)//2):
             assert_equal( l[2*j] + stride, l[2*j + 1])
-
-    from butterfly.utils.state import *
-    target = 2
-    s = init_state(n)
-    transform(s, 0, X)
-    swap_to_adjacent_pairs(s, target)
-    assert_equal(s[1 << target], `1`)

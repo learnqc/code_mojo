@@ -1,8 +1,8 @@
 from butterfly.core.state import *
-from butterfly.utils.state import print_state
+from butterfly.utils.visualization import print_state
 
 def measurement_circuit() -> State:
-    n: UInt = 3
+    n: Int = 3
     state = init_state(n)
 
     values: List[Bool] = [True, False, True]

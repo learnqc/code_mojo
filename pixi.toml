@@ -15,6 +15,7 @@ test_basic = "pixi run package && cp butterfly.mojopkg tests/ && pixi run mojo r
 test_encode_value = "pixi run package && cp butterfly.mojopkg tests/ && pixi run mojo run tests/test_encode_value.mojo -I tests/ && rm tests/butterfly.mojopkg"
 test_measure = "pixi run package && cp butterfly.mojopkg tests/ && pixi run mojo run tests/test_measure.mojo -I tests/ && rm tests/butterfly.mojopkg"
 test_adjacent_pairs = "pixi run package && cp butterfly.mojopkg tests/ && pixi run mojo run tests/test_adjacent_pairs.mojo -I tests/ && rm tests/butterfly.mojopkg"
+test_transform = "pixi run package && cp butterfly.mojopkg tests/ && pixi run mojo run tests/test_transform.mojo -I tests/ && rm tests/butterfly.mojopkg"
 
 [dependencies]
 mojo = "==0.25.7"
