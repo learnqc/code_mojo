@@ -14,7 +14,7 @@ from butterfly.core.gates import *
 alias simd_width = simd_width_of[Type]()
 
 
-struct QuantumState(ImplicitlyCopyable):
+struct QuantumState(ImplicitlyCopyable, Sized):
     var re: List[FloatType]
     var im: List[FloatType]
 
@@ -54,6 +54,34 @@ struct QuantumState(ImplicitlyCopyable):
     fn __setitem__(mut self, idx: Int, val: Amplitude):
         self.re[idx] = val.re
         self.im[idx] = val.im
+
+    fn __iter__(self) -> _QuantumStateIterator:
+        """Return an iterator over the amplitudes."""
+        return _QuantumStateIterator(self)
+
+
+struct _QuantumStateIterator:
+    """Iterator for QuantumState that yields Amplitude values."""
+    var state: QuantumState
+    var index: Int
+
+    fn __init__(out self, state: QuantumState):
+        self.state = state
+        self.index = 0
+
+    fn __iter__(self) -> Self:
+        return self
+
+    fn __has_next__(self) -> Bool:
+        return self.index < self.state.size()
+
+    fn __next__(mut self) -> Amplitude:
+        var result = self.state[self.index]
+        self.index += 1
+        return result
+
+    fn __len__(self) -> Int:
+        return self.state.size() - self.index
 
 
 alias State = QuantumState
