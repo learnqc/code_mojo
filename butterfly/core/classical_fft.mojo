@@ -457,20 +457,18 @@ fn fft_dif_parallel(mut state: QuantumState, inverse: Bool = False):
     var ptr_fac_re = factors_re.unsafe_ptr()
     var ptr_fac_im = factors_im.unsafe_ptr()
 
-    var block_size = n
+    var stride = n // 2
     for _ in range(log_n):
-        var half_block = block_size // 2
-        var stride = n // block_size
 
         @parameter
         fn stage_worker(idx: Int):
             # idx: 0 to n/2 - 1
-            var block_idx = idx // half_block
-            var block_start = block_idx * block_size
-            var j = idx % half_block
+            var block_idx = idx // stride
+            var block_start = block_idx * 2 * stride
+            var j = idx % stride
 
             var top_idx = block_start + j
-            var bot_idx = top_idx + half_block
+            var bot_idx = top_idx + stride
 
             var top_re = ptr_re[top_idx]
             var top_im = ptr_im[top_idx]
@@ -482,8 +480,8 @@ fn fft_dif_parallel(mut state: QuantumState, inverse: Bool = False):
             var diff_re = top_re - bot_re
             var diff_im = top_im - bot_im
 
-            var w_re = ptr_fac_re[stride * j]
-            var w_im = ptr_fac_im[stride * j]
+            var w_re = ptr_fac_re[n // 2 // stride * j]
+            var w_im = ptr_fac_im[n // 2 // stride * j]
 
             var t_re = diff_re * w_re - diff_im * w_im
             var t_im = diff_re * w_im + diff_im * w_re
@@ -494,7 +492,7 @@ fn fft_dif_parallel(mut state: QuantumState, inverse: Bool = False):
             ptr_im[bot_idx] = t_im
 
         parallelize[stage_worker](n // 2, 8)
-        block_size = half_block
+        stride = stride // 2
 
     bit_reverse_state(state)
 
