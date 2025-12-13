@@ -8,7 +8,7 @@ if __name__ == "__main__":
     norm = np.sqrt(sum(abs(a) ** 2 for a in signal))
     signal = [a / norm for a in signal]
 
-    iters = 100
+    iters = 500
 
     start = time.perf_counter_ns()
     for _ in range(iters):

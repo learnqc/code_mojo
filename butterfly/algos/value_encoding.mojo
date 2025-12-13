@@ -1,6 +1,8 @@
 from butterfly.core.state import *
 from butterfly.core.fft import fft
 from butterfly.core.fft_fma_optimized import fft_fma_opt
+from butterfly.core.fft_numpy_style import fft_numpy_style
+from butterfly.core.classical_fft import fft_dit, fft_dif, fft_dif_parallel
 
 
 fn encode_value(n: Int, v: FloatType) -> State:
@@ -15,70 +17,6 @@ fn encode_value(n: Int, v: FloatType) -> State:
 
     iqft(state, [n - 1 - j for j in range(n)])
     return state^
-
-
-fn qfft(mut state: QuantumState, inverse: Bool = False):
-    """Apply FFT to the quantum state using Cooley-Tukey algorithm.
-
-    This is an in-place FFT that operates on the state's complex amplitudes.
-    Uses the radix-2 decimation-in-time algorithm.
-
-    Args:
-        state: QuantumState to transform (modified in-place)
-        inverse: If True, performs inverse FFT
-    """
-    var n = state.size()
-
-    # Bit-reversal permutation
-    bit_reverse_state(state)
-
-    # Cooley-Tukey FFT
-    var m = 2
-    while m <= n:
-        var angle = 2.0 * pi / FloatType(m)
-        if not inverse:
-            angle = -angle
-
-        # Twiddle factor for this stage
-        var wm_re = cos(angle)
-        var wm_im = sin(angle)
-
-        # Process all groups at this stage
-        for k in range(0, n, m):
-            var w_re = FloatType(1.0)
-            var w_im = FloatType(0.0)
-
-            # Butterfly operations within group
-            for j in range(m // 2):
-                var t_re = (
-                    w_re * state.re[k + j + m // 2]
-                    - w_im * state.im[k + j + m // 2]
-                )
-                var t_im = (
-                    w_re * state.im[k + j + m // 2]
-                    + w_im * state.re[k + j + m // 2]
-                )
-
-                var u_re = state.re[k + j]
-                var u_im = state.im[k + j]
-
-                state.re[k + j] = u_re + t_re
-                state.im[k + j] = u_im + t_im
-                state.re[k + j + m // 2] = u_re - t_re
-                state.im[k + j + m // 2] = u_im - t_im
-
-                # Update twiddle factor
-                var w_re_new = w_re * wm_re - w_im * wm_im
-                var w_im_new = w_re * wm_im + w_im * wm_re
-                w_re = w_re_new
-                w_im = w_im_new
-
-        m *= 2
-
-    var scale = FloatType(1.0) / sqrt(FloatType(n))
-    for i in range(n):
-        state.re[i] *= scale
-        state.im[i] *= scale
 
 
 fn iqft_via_fft(mut state: State, inverse: Bool = False):
@@ -107,9 +45,12 @@ fn encode_value_interval[n: Int](v: FloatType) -> State:
         # transform(state, j, P(2 * pi / 2 ** (j + 1) * v))
 
     # iqft_interval(state, [j for j in range(n)], swap=True)
-    qfft(state)
+    # fft_dit(state)
+    # fft_dif(state)
+    fft_dif_parallel(state)
     # fft_fma_opt[1 << n](state)
     # iqft_via_fft(state, inverse=False)
+    # fft_numpy_style(state)
 
     # iqft_interval(state, [n - 1 - j for j in range(n)])
 

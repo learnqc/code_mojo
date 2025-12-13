@@ -3,6 +3,7 @@ from butterfly.core.types import *
 from butterfly.core.state import QuantumState, ArrayState, GridState
 from collections import InlineArray
 
+# https://github.com/holoviz/colorcet/blob/main/assets/colorcet.m
 alias c6_data = InlineArray[Int, 768](
     246,
     54,
