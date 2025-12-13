@@ -29,7 +29,7 @@ fn main() raises:
     )
 
     # Range of n to benchmark
-    for n in range(8, 22):
+    for n in range(1, 22):
         var size = 1 << n
 
         # Prepare Mojo state
