@@ -58,39 +58,43 @@ def analyze_results(table_str):
     rows = table_str.splitlines()[2:] # Skip header and separator
     
     small_scalar_wins = False
-    large_parallel_wins = False
+    large_parallel_wins = False # Any parallel
     numpy_crossover = 0
+    best_large_algo = "Parallel"
     
     for row in rows:
         parts = row.split('|')
-        if len(parts) < 6: continue
+        if len(parts) < 8: continue # increased col count
         
         try:
             n = int(parts[0].strip())
-            winner = parts[5].strip()
+            winner = parts[7].strip() # Index 7 now for "Best Mojo vs NumPy"
             
             if n <= 10 and "Scalar" in winner:
                 small_scalar_wins = True
-            if n >= 16 and "Par" in winner:
+            if n >= 16 and ("Par" in winner or "ParSIMD" in winner or "NDBuf" in winner):
                 large_parallel_wins = True
+                if "ParSIMD" in winner:
+                    best_large_algo = "Parallel SIMD"
+                if "NDBuf" in winner:
+                    best_large_algo = "Parallel NDBuffer"
             
             # Rough parsing of speedup
-            # "1.19x (Par)"
-            speedup_str = parts[5].split('x')[0].strip()
+            speedup_str = parts[7].split('x')[0].strip()
             speedup = float(speedup_str)
             
-            if "Par" in winner and speedup > 1.0 and numpy_crossover == 0:
+            if ("Par" in winner or "ParSIMD" in winner) and speedup > 1.0 and numpy_crossover == 0:
                 numpy_crossover = n
                 
         except:
             continue
             
-    return small_scalar_wins, large_parallel_wins, numpy_crossover
+    return small_scalar_wins, large_parallel_wins, numpy_crossover, best_large_algo
 
 def format_value(val_str):
     try:
         # Try to parse as float
-        # Check if it has " (Scalar)" or " (Par)" suffix
+        # Check if it has suffixes
         suffix = ""
         if "(" in val_str:
             parts = val_str.split("(")
@@ -118,11 +122,10 @@ def reformat_table(table_str):
             formatted_lines.append(line)
             continue
             
-        # parts indices: 0=n, 1=Size, 2=Scalar, 3=Parallel, 4=NumPy, 5=Speedup
-        # We want to format indices 2, 3, 4, 5
+        # parts indices: 0=n, 1=Size, 2=Scalar, 3=Par, 4=ParSIMD, 5=NDBuf, 6=NumPy, 7=Speedup
         new_parts = []
         for i, part in enumerate(parts):
-            if i >= 2: # Time and speedup columns
+            if i >= 2 and i <= 7: # Time cols + speedup
                 new_parts.append(f" {format_value(part)} ".ljust(len(part)))
             else:
                 new_parts.append(part)
@@ -132,7 +135,7 @@ def reformat_table(table_str):
     return "\n".join(formatted_lines)
 
 def generate_markdown(table_content, analysis):
-    small_wins, large_wins, crossover = analysis
+    small_wins, large_wins, crossover, best_large = analysis
     
     clean_table = reformat_table(table_content)
     
@@ -141,9 +144,10 @@ def generate_markdown(table_content, analysis):
     md += "Location: [butterfly/core/classical_fft.mojo](butterfly/core/classical_fft.mojo)\n\n"
     md += "- **Scalar**: Baseline.\n"
     md += "- **SIMD**: Vectorized (slower due to strided access).\n"
-    md += "- **Parallel**: Uses `algorithm.parallelize`.\n\n"
+    md += "- **Parallel**: Uses `algorithm.parallelize`.\n"
+    md += "- **Parallel SIMD**: Uses `parallelize` + explicit `vectorize` with strided gather.\n\n"
     md += "## 2. Scalar Butterfly vs Parallel Butterfly vs NumPy\n"
-    md += "We compared the best Mojo implementation (Scalar for small, Parallel for large) against NumPy.\n\n"
+    md += "We compared the best Mojo implementation (Scalar for small, Parallel/Par-SIMD for large) against NumPy.\n\n"
     
     md += clean_table + "\n\n"
     
@@ -156,7 +160,7 @@ def generate_markdown(table_content, analysis):
     md += "- **Medium N**: NumPy typically dominates due to optimized C/Fortran backend.\n"
     
     if large_wins:
-        md += f"- **Large N**: **Mojo Parallel Butterfly** becomes consistently **faster than NumPy**.\n"
+        md += f"- **Large N**: **Mojo {best_large} Butterfly** becomes consistently **faster than NumPy**.\n"
         if crossover > 0:
             md += f"  - **Crossover Point**: n={crossover}.\n"
     else:

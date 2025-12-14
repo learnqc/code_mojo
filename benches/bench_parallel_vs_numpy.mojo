@@ -1,7 +1,12 @@
 import benchmark
 from python import Python
 from butterfly.core.state import QuantumState, generate_state
-from butterfly.core.classical_fft import fft_dif, fft_dif_parallel
+from butterfly.core.classical_fft import (
+    fft_dif,
+    fft_dif_parallel,
+    fft_dif_parallel_simd,
+    fft_dif_parallel_simd_ndbuffer,
+)
 from butterfly.core.types import FloatType
 
 
@@ -16,20 +21,23 @@ fn main() raises:
     )
     var make_signal = Python.evaluate(init_signal_code)
 
-    print("Benchmarking Scalar vs Parallel FFT vs NumPy FFT (n=8 to 21)")
     print(
-        "-----------------------------------------------------------------------------"
+        "Benchmarking Scalar vs Parallel vs Par-SIMD vs Par-NDBuffer vs NumPy"
+        " (n=8 to 21)"
     )
     print(
-        "n    | Size      | Scalar (ms) | Parallel (ms) | NumPy (ms) | Best"
-        " Mojo vs NumPy"
+        "-------------------------------------------------------------------------------------------------------------"
     )
     print(
-        "-----|-----------|-------------|---------------|------------|-------------------"
+        "n    | Size      | Scalar (ms) | Parallel (ms) | Par-SIMD (ms) |"
+        " Par-NDBuf (ms) | NumPy (ms) | Speedup"
+    )
+    print(
+        "-----|-----------|-------------|---------------|---------------|----------------|------------|--------"
     )
 
     # Range of n to benchmark
-    for n in range(1, 22):
+    for n in range(1, 23):
         var size = 1 << n
 
         # Prepare Mojo state
@@ -51,6 +59,18 @@ fn main() raises:
             benchmark.keep(s.re[0])
 
         @parameter
+        fn bench_mojo_parallel_simd():
+            var s = mojo_state
+            fft_dif_parallel_simd(s)
+            benchmark.keep(s.re[0])
+
+        @parameter
+        fn bench_mojo_parallel_ndbuffer():
+            var s = mojo_state
+            fft_dif_parallel_simd_ndbuffer(s)
+            benchmark.keep(s.re[0])
+
+        @parameter
         fn bench_numpy():
             try:
                 var res = np.fft.fft(np_signal)
@@ -60,18 +80,37 @@ fn main() raises:
 
         var report_scalar = benchmark.run[bench_mojo_scalar](5, 100)
         var report_parallel = benchmark.run[bench_mojo_parallel](5, 100)
+        # Using fewer iterations for large n might be wise, but keeping consistent for now
+        var report_parallel_simd = benchmark.run[bench_mojo_parallel_simd](
+            5, 100
+        )
+        var report_parallel_ndbuffer = benchmark.run[
+            bench_mojo_parallel_ndbuffer
+        ](5, 100)
         var report_numpy = benchmark.run[bench_numpy](5, 100)
 
         var t_scalar = report_scalar.mean(benchmark.Unit.ms)
         var t_parallel = report_parallel.mean(benchmark.Unit.ms)
+        var t_parallel_simd = report_parallel_simd.mean(benchmark.Unit.ms)
+        var t_parallel_ndbuffer = report_parallel_ndbuffer.mean(
+            benchmark.Unit.ms
+        )
         var t_numpy = report_numpy.mean(benchmark.Unit.ms)
 
-        var best_mojo = t_scalar if t_scalar < t_parallel else t_parallel
-        var speedup = t_numpy / best_mojo
+        # Find best mojo time
+        var best_mojo = t_parallel  # Default for large n
+        var algo = String(" (Par)")
+        if t_scalar < best_mojo:
+            best_mojo = t_scalar
+            algo = String(" (Scalar)")
+        if t_parallel_simd < best_mojo:
+            best_mojo = t_parallel_simd
+            algo = String(" (ParSIMD)")
+        if t_parallel_ndbuffer < best_mojo:
+            best_mojo = t_parallel_ndbuffer
+            algo = String(" (NDBuf)")
 
-        var algo = String(" (Scalar)") if t_scalar < t_parallel else String(
-            " (Par)"
-        )
+        var speedup = t_numpy / best_mojo
 
         print(
             n,
@@ -82,6 +121,10 @@ fn main() raises:
             "    |",
             metrics_format(t_parallel),
             "      |",
+            metrics_format(t_parallel_simd),
+            "      |",
+            metrics_format(t_parallel_ndbuffer),
+            "       |",
             metrics_format(t_numpy),
             "   |",
             metrics_format(speedup) + algo,

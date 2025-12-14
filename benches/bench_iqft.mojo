@@ -7,7 +7,15 @@ from butterfly.core.state import (
 )
 from butterfly.algos.value_encoding import encode_value_interval, iqft_via_fft
 from butterfly.utils.visualization import print_state
-from butterfly.core.classical_fft import fft_dit, fft_dif, fft_dif_parallel
+from butterfly.core.classical_fft import (
+    fft_dit,
+    fft_dif,
+    fft_dif_parallel,
+    fft_dif_parallel_simd,
+    fft_dif_parallel_simd_ndbuffer,
+    fft_dif_parallel_ndbuffer,
+    fft_dif_parallel_fastdiv,
+)
 
 from butterfly.core.fft import fft
 from butterfly.core.fft_numpy_style import fft_numpy_style_simd, fft_numpy_style
@@ -15,9 +23,9 @@ from butterfly.core.fft_fma_optimized import fft_fma_opt
 
 
 fn main() raises:
-    print_state(encode_value_interval[5](4.7))
+    print_state(encode_value_interval[21](4.7))
 
-    alias n = 20
+    alias n = 14
     # Initialize random_state once locally
     var random_state = generate_state(n)
 
@@ -55,7 +63,11 @@ fn main() raises:
         # fft_fma_opt[1 << n](state)
         # fft_dit(state)
         # fft_dif(state)
-        fft_dif_parallel(state)
+        # fft_dif_parallel(state)
+        fft_dif_parallel_fastdiv(state)
+        # fft_dif_parallel_simd(state)
+        # fft_dif_parallel_simd_ndbuffer(state)
+        # fft_dif_parallel_ndbuffer(state)
 
     var report_interval_no_swap = benchmark.run[bench_iqft_interval_no_swap](
         5, 100

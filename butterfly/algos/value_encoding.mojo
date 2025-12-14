@@ -2,7 +2,14 @@ from butterfly.core.state import *
 from butterfly.core.fft import fft
 from butterfly.core.fft_fma_optimized import fft_fma_opt
 from butterfly.core.fft_numpy_style import fft_numpy_style
-from butterfly.core.classical_fft import fft_dit, fft_dif, fft_dif_parallel
+from butterfly.core.classical_fft import (
+    fft_dit,
+    fft_dif,
+    fft_dif_parallel,
+    fft_dif_parallel_fastdiv,
+    fft_dif_parallel_simd,
+    fft_dif_parallel_simd_ndbuffer,
+)
 
 
 fn encode_value(n: Int, v: FloatType) -> State:
@@ -47,7 +54,10 @@ fn encode_value_interval[n: Int](v: FloatType) -> State:
     # iqft_interval(state, [j for j in range(n)], swap=True)
     # fft_dit(state)
     # fft_dif(state)
-    fft_dif_parallel(state)
+    # fft_dif_parallel(state)
+    fft_dif_parallel_fastdiv(state)
+    # fft_dif_parallel_simd(state)
+    # fft_dif_parallel_simd_ndbuffer(state)
     # fft_fma_opt[1 << n](state)
     # iqft_via_fft(state, inverse=False)
     # fft_numpy_style(state)
