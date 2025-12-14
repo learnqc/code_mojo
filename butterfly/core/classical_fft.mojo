@@ -1272,86 +1272,100 @@ fn fft_dif_parallel_simd_phast(mut state: QuantumState, inverse: Bool = False):
 
         var factor_stride = n // 2 // stride
 
-        # Pointers to use for this stage (Aliasing Optimization)
-        var stage_tw_re = ptr_tw_buf_re
-        var stage_tw_im = ptr_tw_buf_im
-
-        if factor_stride == 1:
-            # Zero-Copy: Factors are already sequential and correct length (N/2)
-            # Actually factors length is N/2. Stride is N/2. Match.
-            stage_tw_re = ptr_fac_re
-            stage_tw_im = ptr_fac_im
-        else:
-            # Pack needed
-            # Use manual vectorized packing loop to avoid closure capture issues
-            # stride is power of 2, so divisible by simd_width (4/8/16)
-
-            for idx in range(0, stride, simd_width):
-                # vector width = simd_width
-                var idx_base = idx
-                var src_idxs = SIMD[DType.int64, simd_width]()
-                for i in range(simd_width):
-                    src_idxs[i] = Int64((idx_base + i) * factor_stride)
-
-                var val_re = ptr_fac_re.gather(src_idxs)
-                var val_im = ptr_fac_im.gather(src_idxs)
-
-                ptr_tw_buf_re.store(idx_base, val_re)
-                ptr_tw_buf_im.store(idx_base, val_im)
-
         if (stride // 2) >= simd_width:
+            if factor_stride == 1:
+                # Zero-Copy: Use factors directly (Origin: ptr_fac_re)
+                @parameter
+                fn worker_fac(vec_idx: Int):
+                    var idx_base = vec_idx * simd_width
+                    var res = fd.__divmod__(TargetType(idx_base))
+                    var block_idx = Int(res[0])
+                    var j_base = Int(res[1])
+                    var block_start = block_idx * 2 * stride
+                    var top_idx_base = block_start + j_base
+                    var bot_idx_base = top_idx_base + stride
 
-            @parameter
-            fn stage_worker_simd(vec_idx: Int):
-                var idx_base = vec_idx * simd_width
+                    var top_idxs = SIMD[DType.int64, simd_width]()
+                    var bot_idxs = SIMD[DType.int64, simd_width]()
+                    for i in range(simd_width):
+                        top_idxs[i] = Int64(top_idx_base + i)
+                        bot_idxs[i] = Int64(bot_idx_base + i)
 
-                # Scalar FastDiv for Control (reusing previous optimization)
-                var res = fd.__divmod__(TargetType(idx_base))
-                var block_idx = Int(res[0])
-                var j_base = Int(res[1])
+                    var w_re = ptr_fac_re.load[width=simd_width](j_base)
+                    var w_im = ptr_fac_im.load[width=simd_width](j_base)
 
-                var block_start = block_idx * 2 * stride
-                var top_idx_base = block_start + j_base
-                var bot_idx_base = top_idx_base + stride
+                    var top_re = ptr_re.gather(top_idxs)
+                    var top_im = ptr_im.gather(top_idxs)
+                    var bot_re = ptr_re.gather(bot_idxs)
+                    var bot_im = ptr_im.gather(bot_idxs)
 
-                # Data Indices (Iota)
-                var top_idxs = SIMD[DType.int64, simd_width]()
-                var bot_idxs = SIMD[DType.int64, simd_width]()
-                for i in range(simd_width):
-                    top_idxs[i] = Int64(top_idx_base + i)
-                    bot_idxs[i] = Int64(bot_idx_base + i)
+                    var sum_re = top_re + bot_re
+                    var sum_im = top_im + bot_im
+                    var diff_re = top_re - bot_re
+                    var diff_im = top_im - bot_im
 
-                # Twiddle Indices
-                # We read from tw_buf_re/im at index 'j'.
-                # j values are [j_base, j_base+1 ...] (Sequential!)
-                # So we can just LOAD from tw_buf at j_base.
+                    var t_re = diff_re * w_re - diff_im * w_im
+                    var t_im = diff_re * w_im + diff_im * w_re
 
-                # var w_re = tw_buf_re.load[width=simd_width](j_base)
-                # var w_im = tw_buf_im.load[width=simd_width](j_base)
-                # UnsafePointer load syntax:
-                var w_re = stage_tw_re.load[width=simd_width](j_base)
-                var w_im = stage_tw_im.load[width=simd_width](j_base)
+                    ptr_re.scatter(top_idxs, sum_re)
+                    ptr_im.scatter(top_idxs, sum_im)
+                    ptr_re.scatter(bot_idxs, t_re)
+                    ptr_im.scatter(bot_idxs, t_im)
 
-                # Gather Data
-                var top_re = ptr_re.gather(top_idxs)
-                var top_im = ptr_im.gather(top_idxs)
-                var bot_re = ptr_re.gather(bot_idxs)
-                var bot_im = ptr_im.gather(bot_idxs)
+                parallelize[worker_fac]((n // 2) // simd_width, 8)
+            else:
+                # Buffer Mode (Origin: ptr_tw_buf_re)
 
-                var sum_re = top_re + bot_re
-                var sum_im = top_im + bot_im
-                var diff_re = top_re - bot_re
-                var diff_im = top_im - bot_im
+                # Pack first
+                for idx in range(0, stride, simd_width):
+                    var idx_base = idx
+                    var src_idxs = SIMD[DType.int64, simd_width]()
+                    for i in range(simd_width):
+                        src_idxs[i] = Int64((idx_base + i) * factor_stride)
+                    var val_re = ptr_fac_re.gather(src_idxs)
+                    var val_im = ptr_fac_im.gather(src_idxs)
+                    ptr_tw_buf_re.store(idx_base, val_re)
+                    ptr_tw_buf_im.store(idx_base, val_im)
 
-                var t_re = diff_re * w_re - diff_im * w_im
-                var t_im = diff_re * w_im + diff_im * w_re
+                # Run using buffer
+                @parameter
+                fn worker_buf(vec_idx: Int):
+                    var idx_base = vec_idx * simd_width
+                    var res = fd.__divmod__(TargetType(idx_base))
+                    var block_idx = Int(res[0])
+                    var j_base = Int(res[1])
+                    var block_start = block_idx * 2 * stride
+                    var top_idx_base = block_start + j_base
+                    var bot_idx_base = top_idx_base + stride
 
-                ptr_re.scatter(top_idxs, sum_re)
-                ptr_im.scatter(top_idxs, sum_im)
-                ptr_re.scatter(bot_idxs, t_re)
-                ptr_im.scatter(bot_idxs, t_im)
+                    var top_idxs = SIMD[DType.int64, simd_width]()
+                    var bot_idxs = SIMD[DType.int64, simd_width]()
+                    for i in range(simd_width):
+                        top_idxs[i] = Int64(top_idx_base + i)
+                        bot_idxs[i] = Int64(bot_idx_base + i)
 
-            parallelize[stage_worker_simd]((n // 2) // simd_width, 8)
+                    var w_re = ptr_tw_buf_re.load[width=simd_width](j_base)
+                    var w_im = ptr_tw_buf_im.load[width=simd_width](j_base)
+
+                    var top_re = ptr_re.gather(top_idxs)
+                    var top_im = ptr_im.gather(top_idxs)
+                    var bot_re = ptr_re.gather(bot_idxs)
+                    var bot_im = ptr_im.gather(bot_idxs)
+
+                    var sum_re = top_re + bot_re
+                    var sum_im = top_im + bot_im
+                    var diff_re = top_re - bot_re
+                    var diff_im = top_im - bot_im
+
+                    var t_re = diff_re * w_re - diff_im * w_im
+                    var t_im = diff_re * w_im + diff_im * w_re
+
+                    ptr_re.scatter(top_idxs, sum_re)
+                    ptr_im.scatter(top_idxs, sum_im)
+                    ptr_re.scatter(bot_idxs, t_re)
+                    ptr_im.scatter(bot_idxs, t_im)
+
+                parallelize[worker_buf]((n // 2) // simd_width, 8)
 
         else:
             # Fallback
