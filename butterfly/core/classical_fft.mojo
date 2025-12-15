@@ -1,4 +1,9 @@
 from butterfly.core.state import *
+from butterfly.algos.vec_swaps import swap_state_to_distance_8_simd
+from butterfly.algos.tail_stages import (
+    fused_stride2_stride1_swapped,
+    stride4_swapped_simd,
+)
 from memory import UnsafePointer
 from algorithm import parallelize
 from buffer import NDBuffer
@@ -1427,39 +1432,52 @@ fn fft_dif_parallel_simd_phast(mut state: QuantumState, inverse: Bool = False):
                 parallelize[worker_buf]((n // 2) // simd_width, 8)
 
         else:
-            # Fallback
-            for idx in range(n // 2):
-                var res = fd.__divmod__(TargetType(idx))
-                var block_idx = Int(res[0])
-                var j = Int(res[1])
+            # Fallback (Small Strides or Large SIMD width)
+            if stride == 4:
+                # Optimized Stride 4 (Vectorized Swap + Kernel)
+                swap_state_to_distance_8_simd(state, 2)
+                stride4_swapped_simd(
+                    state, ptr_fac_re, ptr_fac_im, factor_stride
+                )
+                swap_state_to_distance_8_simd(state, 2)
+            elif stride == 2:
+                # Optimized Fused Stride 2 + 1
+                swap_state_to_distance_8_simd(state, 1)
+                fused_stride2_stride1_swapped(state)
+                swap_state_to_distance_8_simd(state, 1)
+                # Handled Stride 1 implicitly
+                break
+            else:
+                # Fallback Scalar Loop
+                for idx in range(n // 2):
+                    var res = fd.__divmod__(TargetType(idx))
+                    var block_idx = Int(res[0])
+                    var j = Int(res[1])
 
-                var block_start = block_idx * 2 * stride
-                var top_idx = block_start + j
-                var bot_idx = top_idx + stride
+                    var block_start = block_idx * 2 * stride
+                    var top_idx = block_start + j
+                    var bot_idx = top_idx + stride
 
-                # Linear Twiddle Read
-                # Fallback loop runs when stride is small, preventing buffer packing.
-                # Must read directly from factors.
-                var w_re = ptr_fac_re[j * factor_stride]
-                var w_im = ptr_fac_im[j * factor_stride]
+                    var w_re = ptr_fac_re[j * factor_stride]
+                    var w_im = ptr_fac_im[j * factor_stride]
 
-                var top_re = ptr_re[top_idx]
-                var top_im = ptr_im[top_idx]
-                var bot_re = ptr_re[bot_idx]
-                var bot_im = ptr_im[bot_idx]
+                    var top_re = ptr_re[top_idx]
+                    var top_im = ptr_im[top_idx]
+                    var bot_re = ptr_re[bot_idx]
+                    var bot_im = ptr_im[bot_idx]
 
-                var sum_re = top_re + bot_re
-                var sum_im = top_im + bot_im
-                var diff_re = top_re - bot_re
-                var diff_im = top_im - bot_im
+                    var sum_re = top_re + bot_re
+                    var sum_im = top_im + bot_im
+                    var diff_re = top_re - bot_re
+                    var diff_im = top_im - bot_im
 
-                var t_re = diff_re * w_re - diff_im * w_im
-                var t_im = diff_re * w_im + diff_im * w_re
+                    var t_re = diff_re * w_re - diff_im * w_im
+                    var t_im = diff_re * w_im + diff_im * w_re
 
-                ptr_re[top_idx] = sum_re
-                ptr_im[top_idx] = sum_im
-                ptr_re[bot_idx] = t_re
-                ptr_im[bot_idx] = t_im
+                    ptr_re[top_idx] = sum_re
+                    ptr_im[top_idx] = sum_im
+                    ptr_re[bot_idx] = t_re
+                    ptr_im[bot_idx] = t_im
 
         stride = stride // 2
 
