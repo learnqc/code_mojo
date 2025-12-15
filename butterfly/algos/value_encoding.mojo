@@ -9,6 +9,7 @@ from butterfly.core.classical_fft import (
     fft_dif_parallel_fastdiv,
     fft_dif_parallel_simd,
     fft_dif_parallel_simd_ndbuffer,
+    fft_dif_parallel_simd_phast,
 )
 
 
@@ -55,7 +56,8 @@ fn encode_value_interval[n: Int](v: FloatType) -> State:
     # fft_dit(state)
     # fft_dif(state)
     # fft_dif_parallel(state)
-    fft_dif_parallel_fastdiv(state)
+    # fft_dif_parallel_fastdiv(state)
+    fft_dif_parallel_simd_phast(state)
     # fft_dif_parallel_simd(state)
     # fft_dif_parallel_simd_ndbuffer(state)
     # fft_fma_opt[1 << n](state)

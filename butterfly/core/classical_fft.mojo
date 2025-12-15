@@ -1273,8 +1273,67 @@ fn fft_dif_parallel_simd_phast(mut state: QuantumState, inverse: Bool = False):
         var factor_stride = n // 2 // stride
 
         if (stride // 2) >= simd_width:
-            if factor_stride == 1:
-                # Zero-Copy: Use factors directly (Origin: ptr_fac_re)
+            # Tiling Optimization for Large Strides (> L2 Cache)
+            # Threshold chosen based on N=22 benchmarks (Stride 1M was slow, Tiling fixed it).
+            alias TILED_THRESHOLD = 262144
+            alias TILE_SIZE = 4096  # 4KB chunks
+
+            # Use Zero-Copy (Direct Gather) if strides are small enough (avoid buffer overhead)
+            # Factor Stride 1 (Stage 0), 2 (Stage 1), 4 (Stage 2) are good candidates.
+            if factor_stride <= 4 and stride >= TILED_THRESHOLD:
+                # Tiled Zero-Copy Mode (Generic factor_stride)
+                var num_items = n // 2
+                var num_tiles = num_items // TILE_SIZE
+
+                @parameter
+                fn worker_tiled(tile_idx: Int):
+                    var base_idx = tile_idx * TILE_SIZE
+                    for k in range(0, TILE_SIZE, simd_width):
+                        var idx_base = base_idx + k
+                        var res = fd.__divmod__(TargetType(idx_base))
+                        var block_idx = Int(res[0])
+                        var j_base = Int(res[1])
+                        var block_start = block_idx * 2 * stride
+                        var top_idx_base = block_start + j_base
+                        var bot_idx_base = top_idx_base + stride
+
+                        var top_idxs = SIMD[DType.int64, simd_width]()
+                        var bot_idxs = SIMD[DType.int64, simd_width]()
+                        var fac_idxs = SIMD[DType.int64, simd_width]()
+
+                        for i in range(simd_width):
+                            top_idxs[i] = Int64(top_idx_base + i)
+                            bot_idxs[i] = Int64(bot_idx_base + i)
+                            fac_idxs[i] = Int64((j_base + i) * factor_stride)
+
+                        var w_re = ptr_fac_re.gather(fac_idxs)
+                        var w_im = ptr_fac_im.gather(fac_idxs)
+
+                        var top_re = ptr_re.gather(top_idxs)
+                        var top_im = ptr_im.gather(top_idxs)
+                        var bot_re = ptr_re.gather(bot_idxs)
+                        var bot_im = ptr_im.gather(bot_idxs)
+
+                        var sum_re = top_re + bot_re
+                        var sum_im = top_im + bot_im
+                        var diff_re = top_re - bot_re
+                        var diff_im = top_im - bot_im
+
+                        var t_re = diff_re * w_re - diff_im * w_im
+                        var t_im = diff_re * w_im + diff_im * w_re
+
+                        ptr_re.scatter(top_idxs, sum_re)
+                        ptr_im.scatter(top_idxs, sum_im)
+                        ptr_re.scatter(bot_idxs, t_re)
+                        ptr_im.scatter(bot_idxs, t_im)
+
+                parallelize[worker_tiled](num_tiles)
+
+                # Handle remainder if any (unlikely with power of 2 sizes, but good practice)
+                # Power of 2 sizes will always be divisible by 4096 (2^12) if n >= 13.
+
+            elif factor_stride == 1:
+                # Standard Zero-Copy: Use factors directly (Origin: ptr_fac_re)
                 @parameter
                 fn worker_fac(vec_idx: Int):
                     var idx_base = vec_idx * simd_width
@@ -1379,8 +1438,10 @@ fn fft_dif_parallel_simd_phast(mut state: QuantumState, inverse: Bool = False):
                 var bot_idx = top_idx + stride
 
                 # Linear Twiddle Read
-                var w_re = ptr_tw_buf_re[j]
-                var w_im = ptr_tw_buf_im[j]
+                # Fallback loop runs when stride is small, preventing buffer packing.
+                # Must read directly from factors.
+                var w_re = ptr_fac_re[j * factor_stride]
+                var w_im = ptr_fac_im[j * factor_stride]
 
                 var top_re = ptr_re[top_idx]
                 var top_im = ptr_im[top_idx]
