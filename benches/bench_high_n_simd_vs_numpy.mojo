@@ -14,20 +14,20 @@ fn main() raises:
 
     print("Benchmarking Large Scale FFT")
     print(
-        "n, Size, SIMD(ms), FastDiv(ms), PhastFT(ms), NumPy(ms),"
-        " Speedup(Phast/NumPy)"
+        "n, Size, SIMD(ms), FastDiv(ms), Butterfly(ms), NumPy(ms),"
+        " Speedup(Butterfly/NumPy)"
     )
 
-    for n in range(23, 27):  # Benchmarking High N
+    for n in range(20, 25):  # Benchmarking High N
         var size = 1 << n
         var state = generate_state(n)
 
         # Iterations: vary based on size strictly
-        var iters = 3 if n < 23 else 2
+        var iters = 5 if n < 23 else 2
 
         var state_simd = state
         var state_simd_fast = state
-        var state_phast = state
+        var state_butterfly = state
 
         # NumPy setup
         var np_in = np.zeros(size, dtype=np.complex128)
@@ -38,7 +38,7 @@ fn main() raises:
         # Just 1 run warmup is fine
         fft_dif_parallel_simd(state_simd)
         fft_dif_parallel_simd_fastdiv(state_simd_fast)
-        fft_dif_parallel_simd_phast(state_phast)
+        fft_dif_parallel_simd_phast(state_butterfly)
         _ = np.fft.fft(np_in)
 
         # 1. SIMD (Std)
@@ -55,12 +55,14 @@ fn main() raises:
         var t3 = time.time()
         var dur_simd_fast = Float64((t3 - t2) * 1000.0 / iters)
 
-        # 3. PhastFT (Tiled Optimization)
-        var t_phast_0 = time.time()
+        # 3. Butterfly (Tiled Optimization)
+        var t_butterfly_0 = time.time()
         for _ in range(iters):
-            fft_dif_parallel_simd_phast(state_phast)
-        var t_phast_1 = time.time()
-        var dur_phast = Float64((t_phast_1 - t_phast_0) * 1000.0 / iters)
+            fft_dif_parallel_simd_phast(state_butterfly)
+        var t_butterfly_1 = time.time()
+        var dur_butterfly = Float64(
+            (t_butterfly_1 - t_butterfly_0) * 1000.0 / iters
+        )
 
         # 4. NumPy
         var t4 = time.time()
@@ -78,9 +80,9 @@ fn main() raises:
             ", ",
             dur_simd_fast,
             ", ",
-            dur_phast,
+            dur_butterfly,
             ", ",
             dur_np,
             ", ",
-            dur_np / dur_phast,  # Speedup of Phast vs NumPy
+            dur_np / dur_butterfly,  # Speedup of Butterfly vs NumPy
         )

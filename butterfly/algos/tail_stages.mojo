@@ -21,15 +21,15 @@ fn fused_stride2_stride1_swapped(mut state: QuantumState):
 
     @parameter
     fn worker(idx: Int):
-        var base = idx * 16
+        var base = idx * 8
 
-        # --- Stage 2 (Stride 2 -> Dist 8) ---
-        alias width = 8
+        # --- Stage 2 (Stride 2 -> Dist 4) ---
+        alias width = 4
         var v0_re = ptr_re.load[width=width](base)
         var v0_im = ptr_im.load[width=width](base)
 
-        var v1_re = ptr_re.load[width=width](base + 8)
-        var v1_im = ptr_im.load[width=width](base + 8)
+        var v1_re = ptr_re.load[width=width](base + 4)
+        var v1_im = ptr_im.load[width=width](base + 4)
 
         # Butterfly Stride 2
         var sum_re = v0_re + v1_re
@@ -37,57 +37,56 @@ fn fused_stride2_stride1_swapped(mut state: QuantumState):
         var diff_re = v0_re - v1_re
         var diff_im = v0_im - v1_im
 
-        # Apply Twiddle for Stride 2: 1 for even, -i for odd
-        # Even indices: 0, 2, 4, 6. Odd: 1, 3, 5, 7.
+        # Apply Twiddle for Stride 2: 1, -i, 1, -i
+        # Mask for odd positions (1, 3): (0, 1, 0, 1)
         # -i rotation: (re, im) -> (im, -re)
 
         var rot_re = diff_im
         var rot_im = -diff_re
 
-        var mask = SIMD[DType.bool, width](0, 1, 0, 1, 0, 1, 0, 1)
+        var mask = SIMD[DType.bool, width](0, 1, 0, 1)
 
         var v1_final_re = mask.select(rot_re, diff_re)
         var v1_final_im = mask.select(rot_im, diff_im)
 
         # --- Stage 1 (Stride 1 -> Dist 1) ---
         # Chunk 0 (Processing 'sum' from Stage 2)
-        var ve0_re = sum_re.shuffle[0, 2, 4, 6, 0, 2, 4, 6]()
-        var vo0_re = sum_re.shuffle[1, 3, 5, 7, 1, 3, 5, 7]()
+        var parts_re = sum_re.deinterleave()
+        var ve0_re = parts_re[0]
+        var vo0_re = parts_re[1]
         var s0_re = ve0_re + vo0_re
         var d0_re = ve0_re - vo0_re
-        # interleave creates width 16
         var mixed0_re = s0_re.interleave(d0_re)
 
-        var ve0_im = sum_im.shuffle[0, 2, 4, 6, 0, 2, 4, 6]()
-        var vo0_im = sum_im.shuffle[1, 3, 5, 7, 1, 3, 5, 7]()
+        var parts_im = sum_im.deinterleave()
+        var ve0_im = parts_im[0]
+        var vo0_im = parts_im[1]
         var s0_im = ve0_im + vo0_im
         var d0_im = ve0_im - vo0_im
         var mixed0_im = s0_im.interleave(d0_im)
 
-        @parameter
-        for k in range(8):
-            ptr_re.store(base + k, mixed0_re[k])
-            ptr_im.store(base + k, mixed0_im[k])
+        ptr_re.store(base, mixed0_re)
+        ptr_im.store(base, mixed0_im)
 
         # Chunk 1 (Processing 'v1_final' from Stage 2)
-        var ve1_re = v1_final_re.shuffle[0, 2, 4, 6, 0, 2, 4, 6]()
-        var vo1_re = v1_final_re.shuffle[1, 3, 5, 7, 1, 3, 5, 7]()
+        var parts1_re = v1_final_re.deinterleave()
+        var ve1_re = parts1_re[0]
+        var vo1_re = parts1_re[1]
         var s1_re = ve1_re + vo1_re
         var d1_re = ve1_re - vo1_re
         var mixed1_re = s1_re.interleave(d1_re)
 
-        var ve1_im = v1_final_im.shuffle[0, 2, 4, 6, 0, 2, 4, 6]()
-        var vo1_im = v1_final_im.shuffle[1, 3, 5, 7, 1, 3, 5, 7]()
+        var parts1_im = v1_final_im.deinterleave()
+        var ve1_im = parts1_im[0]
+        var vo1_im = parts1_im[1]
         var s1_im = ve1_im + vo1_im
         var d1_im = ve1_im - vo1_im
         var mixed1_im = s1_im.interleave(d1_im)
 
-        @parameter
-        for k in range(8):
-            ptr_re.store(base + 8 + k, mixed1_re[k])
-            ptr_im.store(base + 8 + k, mixed1_im[k])
+        ptr_re.store(base + 4, mixed1_re)
+        ptr_im.store(base + 4, mixed1_im)
 
-    parallelize[worker](n // 16)
+    parallelize[worker](n // 8)
 
 
 fn stride4_swapped_simd(
@@ -106,23 +105,20 @@ fn stride4_swapped_simd(
 
     @parameter
     fn worker(idx: Int):
-        var base = idx * 16
+        var base = idx * 8
 
-        # Load indices 0..7 and 8..15
-        # Bit 3 clear: 0..7. Bit 3 set: 8..15.
-        # Swap logic aligned these.
-        alias width = 8
+        # Load indices 0..3 and 4..7
+        # Bit 2 (4) clear: 0..3. Bit 2 set: 4..7.
+        alias width = 4
         var top_re = ptr_re.load[width=width](base)
         var top_im = ptr_im.load[width=width](base)
-        var bot_re = ptr_re.load[width=width](base + 8)
-        var bot_im = ptr_im.load[width=width](base + 8)
+        var bot_re = ptr_re.load[width=width](base + 4)
+        var bot_im = ptr_im.load[width=width](base + 4)
 
         # Gather Twiddles
-        # Indices 0..7. Logical j = indices % 4.
-        # j sequence: 0, 1, 2, 3, 0, 1, 2, 3
-        var idxs = SIMD[DType.int64, width](0, 1, 2, 3, 4, 5, 6, 7)
-        var j_idxs = idxs % 4
-        var fac_idxs = j_idxs * factor_stride
+        # Indices 0..3. Logical j = indices % 4 (which is indices).
+        var idxs = SIMD[DType.int64, width](0, 1, 2, 3)
+        var fac_idxs = idxs * factor_stride
 
         var w_re = ptr_fac_re.gather(fac_idxs)
         var w_im = ptr_fac_im.gather(fac_idxs)
@@ -139,7 +135,7 @@ fn stride4_swapped_simd(
         # Store
         ptr_re.store(base, sum_re)
         ptr_im.store(base, sum_im)
-        ptr_re.store(base + 8, t_re)
-        ptr_im.store(base + 8, t_im)
+        ptr_re.store(base + 4, t_re)
+        ptr_im.store(base + 4, t_im)
 
-    parallelize[worker](n // 16)
+    parallelize[worker](n // 8)

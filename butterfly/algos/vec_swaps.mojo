@@ -71,3 +71,67 @@ fn swap_state_to_distance_8_simd(mut state: QuantumState, target: Int):
         ptr_im.scatter(i_idxs, val_j_im)
 
     parallelize[worker](n // 16)
+
+
+fn swap_state_to_distance_4_simd(mut state: QuantumState, target: Int):
+    """
+    Permutes the QuantumState such that elements originally separated by 'stride' (1 << target)
+    are moved to positions separated by 4 (1 << 2).
+    Vectorized implementation using SIMD gather/scatter.
+
+    Valid for target < 2 (strides 1, 2).
+    """
+    alias dist_val = 4
+    var stride = 1 << target
+
+    if stride == dist_val:
+        return
+
+    # We process in blocks of 8.
+    # In each 8-block [0..7]:
+    # - 4 elements have bit 2 (4) set: [4..7]
+    # - 4 elements have bit 2 (4) clear: [0..3]
+    # In the upper 4 [4..7], we check for bit 'target' (stride) clear.
+    # Exactly 2 elements match.
+
+    var ptr_re = state.re.unsafe_ptr()
+    var ptr_im = state.im.unsafe_ptr()
+    var n = state.size()
+
+    # Offsets relative to the 8-block start
+    # We want indices in 4..7 where bit 'target' is 0.
+    var offsets: SIMD[DType.int64, 2]
+    if target == 0:  # Stride 1
+        # Indices in 4..7 with bit 0 clear: 4, 6
+        offsets = SIMD[DType.int64, 2](4, 6)
+    elif target == 1:  # Stride 2
+        # Indices in 4..7 with bit 1 clear: 4, 5
+        offsets = SIMD[DType.int64, 2](4, 5)
+    else:
+        return
+
+    @parameter
+    fn worker(block_idx: Int):
+        var base = block_idx * 8
+
+        # Calculate indices i (source/upper)
+        var i_idxs = offsets + base
+
+        # Calculate indices j (peer/lower)
+        # j = i ^ 4 ^ stride
+        var xor_mask = Int64(dist_val ^ stride)
+        var j_idxs = i_idxs ^ xor_mask
+
+        # Perform swap Real
+        var val_i_re = ptr_re.gather(i_idxs)
+        var val_j_re = ptr_re.gather(j_idxs)
+        ptr_re.scatter(j_idxs, val_i_re)
+        ptr_re.scatter(i_idxs, val_j_re)
+
+        # Perform swap Imag
+        var val_i_im = ptr_im.gather(i_idxs)
+        var val_j_im = ptr_im.gather(j_idxs)
+        ptr_im.scatter(j_idxs, val_i_im)
+        ptr_im.scatter(i_idxs, val_j_im)
+
+    parallelize[worker](n // 8)

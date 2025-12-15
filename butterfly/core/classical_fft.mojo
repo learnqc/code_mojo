@@ -1,5 +1,5 @@
 from butterfly.core.state import *
-from butterfly.algos.vec_swaps import swap_state_to_distance_8_simd
+from butterfly.algos.vec_swaps import swap_state_to_distance_4_simd
 from butterfly.algos.tail_stages import (
     fused_stride2_stride1_swapped,
     stride4_swapped_simd,
@@ -540,7 +540,7 @@ fn fft_dif_parallel_simd(mut state: QuantumState, inverse: Bool = False):
         var fd = FastDiv[DType.uint32](stride)
         alias TargetType = Scalar[FastDiv[DType.uint32].uint_type]
 
-        if (stride // 2) >= simd_width:
+        if stride >= simd_width:
 
             @parameter
             fn stage_worker_simd(vec_idx: Int):
@@ -1115,8 +1115,8 @@ fn fft_dif_parallel_simd_fastdiv(
         alias TargetType = Scalar[FastDiv[DType.uint32].uint_type]
 
         if (
-            stride // 2
-        ) >= simd_width:  # Optimization valid when vector fits in stride/2
+            stride >= simd_width
+        ):  # Optimization valid when vector fits in stride
             # Stride is at least 2*simd_width.
             # Stride is multiple of simd_width (powers of 2).
             # Indices are aligned to simd_width.
@@ -1433,18 +1433,19 @@ fn fft_dif_parallel_simd_phast(mut state: QuantumState, inverse: Bool = False):
 
         else:
             # Fallback (Small Strides or Large SIMD width)
-            if stride == 4 and n >= 16:
+            if stride == 4 and n >= 8:
                 # Optimized Stride 4 (Vectorized Swap + Kernel)
-                swap_state_to_distance_8_simd(state, 2)
+                # target=2 (Stride 4) -> Swap Bit 2 with Bit 2 (No-op)
+                # swap_state_to_distance_4_simd(state, 2)
                 stride4_swapped_simd(
                     state, ptr_fac_re, ptr_fac_im, factor_stride
                 )
-                swap_state_to_distance_8_simd(state, 2)
-            elif stride == 2 and n >= 16:
+                # swap_state_to_distance_4_simd(state, 2)
+            elif stride == 2 and n >= 8:
                 # Optimized Fused Stride 2 + 1
-                swap_state_to_distance_8_simd(state, 1)
+                swap_state_to_distance_4_simd(state, 1)
                 fused_stride2_stride1_swapped(state)
-                swap_state_to_distance_8_simd(state, 1)
+                swap_state_to_distance_4_simd(state, 1)
                 # Handled Stride 1 implicitly
                 break
             else:
