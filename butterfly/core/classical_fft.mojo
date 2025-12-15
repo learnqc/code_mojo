@@ -1433,14 +1433,14 @@ fn fft_dif_parallel_simd_phast(mut state: QuantumState, inverse: Bool = False):
 
         else:
             # Fallback (Small Strides or Large SIMD width)
-            if stride == 4:
+            if stride == 4 and n >= 16:
                 # Optimized Stride 4 (Vectorized Swap + Kernel)
                 swap_state_to_distance_8_simd(state, 2)
                 stride4_swapped_simd(
                     state, ptr_fac_re, ptr_fac_im, factor_stride
                 )
                 swap_state_to_distance_8_simd(state, 2)
-            elif stride == 2:
+            elif stride == 2 and n >= 16:
                 # Optimized Fused Stride 2 + 1
                 swap_state_to_distance_8_simd(state, 1)
                 fused_stride2_stride1_swapped(state)
