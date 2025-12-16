@@ -23,8 +23,7 @@ from butterfly.core.fft_fma_optimized import fft_fma_opt
 
 
 fn main() raises:
-    print_state(encode_value_interval[3](4.7))
-    return
+    print_state(encode_value_interval[21](4.7))
     alias n = 21
     # Initialize random_state once locally
     var random_state = generate_state(n)

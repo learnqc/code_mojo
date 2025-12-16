@@ -1,14 +1,19 @@
 from butterfly.core.state import *
-from butterfly.algos.vec_swaps import swap_state_to_distance_4_simd
+from butterfly.algos.vec_swaps import (
+    swap_state_to_distance_4_simd,
+    swap_bits_simd,
+)
 from butterfly.algos.tail_stages import (
     fused_stride2_stride1_swapped,
     stride4_swapped_simd,
+    butterfly_dist4_swapped_generic,
 )
 from memory import UnsafePointer
 from algorithm import parallelize
 from buffer import NDBuffer
 from utils.fast_div import FastDiv
 from time import perf_counter_ns
+from math import log2
 
 
 fn generate_factors(
@@ -51,6 +56,41 @@ fn generate_factors(
 
         w_re = w_re_new
         w_im = w_im_new
+
+    return factors_re^, factors_im^
+
+
+fn generate_factors_quarter(
+    n: Int, inverse: Bool = False
+) -> Tuple[List[FloatType], List[FloatType]]:
+    """
+    Generates only the first quarter (N/4) twiddle factors.
+    Used for the Quarter-Table optimization where the other quadrants are derived.
+    """
+    var angle = 2.0 * pi / FloatType(n)
+    if not inverse:
+        angle = -angle
+
+    var w_re = FloatType(1.0)
+    var w_im = FloatType(0.0)
+
+    # cos(angle), sin(angle)
+    var wm_re = cos(angle)
+    var wm_im = sin(angle)
+
+    # We only need N/4 factors
+    var limit = n // 4
+    var factors_re = List[FloatType](capacity=limit)
+    var factors_im = List[FloatType](capacity=limit)
+
+    for _ in range(limit):
+        factors_re.append(w_re)
+        factors_im.append(w_im)
+
+        # Update w = w * wm
+        var t = w_re * wm_re - w_im * wm_im
+        w_im = w_re * wm_im + w_im * wm_re
+        w_re = t
 
     return factors_re^, factors_im^
 
@@ -1527,3 +1567,310 @@ fn fft_dif_parallel_simd_phast(
         final_ptr_im[i] *= scale
 
     parallelize[norm_worker](n)
+
+
+fn fft_dif_experimental_swap_all(
+    mut state: QuantumState, debug_time: Bool = False
+):
+    """
+    Experimental FFT where EVERY stage is executed by swapping the stride-bit
+    with bit 2 (Distance 4), running a generic kernel, and swapping back.
+    """
+    var n = state.size()
+    var log_n = Int(log2(Float64(n)))
+    var stride = n >> 1
+
+    # Generate factors (standard)
+    # Generate factors (standard)
+    ref factors_re, factors_im = generate_factors(n)
+    var ptr_fac_re = factors_re.unsafe_ptr()
+    var ptr_fac_im = factors_im.unsafe_ptr()
+
+    var t_start = perf_counter_ns()
+
+    for _ in range(log_n):
+        var t_stage_start = perf_counter_ns()
+
+        # Current stride = 1 << target
+        # We want to swap 'target' with '2'.
+        var target = Int(log2(Float64(stride)))
+
+        # 1. Swap if needed (target != 2)
+        if target != 2:
+            swap_bits_simd(state, target, 2)
+
+        # 2. Execute Kernel at Distance 4
+        # factor_stride for generic kernel accessing full factors array
+        # factors array has size N/2.
+        # factor_stride = n // 2 // stride
+        var factor_stride = n // 2 // stride
+
+        butterfly_dist4_swapped_generic(
+            state, ptr_fac_re, ptr_fac_im, target, factor_stride
+        )
+
+        # 3. Swap back if needed
+        if target != 2:
+            swap_bits_simd(state, target, 2)
+
+        if debug_time:
+            var t_now = perf_counter_ns()
+            print(
+                "Exp Stage Stride",
+                stride,
+                ": ",
+                (t_now - t_stage_start) / 1e6,
+                "ms",
+            )
+
+        stride = stride >> 1
+
+    if debug_time:
+        var t_end = perf_counter_ns()
+        print("Exp Total Stages: ", (t_end - t_start) / 1e6, "ms")
+
+    var t_br_aaa = perf_counter_ns()
+    bit_reverse_state(state)
+    if debug_time:
+        var t_br_bbb = perf_counter_ns()
+        print("Bit Reversal: ", (t_br_bbb - t_br_aaa) / 1e6, "ms")
+
+    var scale = FloatType(1.0) / sqrt(FloatType(n))
+    var final_ptr_re = state.re.unsafe_ptr()
+    var final_ptr_im = state.im.unsafe_ptr()
+
+    @parameter
+    fn worker_norm(i: Int):
+        final_ptr_re[i] *= scale
+        final_ptr_im[i] *= scale
+
+    parallelize[worker_norm](n)
+
+
+fn fft_dif_parallel_simd_quarter_table(
+    mut state: QuantumState, debug_time: Bool = False
+):
+    """
+    Experimental FFT using only N/4 twiddle factors.
+    Efficiently reconstructs the other quadrants on the fly.
+    """
+    var n = state.size()
+    var log_n = Int(log2(Float64(n)))
+    var stride = n >> 1
+
+    # Generate factors (N/4)
+    # Generate factors (N/4)
+    ref factors_re, factors_im = generate_factors_quarter(n)
+    var ptr_fac_re = factors_re.unsafe_ptr()
+    var ptr_fac_im = factors_im.unsafe_ptr()
+
+    var ptr_re = state.re.unsafe_ptr()
+    var ptr_im = state.im.unsafe_ptr()
+
+    var t_start = perf_counter_ns()
+
+    # Pre-calculate threshold for quarter table
+    var n_quarter = n >> 2
+
+    for _ in range(log_n):
+        var t_stage_start = perf_counter_ns()
+
+        # We need a robust kernel that handles the quarter lookup
+        var factor_stride = n // 2 // stride
+
+        @parameter
+        fn worker_quarter(idx: Int):
+            alias width = simd_width
+            _ = idx * width * 2  # Process 'width' butterflies
+
+            # For strided access, we need to be careful with indices
+            # But here we are iterating over 'j' logic if we can?
+            # Existing parallel_simd iterates blocks of data.
+            # Stride logic is tricky.
+            pass
+
+            # Let's use the 'FastDiv' approach similar to standard SIMD
+            # But simplifying for rapid prototyping:
+            # We want to iterate `j` and `block_idx`.
+            # But to vectorizing `j` is best.
+
+            # Let's use the explicit loop structure from `fft_dif_parallel_simd_phast` buffer-filling?
+            # No, we want to calculate/load on the fly.
+
+        # Implementing the kernel directly inside the loop for now (or inline)
+        # Using FastDiv for control (same as standard SIMD)
+
+        _ = FastDiv[DType.uint32](stride)
+        alias TargetType = Scalar[FastDiv[DType.uint32].uint_type]
+
+        @parameter
+        fn worker(idx: Int):
+            alias width = simd_width
+            # Debug width
+            if idx == 0 and stride == n >> 1:
+                print("DEBUG: simd_width =", width)
+            _ = idx * width
+
+            # Map linear index 'base' to (block_idx, j)
+            # This is complex vectorization.
+            # Ideally we want contigous j.
+
+            # Let's adapt the "Contiguous" logic if stride >= width
+            if stride >= width:
+                # One contiguous block of `j`.
+                # We need to find where we are.
+                # idx counts "butterflies".
+                # dim(idx) = N/2.
+                # But we want to preserve block struct.
+
+                # Re-use logical structure from 'fft_dif_parallel_simd_fastdiv'
+                # idx is block index in the "flat butterfly space"
+                # Let's use the divmod logic on vector indices? Expensive.
+
+                # Simplified: Iterate tiles of size 2*stride? No.
+                # Standard Loop:
+                # parallelize over `block_idx`.
+                # Inside, loop `j` vectorized.
+                pass
+
+        # Proper parallelization scheme:
+        # Loop over blocks (0 .. N/(2*stride))
+        var num_blocks = n // (stride * 2)
+
+        @parameter
+        fn block_worker(b: Int):
+            var block_start = b * stride * 2
+            alias width = simd_width
+
+            # Vectorized loop over j (0 .. stride)
+            # If stride < width, fallback to scalar?
+            if stride < width:
+                # Scalar fallback (or small vector)
+                for j in range(stride):
+                    var top = block_start + j
+                    var bot = top + stride
+                    var w_idx = j * factor_stride
+
+                    var w_re: FloatType
+                    var w_im: FloatType
+                    if w_idx < n_quarter:
+                        w_re = ptr_fac_re[w_idx]
+                        w_im = ptr_fac_im[w_idx]
+                    else:
+                        var k = w_idx - n_quarter
+                        w_re = ptr_fac_im[k]  # Re' = Im
+                        w_im = -ptr_fac_re[k]  # Im' = -Re
+
+                    var u_re = ptr_re[top]
+                    var u_im = ptr_im[top]
+                    var v_re = ptr_re[bot]
+                    var v_im = ptr_im[bot]
+
+                    var diff_re = u_re - v_re
+                    var diff_im = u_im - v_im
+                    var sum_re = u_re + v_re
+                    var sum_im = u_im + v_im
+
+                    var t_re = diff_re * w_re - diff_im * w_im
+                    var t_im = diff_re * w_im + diff_im * w_re
+
+                    ptr_re[top] = sum_re
+                    ptr_im[top] = sum_im
+                    ptr_re[bot] = t_re
+                    ptr_im[bot] = t_im
+            else:
+                # Vectorized J
+                for j_base in range(0, stride, width):
+                    var j_vec = SIMD[DType.int64, width]()
+                    for k in range(width):
+                        j_vec[k] = Int64(j_base + k)
+
+                    var w_idxs = j_vec * factor_stride
+
+                    # --- Quarter Table Lookup Logic ---
+                    alias simd_int = SIMD[DType.int64, width]
+                    var n_quarter_vec = simd_int(n_quarter)
+
+                    # Bitwise check for >= (avoid SIMD comparison constraint)
+                    # if (val - thresh) >= 0, sign bit is 0. ~0 is -1 (True).
+                    # if (val - thresh) < 0,  sign bit is 1. ~1... is ...0? No.
+                    # shift arithmetic: -1 >> 63 is -1. 0 >> 63 is 0.
+                    # so if >= 0, shift is 0. ~0 is -1 (True).
+                    # if < 0, shift is -1. ~(-1) is 0 (False).
+                    var diff_check = w_idxs - n_quarter_vec
+                    var mask_int = ~(diff_check >> 63)
+                    var mask_second = mask_int.cast[DType.bool]()
+
+                    var idxs_wrapped = w_idxs
+
+                    # SIMD select for wrapping
+                    idxs_wrapped = mask_second.select(
+                        w_idxs - n_quarter, w_idxs
+                    )
+
+                    var val_re_raw = ptr_fac_re.gather(idxs_wrapped)
+                    var val_im_raw = ptr_fac_im.gather(idxs_wrapped)
+
+                    # If second quadrant:
+                    # Re_new = Im_raw
+                    # Im_new = -Re_raw
+
+                    # Apply swap/negate based on mask
+                    var swapped_re = val_im_raw
+                    var swapped_im = -val_re_raw
+
+                    var w_re = mask_second.select(swapped_re, val_re_raw)
+                    var w_im = mask_second.select(swapped_im, val_im_raw)
+                    # ----------------------------------
+
+                    var top_idxs = j_vec + block_start
+                    var bot_idxs = top_idxs + stride
+
+                    var top_re = ptr_re.gather(top_idxs)
+                    var top_im = ptr_im.gather(top_idxs)
+                    var bot_re = ptr_re.gather(bot_idxs)
+                    var bot_im = ptr_im.gather(bot_idxs)
+
+                    var diff_re = top_re - bot_re
+                    var diff_im = top_im - bot_im
+                    var sum_re = top_re + bot_re
+                    var sum_im = top_im + bot_im
+
+                    var t_re = diff_re * w_re - diff_im * w_im
+                    var t_im = diff_re * w_im + diff_im * w_re
+
+                    ptr_re.scatter(top_idxs, sum_re)
+                    ptr_im.scatter(top_idxs, sum_im)
+                    ptr_re.scatter(bot_idxs, t_re)
+                    ptr_im.scatter(bot_idxs, t_im)
+
+        parallelize[block_worker](num_blocks)
+
+        if debug_time:
+            var t_now = perf_counter_ns()
+            print(
+                "Quarter Stage Stride",
+                stride,
+                ": ",
+                (t_now - t_stage_start) / 1e6,
+                "ms",
+            )
+
+        stride = stride >> 1
+
+    if debug_time:
+        var t_end = perf_counter_ns()
+        print("Quarter Total Stages: ", (t_end - t_start) / 1e6, "ms")
+
+    bit_reverse_state(state)
+
+    var scale = FloatType(1.0) / sqrt(FloatType(n))
+    var final_ptr_re = state.re.unsafe_ptr()
+    var final_ptr_im = state.im.unsafe_ptr()
+
+    @parameter
+    fn worker_norm(i: Int):
+        final_ptr_re[i] *= scale
+        final_ptr_im[i] *= scale
+
+    parallelize[worker_norm](n)

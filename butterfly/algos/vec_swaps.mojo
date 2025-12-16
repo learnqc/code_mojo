@@ -135,3 +135,65 @@ fn swap_state_to_distance_4_simd(mut state: QuantumState, target: Int):
         ptr_im.scatter(i_idxs, val_j_im)
 
     parallelize[worker](n // 8)
+
+
+fn swap_bits_simd(mut state: QuantumState, bit_a: Int, bit_b: Int):
+    """
+    Swaps bit 'bit_a' and 'bit_b' for all indices in the state using SIMD.
+    Generalized bit swap permutation.
+    """
+    if bit_a == bit_b:
+        return
+
+    # Ensure a < b
+    var a = bit_a
+    var b = bit_b
+    if a > b:
+        a = bit_b
+        b = bit_a
+
+    var ptr_re = state.re.unsafe_ptr()
+    var ptr_im = state.im.unsafe_ptr()
+    var n = state.size()
+    var n_pairs = n >> 2
+
+    @parameter
+    fn worker(idx: Int):
+        alias width = 4
+        var base_k = idx * width
+
+        # Construct k_vec [base, base+1...]
+        var k_vec = SIMD[DType.int64, width]()
+        for i in range(width):
+            k_vec[i] = Int64(base_k + i)
+
+        # Insert 0 at bit position 'a'
+        # Expands k from N-2 bits to N-1 bits
+        var mask_a = (1 << a) - 1
+        var lo_a = k_vec & mask_a
+        var hi_a = k_vec >> a
+        var k_exp_a = lo_a | (hi_a << (a + 1))
+
+        # Insert 0 at bit position 'b'
+        # Expands to N bits
+        var mask_b = (1 << b) - 1
+        var lo_b = k_exp_a & mask_b
+        var hi_b = k_exp_a >> b
+        var idx00 = lo_b | (hi_b << (b + 1))
+
+        var idx_a = idx00 | (1 << a)  # bit a=1, b=0
+        var idx_b = idx00 | (1 << b)  # bit a=0, b=1
+
+        # Perform Swap
+        var val_a_re = ptr_re.gather(idx_a)
+        var val_b_re = ptr_re.gather(idx_b)
+        ptr_re.scatter(idx_b, val_a_re)
+        ptr_re.scatter(idx_a, val_b_re)
+
+        var val_a_im = ptr_im.gather(idx_a)
+        var val_b_im = ptr_im.gather(idx_b)
+        ptr_im.scatter(idx_b, val_a_im)
+        ptr_im.scatter(idx_a, val_b_im)
+
+    # Number of SIMD blocks
+    parallelize[worker](n_pairs // 4)

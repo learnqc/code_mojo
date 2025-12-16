@@ -139,3 +139,71 @@ fn stride4_swapped_simd(
         ptr_im.store(base + 4, t_im)
 
     parallelize[worker](n // 8)
+
+
+fn butterfly_dist4_swapped_generic(
+    mut state: QuantumState,
+    ptr_fac_re: UnsafePointer[FloatType],
+    ptr_fac_im: UnsafePointer[FloatType],
+    target: Int,
+    factor_stride: Int,
+):
+    """
+    Experimental kernel: Performs butterfly for stride = 1<<target,
+    assuming bit 'target' has been swapped with bit 2 (Distance 4).
+    """
+    var n = state.size()
+    var ptr_re = state.re.unsafe_ptr()
+    var ptr_im = state.im.unsafe_ptr()
+
+    var stride = 1 << target
+
+    # Masks for reconstructing j
+    var mask_low = 3  # Bits 0, 1
+    # Bits 3..target-1
+    # If target <= 2, this is 0.
+    var mask_mid = (stride - 1) & ~7
+
+    @parameter
+    fn worker(idx: Int):
+        var base = idx * 8
+        alias width = 4
+
+        var top_re = ptr_re.load[width=width](base)
+        var top_im = ptr_im.load[width=width](base)
+        var bot_re = ptr_re.load[width=width](base + 4)
+        var bot_im = ptr_im.load[width=width](base + 4)
+
+        # Calculate j indices for twiddles
+        # vector idxs: [base, base+1, base+2, base+3]
+        var idxs = SIMD[DType.int64, width](0, 1, 2, 3) + base
+
+        var j_reconstructed: SIMD[DType.int64, width]
+
+        if target < 2:
+            j_reconstructed = idxs & (stride - 1)
+        else:
+            var j_low = idxs & mask_low
+            var mid = idxs & mask_mid
+            var bit_from_target = (idxs >> target) & 1
+            j_reconstructed = j_low | (bit_from_target << 2) | mid
+
+        var fac_idxs = j_reconstructed * factor_stride
+
+        var w_re = ptr_fac_re.gather(fac_idxs)
+        var w_im = ptr_fac_im.gather(fac_idxs)
+
+        var diff_re = top_re - bot_re
+        var diff_im = top_im - bot_im
+        var sum_re = top_re + bot_re
+        var sum_im = top_im + bot_im
+
+        var t_re = diff_re * w_re - diff_im * w_im
+        var t_im = diff_re * w_im + diff_im * w_re
+
+        ptr_re.store(base, sum_re)
+        ptr_im.store(base, sum_im)
+        ptr_re.store(base + 4, t_re)
+        ptr_im.store(base + 4, t_im)
+
+    parallelize[worker](n // 8)

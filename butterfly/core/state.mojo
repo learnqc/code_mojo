@@ -88,15 +88,64 @@ struct _QuantumStateIterator:
 alias State = QuantumState
 
 
-fn bit_reverse_state(mut state: QuantumState):
-    n = Int(log2(Float64(state.size())))
-    s_re = List[FloatType](length=1 << n, fill=0.0)
-    s_im = List[FloatType](length=1 << n, fill=0.0)
+fn bit_reverse_state(mut state: QuantumState, parallel: Bool = True):
+    """
+    Bit Reversal of the quantum state.
 
-    for i in range(1 << n):
-        idx = Int(bit_reverse(SIMD[DType.uint64, 1](i))[0] >> (64 - n))
-        s_re[i] = state.re[idx]
-        s_im[i] = state.im[idx]
+    Args:
+        state: The QuantumState to permute.
+        parallel: If True (default), uses optimized SIMD/Parallel implementation.
+                  If False, uses sequential scalar implementation (low memory overhead).
+    """
+    var n = state.size()
+    var log_n = Int(log2(Float64(n)))
+
+    var s_re = List[FloatType](length=n, fill=0.0)
+    var s_im = List[FloatType](length=n, fill=0.0)
+
+    if parallel:
+        # Optimized Parallel SIMD
+        var ptr_in_re = state.re.unsafe_ptr()
+        var ptr_in_im = state.im.unsafe_ptr()
+        var ptr_out_re = s_re.unsafe_ptr()
+        var ptr_out_im = s_im.unsafe_ptr()
+
+        @parameter
+        fn worker(idx: Int):
+            alias width = simd_width
+            var base = idx * width
+
+            # Vectorized Index Generation
+            var offsets = SIMD[DType.uint64, width]()
+            for i in range(width):
+                offsets[i] = i
+            var vec_idx = SIMD[DType.uint64, width](base) + offsets
+
+            # Bit Reverse
+            var r_idx_u64 = bit_reverse(vec_idx) >> (64 - log_n)
+            var r_idx = r_idx_u64.cast[DType.int64]()
+
+            var val_re = ptr_in_re.gather(r_idx)
+            var val_im = ptr_in_im.gather(r_idx)
+
+            ptr_out_re.store(base, val_re)
+            ptr_out_im.store(base, val_im)
+
+        parallelize[worker](n // simd_width)
+    else:
+        # Sequential Scalar (Fallback)
+        # Using unsafe pointers for performance even in sequential mode
+        var ptr_in_re = state.re.unsafe_ptr()
+        var ptr_in_im = state.im.unsafe_ptr()
+        var ptr_out_re = s_re.unsafe_ptr()
+        var ptr_out_im = s_im.unsafe_ptr()
+
+        for i in range(n):
+            var r_idx = Int(
+                bit_reverse(SIMD[DType.uint64, 1](i))[0] >> (64 - log_n)
+            )
+            ptr_out_re[i] = ptr_in_re[r_idx]
+            ptr_out_im[i] = ptr_in_im[r_idx]
 
     state.re = s_re^
     state.im = s_im^
