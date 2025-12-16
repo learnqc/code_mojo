@@ -8,6 +8,7 @@ from memory import UnsafePointer
 from algorithm import parallelize
 from buffer import NDBuffer
 from utils.fast_div import FastDiv
+from time import perf_counter_ns
 
 
 fn generate_factors(
@@ -1232,7 +1233,9 @@ fn fft_dif_parallel_simd_fastdiv(
     parallelize[norm_worker](n)
 
 
-fn fft_dif_parallel_simd_phast(mut state: QuantumState, inverse: Bool = False):
+fn fft_dif_parallel_simd_phast(
+    mut state: QuantumState, inverse: Bool = False, debug_time: Bool = False
+):
     """Parallelized + Vectorized DIF FFT using sequential twiddle buffering (PhastFT style).
     OPTIMIZATION: Prevents strided gathers for twiddles by pre-packing the current stage's
     twiddle sequence into a contiguous buffer. Since the same twiddle sequence repeats
@@ -1271,7 +1274,10 @@ fn fft_dif_parallel_simd_phast(mut state: QuantumState, inverse: Bool = False):
     var ptr_tw_buf_re = tw_buf_re.unsafe_ptr()
     var ptr_tw_buf_im = tw_buf_im.unsafe_ptr()
 
+    var t_start = perf_counter_ns()
+
     for _ in range(log_n):
+        var t_stage_start = perf_counter_ns()
         var fd = FastDiv[DType.uint32](stride)
         alias TargetType = Scalar[FastDiv[DType.uint32].uint_type]
 
@@ -1446,6 +1452,13 @@ fn fft_dif_parallel_simd_phast(mut state: QuantumState, inverse: Bool = False):
                 swap_state_to_distance_4_simd(state, 1)
                 fused_stride2_stride1_swapped(state)
                 swap_state_to_distance_4_simd(state, 1)
+                if debug_time:
+                    var t_now = perf_counter_ns()
+                    print(
+                        "Stage Stride 2+1 (Fused): ",
+                        (t_now - t_stage_start) / 1e6,
+                        "ms",
+                    )
                 # Handled Stride 1 implicitly
                 break
             else:
@@ -1480,11 +1493,29 @@ fn fft_dif_parallel_simd_phast(mut state: QuantumState, inverse: Bool = False):
                     ptr_re[bot_idx] = t_re
                     ptr_im[bot_idx] = t_im
 
+        if debug_time:
+            var t_now = perf_counter_ns()
+            print(
+                "Stage Stride",
+                stride,
+                ": ",
+                (t_now - t_stage_start) / 1e6,
+                "ms",
+            )
+
         stride = stride // 2
 
     # Lists freed automatically
 
+    if debug_time:
+        var t_stages_end = perf_counter_ns()
+        print("Total Stages: ", (t_stages_end - t_start) / 1e6, "ms")
+
+    var t_bitrev_start = perf_counter_ns()
     bit_reverse_state(state)
+    if debug_time:
+        var t_bitrev_end = perf_counter_ns()
+        print("Bit Reversal: ", (t_bitrev_end - t_bitrev_start) / 1e6, "ms")
 
     var scale = FloatType(1.0) / sqrt(FloatType(n))
     var final_ptr_re = state.re.unsafe_ptr()
