@@ -1,7 +1,7 @@
 from complex import ComplexSIMD
 import math
 
-alias Type = DType.float32
+alias Type = DType.float64
 alias FloatType = Scalar[Type]
 alias Amplitude = ComplexSIMD[Type, 1]
 

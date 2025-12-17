@@ -1,11 +1,7 @@
 import benchmark
 from python import Python
 from butterfly.core.state import generate_state, QuantumState
-from butterfly.core.classical_fft import (
-    fft_dif_parallel_simd,
-    fft_dif_parallel_simd_fastdiv,
-    fft_dif_parallel_simd_phast,
-)
+from butterfly.core.classical_fft import fft_dif_parallel_simd_phast
 
 
 fn main() raises:
@@ -79,7 +75,7 @@ fn main() raises:
 
     print("n, Size, Butterfly(ms), NumPy(ms), Speedup(Butterfly/NumPy)")
 
-    for n in range(30, 31):  # Benchmarking High N
+    for n in range(17, 30):  # Benchmarking High N
         var size = 1 << n
         var state = generate_state(n)
 
