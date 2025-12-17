@@ -20,3 +20,4 @@ test_transform = "pixi run package && cp butterfly.mojopkg tests/ && pixi run mo
 [dependencies]
 mojo = "==0.25.7"
 numpy = ">=2.3.5,<3"
+pyfftw = ">=0.15.1,<0.16"
