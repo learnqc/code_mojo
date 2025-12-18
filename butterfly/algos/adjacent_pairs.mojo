@@ -22,25 +22,32 @@ fn swap_to_adjacent_pairs[
             r = 0
 
 
-fn swap_to_new_stride[
+fn swap_strides[
     T: ImplicitlyCopyable & Movable
-](mut lst: List[T], stride: Int, new_stride: Int) raises:
+](mut lst: List[T], stride1: Int, stride2: Int) raises:
     assert_equal(pop_count(len(lst)), 1)
-    assert_equal(pop_count(stride), 1)
-    assert_equal(pop_count(new_stride), 1)
-    if stride == new_stride:
+    assert_equal(pop_count(stride1), 1)
+    assert_equal(pop_count(stride2), 1)
+    if stride1 == stride2:
         return
 
-    r = 0
-    m = max(stride, new_stride)
-    for j in range(0, len(lst), 4):
-        idx = j - r
+    var pos1 = Int(count_trailing_zeros(stride1))
+    var pos2 = Int(count_trailing_zeros(stride2))
 
-        lst.swap_elements(idx + stride, idx + new_stride)
+    var low_pos = pos1
+    var high_pos = pos2
+    if pos1 > pos2:
+        low_pos = pos2
+        high_pos = pos1
 
-        r += 2
-        if r == m:
-            r = 0
+    var num_pairs = len(lst) >> 2
+    for k in range(num_pairs):
+        var idx = insert_zero_bit(k, low_pos)
+        idx = insert_zero_bit(idx, high_pos)
+
+        var i = idx | stride1
+        var j = idx | stride2
+        lst.swap_elements(i, j)
 
 
 fn swap_to_distance_8[

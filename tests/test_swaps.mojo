@@ -1,7 +1,7 @@
 from butterfly.algos.adjacent_pairs import (
     swap_to_adjacent_pairs,
     swap_to_distance_8,
-    swap_to_new_stride,
+    swap_strides,
 )
 from collections import List
 from testing import assert_true, assert_equal
@@ -55,7 +55,7 @@ fn test_swap_to_dist8() raises:
     print("All distance-8 swap tests passed.")
 
 
-fn test_swap_to_dist4() raises:
+fn test_swap_strides() raises:
     alias n = 4  # 32 elements
     alias N = 1 << n
 
@@ -66,7 +66,7 @@ fn test_swap_to_dist4() raises:
     for i in range(N):
         print(l[i], end=", " if i < N - 1 else "\n")
 
-    swap_to_new_stride(l, 1, 1)
+    swap_strides(l, 2, 8)
 
     for i in range(N):
         print(l[i], end=", ")
@@ -75,4 +75,4 @@ fn test_swap_to_dist4() raises:
 fn main() raises:
     test_swap_to_adjacent()
     test_swap_to_dist8()
-    test_swap_to_dist4()
+    test_swap_strides()
