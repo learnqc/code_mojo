@@ -1,5 +1,5 @@
 from butterfly.core.state import *
-from butterfly.algos.vec_swaps import swap_state_to_distance_4_simd
+from butterfly.algos.adjacent_pairs import swap_state_to_distance
 from butterfly.algos.tail_stages import (
     fused_stride2_stride1_swapped,
     stride4_swapped_simd,
@@ -519,9 +519,9 @@ fn fft_dif_parallel_simd_phast(
                 # swap_state_to_distance_4_simd(state, 2)
             elif stride == 2 and n >= 8:
                 # Optimized Fused Stride 2 + 1
-                swap_state_to_distance_4_simd(state, 1)
+                swap_state_to_distance(state, 1, 4)
                 fused_stride2_stride1_swapped(state)
-                swap_state_to_distance_4_simd(state, 1)
+                swap_state_to_distance(state, 1, 4)
                 if debug_time:
                     var t_now = perf_counter_ns()
                     print(
