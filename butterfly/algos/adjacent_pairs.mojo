@@ -26,16 +26,20 @@ fn swap_to_new_stride[
     T: ImplicitlyCopyable & Movable
 ](mut lst: List[T], stride: Int, new_stride: Int) raises:
     assert_equal(pop_count(len(lst)), 1)
-    assert_true(stride != new_stride)
+    assert_equal(pop_count(stride), 1)
+    assert_equal(pop_count(new_stride), 1)
+    if stride == new_stride:
+        return
 
     r = 0
+    m = max(stride, new_stride)
     for j in range(0, len(lst), 4):
         idx = j - r
 
-        lst.swap_elements(idx + new_stride, idx + stride)
+        lst.swap_elements(idx + stride, idx + new_stride)
 
         r += 2
-        if r == stride:
+        if r == m:
             r = 0
 
 
