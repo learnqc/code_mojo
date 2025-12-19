@@ -15,7 +15,7 @@ fn main() raises:
     print("Benchmarking Butterfly vs FFTW")
 
     # --- Verification Step ---
-    for n in range(3, 23):
+    for n in range(3, 29):
         print("Verifying correctness against FFTW (n={})...".format(String(n)))
         var size = 1 << n
         var v_state = generate_state(n)
@@ -68,7 +68,7 @@ fn main() raises:
 
     print("n, Size, Butterfly(ms), FFTW(ms), Speedup(Butterfly/FFTW)")
 
-    for n in range(17, 30):  # Benchmarking High N
+    for n in range(17, 23):  # Benchmarking High N
         var size = 1 << n
         var state = generate_state(n)
 

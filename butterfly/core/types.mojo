@@ -5,6 +5,8 @@ alias Type = DType.float64
 alias FloatType = Scalar[Type]
 alias Amplitude = ComplexSIMD[Type, 1]
 
+alias float_bytes = 8 if Type == DType.float64 else 4
+
 alias Gate = InlineArray[InlineArray[Amplitude, 2], 2]
 
 alias pi: FloatType = math.pi

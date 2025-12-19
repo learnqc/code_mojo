@@ -1,9 +1,11 @@
 from butterfly.core.state import *
+from butterfly.core.types import float_bytes
 from butterfly.algos.adjacent_pairs import swap_state_to_distance
 from butterfly.algos.tail_stages import (
-    fused_stride2_stride1_swapped,
     stride4_swapped_simd,
 )
+from butterfly.algos.fused_stages import fused_stride2_stride1_swapped
+
 from memory import UnsafePointer
 from algorithm import parallelize
 from buffer import NDBuffer
@@ -351,18 +353,24 @@ fn fft_dif_parallel_simd_phast(
         var fd = FastDiv[DType.uint32](stride)
         alias TargetType = Scalar[FastDiv[DType.uint32].uint_type]
 
-        var factor_stride = n // 2 // stride
+        var num_groups = n // 2 // stride
 
         if (stride // 2) >= simd_width:
             # Tiling Optimization for Large Strides (> L2 Cache)
             # Threshold chosen based on N=22 benchmarks (Stride 1M was slow, Tiling fixed it).
-            alias TILED_THRESHOLD = 262144
-            alias TILE_SIZE = 4096  # 4KB chunks
+            # Compute tiling thresholds based on Cache Sizes
+            # L2 Cache Target: 4MB. L1 Cache Target: 64KB.
+            alias target_l2_bytes = 4 * 1024 * 1024
+            alias target_l1_bytes = 64 * 1024
+            alias complex_size = 2 * float_bytes
+
+            alias TILED_THRESHOLD = target_l2_bytes // complex_size
+            alias TILE_SIZE = target_l1_bytes // complex_size
 
             # Use Zero-Copy (Direct Gather) if strides are small enough (avoid buffer overhead)
             # Factor Stride 1 (Stage 0), 2 (Stage 1), 4 (Stage 2) are good candidates.
-            if factor_stride <= 4 and stride >= TILED_THRESHOLD:
-                # Tiled Zero-Copy Mode (Generic factor_stride)
+            if num_groups <= 4 and stride >= TILED_THRESHOLD:
+                # Tiled Zero-Copy Mode (Generic num_groups)
                 var num_items = n // 2
                 var num_tiles = num_items // TILE_SIZE
 
@@ -385,7 +393,7 @@ fn fft_dif_parallel_simd_phast(
                         for i in range(simd_width):
                             top_idxs[i] = Int64(top_idx_base + i)
                             bot_idxs[i] = Int64(bot_idx_base + i)
-                            fac_idxs[i] = Int64((j_base + i) * factor_stride)
+                            fac_idxs[i] = Int64((j_base + i) * num_groups)
 
                         var w_re = ptr_fac_re.gather(fac_idxs)
                         var w_im = ptr_fac_im.gather(fac_idxs)
@@ -413,7 +421,7 @@ fn fft_dif_parallel_simd_phast(
                 # Handle remainder if any (unlikely with power of 2 sizes, but good practice)
                 # Power of 2 sizes will always be divisible by 4096 (2^12) if n >= 13.
 
-            elif factor_stride == 1:
+            elif num_groups == 1:
                 # Standard Zero-Copy: Use factors directly (Origin: ptr_fac_re)
                 @parameter
                 fn worker_fac(vec_idx: Int):
@@ -461,7 +469,7 @@ fn fft_dif_parallel_simd_phast(
                     var idx_base = idx
                     var src_idxs = SIMD[DType.int64, simd_width]()
                     for i in range(simd_width):
-                        src_idxs[i] = Int64((idx_base + i) * factor_stride)
+                        src_idxs[i] = Int64((idx_base + i) * num_groups)
                     var val_re = ptr_fac_re.gather(src_idxs)
                     var val_im = ptr_fac_im.gather(src_idxs)
                     ptr_tw_buf_re.store(idx_base, val_re)
@@ -513,9 +521,7 @@ fn fft_dif_parallel_simd_phast(
                 # Optimized Stride 4 (Vectorized Swap + Kernel)
                 # target=2 (Stride 4) -> Swap Bit 2 with Bit 2 (No-op)
                 # swap_state_to_distance_4_simd(state, 2)
-                stride4_swapped_simd(
-                    state, ptr_fac_re, ptr_fac_im, factor_stride
-                )
+                stride4_swapped_simd(state, ptr_fac_re, ptr_fac_im, num_groups)
                 # swap_state_to_distance_4_simd(state, 2)
             elif stride == 2 and n >= 8:
                 # Optimized Fused Stride 2 + 1
@@ -542,8 +548,8 @@ fn fft_dif_parallel_simd_phast(
                     var top_idx = block_start + j
                     var bot_idx = top_idx + stride
 
-                    var w_re = ptr_fac_re[j * factor_stride]
-                    var w_im = ptr_fac_im[j * factor_stride]
+                    var w_re = ptr_fac_re[j * num_groups]
+                    var w_im = ptr_fac_im[j * num_groups]
 
                     var top_re = ptr_re[top_idx]
                     var top_im = ptr_im[top_idx]
@@ -586,14 +592,346 @@ fn fft_dif_parallel_simd_phast(
     if debug_time:
         var t_bitrev_end = perf_counter_ns()
         print("Bit Reversal: ", (t_bitrev_end - t_bitrev_start) / 1e6, "ms")
-
     var scale = FloatType(1.0) / sqrt(FloatType(n))
     var final_ptr_re = state.re.unsafe_ptr()
     var final_ptr_im = state.im.unsafe_ptr()
 
-    @parameter
-    fn norm_worker(i: Int):
+    for i in range(n):
         final_ptr_re[i] *= scale
         final_ptr_im[i] *= scale
 
-    parallelize[norm_worker](n)
+
+fn fft_dif_parallel_simd_fused(
+    mut state: QuantumState, inverse: Bool = False, debug_time: Bool = False
+):
+    """Parallelized + Vectorized DIF FFT using Fused Kernels.
+    Uses 'fused_stage0_swap_simd' for Stride N/2.
+    Uses 'fused_restore_order_simd' for Stride 4 (Restoring N/2 swap).
+    """
+    var n = state.size()
+    var log_n = Int(log2(Float64(n)))
+    ref factors_re, factors_im = generate_factors(n)
+
+    var ptr_re = state.re.unsafe_ptr()
+    var ptr_im = state.im.unsafe_ptr()
+    var ptr_fac_re = factors_re.unsafe_ptr()
+    var ptr_fac_im = factors_im.unsafe_ptr()
+
+    var stride = n // 2
+
+    # Pre-allocate twiddle buffer
+    var tw_max = n // 2
+    var tw_buf_re = List[FloatType](capacity=tw_max)
+    var tw_buf_im = List[FloatType](capacity=tw_max)
+    var ptr_tw_buf_re = tw_buf_re.unsafe_ptr()
+    var ptr_tw_buf_im = tw_buf_im.unsafe_ptr()
+
+    var t_start = perf_counter_ns()
+
+    # Track swap state. target_bit (N/2) <-> 2 (Val 4)
+    var swapped = False
+    var swap_target_bit = log_n - 1
+
+    for _ in range(log_n):
+        var t_stage_start = perf_counter_ns()
+        var fd = FastDiv[DType.uint32](stride)
+        alias TargetType = Scalar[FastDiv[DType.uint32].uint_type]
+
+        var num_groups = n // 2 // stride
+        # print("DEBUG: Processing Stride", stride)
+
+        # Check for Fused Opportunities
+        if stride == n // 2 and n >= 16:
+            # Stage 0: Fused Swap
+            from butterfly.algos.fused_stages import fused_stage0_swap_simd
+
+            # print("DEBUG: Executing Fused Stage 0")
+            fused_stage0_swap_simd(
+                state, factors_re, factors_im, swap_target_bit
+            )
+            # print("Finished Stage 0")
+            swapped = True
+            if debug_time:
+                # print(
+                #     "Stage 0 (Fused Swap): ",
+                #     (perf_counter_ns() - t_stage_start) / 1e6,
+                #     "ms",
+                # )
+                pass  # Keep pass to maintain indentation
+
+            stride = stride // 2
+            continue
+
+        elif stride == 4 and swapped:
+            # Stage 4 + 2 + 1: Fused Restore & Tail
+            from butterfly.algos.fused_stages import fused_restore_and_tail_simd
+
+            # print("DEBUG: Executing Fused Restore order")
+            fused_restore_and_tail_simd(
+                state, factors_re, factors_im, swap_target_bit
+            )
+
+            # Since Stride 2 and 1 are fused inside, we are done.
+            break
+
+        elif (stride // 2) >= simd_width:
+            # Standard Tiled/Phast Logic
+
+            # If swapped is True, we need to handle the fact that Bit 4 (Logical) is at P_N/2 (Physical).
+            # And Bit N/2 (Logical) is at P_4 (Physical).
+            # Stride K (Physical) corresponds to Stride K (Logical) because K != N/2, 4.
+            # Twiddles depend on Logical j.
+            # Logical j has bits 0..logK-1.
+            # If K <= 4, then bits 0..logK-1 do NOT include Bit 4?
+            # No, if Stride K=4 (Stage 4), bits are 0..1. Don't include Bit 2(Val 4). Correct.
+            # So only Strides > 4 are affected by the swap in terms of Twiddle Index.
+            # For Stride > 4, we must adjust 'j'.
+
+            # Compute tiling thresholds based on Cache Sizes
+            alias target_l2_bytes = 4 * 1024 * 1024
+            alias target_l1_bytes = 64 * 1024
+            alias complex_size = 2 * float_bytes
+
+            alias TILED_THRESHOLD = target_l2_bytes // complex_size
+            alias TILE_SIZE = target_l1_bytes // complex_size
+
+            if not swapped and num_groups <= 4 and stride >= TILED_THRESHOLD:
+                # Zero Copy Tiled (Standard)
+                var num_items = n // 2
+                var num_tiles = num_items // TILE_SIZE
+
+                @parameter
+                fn worker_tiled(tile_idx: Int):
+                    var base_idx = tile_idx * TILE_SIZE
+                    for k in range(0, TILE_SIZE, simd_width):
+                        var idx_base = base_idx + k
+                        var res = fd.__divmod__(TargetType(idx_base))
+                        var block_idx = Int(res[0])
+                        var j_base = Int(res[1])
+                        var block_start = block_idx * 2 * stride
+                        var top_idx_base = block_start + j_base
+                        var bot_idx_base = top_idx_base + stride
+
+                        var top_idxs = SIMD[DType.int64, simd_width]()
+                        var bot_idxs = SIMD[DType.int64, simd_width]()
+                        var fac_idxs = SIMD[DType.int64, simd_width]()
+
+                        for i in range(simd_width):
+                            top_idxs[i] = Int64(top_idx_base + i)
+                            bot_idxs[i] = Int64(bot_idx_base + i)
+                            fac_idxs[i] = Int64((j_base + i) * num_groups)
+
+                        var w_re = ptr_fac_re.gather(fac_idxs)
+                        var w_im = ptr_fac_im.gather(fac_idxs)
+
+                        var top_re = ptr_re.gather(top_idxs)
+                        var top_im = ptr_im.gather(top_idxs)
+                        var bot_re = ptr_re.gather(bot_idxs)
+                        var bot_im = ptr_im.gather(bot_idxs)
+
+                        var sum_re = top_re + bot_re
+                        var sum_im = top_im + bot_im
+                        var diff_re = top_re - bot_re
+                        var diff_im = top_im - bot_im
+
+                        var t_re = diff_re * w_re - diff_im * w_im
+                        var t_im = diff_re * w_im + diff_im * w_re
+
+                        ptr_re.scatter(top_idxs, sum_re)
+                        ptr_im.scatter(top_idxs, sum_im)
+                        ptr_re.scatter(bot_idxs, t_re)
+                        ptr_im.scatter(bot_idxs, t_im)
+
+                parallelize[worker_tiled](num_tiles)
+
+            elif swapped and stride > 4:
+                # Swapped Mode Tiled Logic (No Phast Buffer)
+                # We construct Logical j from Physical j and Block info.
+                var num_items = n // 2
+                var num_tiles = num_items // TILE_SIZE
+
+                # Precompute bit masks
+                # Swap Bit: swap_target_bit (N/2) and 2 (Val 4).
+                var bit_n2_shift = swap_target_bit
+
+                @parameter
+                fn worker_tiled_swapped(tile_idx: Int):
+                    var base_idx = tile_idx * TILE_SIZE
+                    for k in range(0, TILE_SIZE, simd_width):
+                        var idx_base = base_idx + k
+                        var res = fd.__divmod__(TargetType(idx_base))
+                        var block_idx = Int(res[0])
+                        var j_base = Int(res[1])
+                        var block_start = block_idx * 2 * stride
+                        var top_idx_base = block_start + j_base
+                        var bot_idx_base = top_idx_base + stride
+
+                        var fac_idxs = SIMD[DType.int64, simd_width]()
+                        var top_idxs = SIMD[DType.int64, simd_width]()
+                        var bot_idxs = SIMD[DType.int64, simd_width]()
+
+                        for i in range(simd_width):
+                            top_idxs[i] = Int64(top_idx_base + i)
+                            bot_idxs[i] = Int64(bot_idx_base + i)
+
+                            # Twiddle Correction
+                            var p_idx = top_idx_base + i
+                            var bit_pn2 = (p_idx >> bit_n2_shift) & 1
+                            var j_phys = j_base + i
+                            # j_log = (j_phys & ~4) | (bit_pn2 << 2)
+                            var j_log = (j_phys & ~4) | (bit_pn2 << 2)
+
+                            fac_idxs[i] = Int64(j_log * num_groups)
+
+                        var w_re = ptr_fac_re.gather(fac_idxs)
+                        var w_im = ptr_fac_im.gather(fac_idxs)
+
+                        var top_re = ptr_re.gather(top_idxs)
+                        var top_im = ptr_im.gather(top_idxs)
+                        var bot_re = ptr_re.gather(bot_idxs)
+                        var bot_im = ptr_im.gather(bot_idxs)
+
+                        var sum_re = top_re + bot_re
+                        var sum_im = top_im + bot_im
+                        var diff_re = top_re - bot_re
+                        var diff_im = top_im - bot_im
+
+                        var t_re = diff_re * w_re - diff_im * w_im
+                        var t_im = diff_re * w_im + diff_im * w_re
+
+                        ptr_re.scatter(top_idxs, sum_re)
+                        ptr_im.scatter(top_idxs, sum_im)
+                        ptr_re.scatter(bot_idxs, t_re)
+                        ptr_im.scatter(bot_idxs, t_im)
+
+                parallelize[worker_tiled_swapped](num_tiles)
+
+        elif (stride // 2) >= simd_width:
+            # Standard Phast Buffering Logic for unswapped state
+            # Pack first
+            for idx in range(0, stride, simd_width):
+                var idx_base = idx
+                var src_idxs = SIMD[DType.int64, simd_width]()
+                for i in range(simd_width):
+                    src_idxs[i] = Int64((idx_base + i) * num_groups)
+                var val_re = ptr_fac_re.gather(src_idxs)
+                var val_im = ptr_fac_im.gather(src_idxs)
+                ptr_tw_buf_re.store(idx_base, val_re)
+                ptr_tw_buf_im.store(idx_base, val_im)
+
+            # Run using buffer
+            @parameter
+            fn worker_buf(vec_idx: Int):
+                var idx_base = vec_idx * simd_width
+                var res = fd.__divmod__(TargetType(idx_base))
+                var block_idx = Int(res[0])
+                var j_base = Int(res[1])
+                var block_start = block_idx * 2 * stride
+                var top_idx_base = block_start + j_base
+                var bot_idx_base = top_idx_base + stride
+
+                var top_idxs = SIMD[DType.int64, simd_width]()
+                var bot_idxs = SIMD[DType.int64, simd_width]()
+                for i in range(simd_width):
+                    top_idxs[i] = Int64(top_idx_base + i)
+                    bot_idxs[i] = Int64(bot_idx_base + i)
+
+                var w_re = ptr_tw_buf_re.load[width=simd_width](j_base)
+                var w_im = ptr_tw_buf_im.load[width=simd_width](j_base)
+
+                var top_re = ptr_re.gather(top_idxs)
+                var top_im = ptr_im.gather(top_idxs)
+                var bot_re = ptr_re.gather(bot_idxs)
+                var bot_im = ptr_im.gather(bot_idxs)
+
+                var sum_re = top_re + bot_re
+                var sum_im = top_im + bot_im
+                var diff_re = top_re - bot_re
+                var diff_im = top_im - bot_im
+
+                var t_re = diff_re * w_re - diff_im * w_im
+                var t_im = diff_re * w_im + diff_im * w_re
+
+                ptr_re.scatter(top_idxs, sum_re)
+                ptr_im.scatter(top_idxs, sum_im)
+                ptr_re.scatter(bot_idxs, t_re)
+                ptr_im.scatter(bot_idxs, t_im)
+
+            parallelize[worker_buf]((n // 2) // simd_width, 8)
+
+            # Manual Continue to skip Fallback logic
+            stride = stride // 2
+            continue
+        elif stride == 2 and n >= 8:
+            # Stride 2 + 1 Fused (Optimized Tail)
+            # Swap Bit 1 (Val 2) to Bit 2 (Val 4/Distance 4) to enable vectorization width 4.
+            swap_state_to_distance(state, 1, 4)
+            fused_stride2_stride1_swapped(state)
+            swap_state_to_distance(state, 1, 4)
+            break
+        else:
+            # Fallback (Small Strides or Scalar)
+            # (Optimized kernels disabled to ensure correctness)
+
+            # Scalar Fallback
+            for idx in range(n // 2):
+                var res = fd.__divmod__(TargetType(idx))
+                var block_idx = Int(res[0])
+                var j = Int(res[1])
+                if swapped and stride > 4:
+                    # Correct twiddle j
+                    var p_N2 = (
+                        block_idx * 2 * stride + j
+                    ) >> swap_target_bit & 1
+                    j = (j & ~16) | (p_N2 << 4)
+
+                var block_start = block_idx * 2 * stride
+                var top_idx = block_start + j
+                var bot_idx = top_idx + stride
+
+                var w_re = ptr_fac_re[j * num_groups]
+                var w_im = ptr_fac_im[j * num_groups]
+
+                var top_re = ptr_re[top_idx]
+                var top_im = ptr_im[top_idx]
+                var bot_re = ptr_re[bot_idx]
+                var bot_im = ptr_im[bot_idx]
+
+                var sum_re = top_re + bot_re
+                var sum_im = top_im + bot_im
+                var diff_re = top_re - bot_re
+                var diff_im = top_im - bot_im
+
+                var t_re = diff_re * w_re - diff_im * w_im
+                var t_im = diff_re * w_im + diff_im * w_re
+
+                ptr_re[top_idx] = sum_re
+                ptr_im[top_idx] = sum_im
+                ptr_re[bot_idx] = t_re
+                ptr_im[bot_idx] = t_im
+
+        if debug_time:
+            var t_now = perf_counter_ns()
+            print(
+                "Stage Stride",
+                stride,
+                ": ",
+                (t_now - t_stage_start) / 1e6,
+                "ms",
+            )
+
+        stride = stride // 2
+
+    if debug_time:
+        print("Total Stages: ", (perf_counter_ns() - t_start) / 1e6, "ms")
+
+    bit_reverse_state(state)
+
+    # Normalization
+    var scale = FloatType(1.0) / sqrt(FloatType(n))
+    var final_ptr_re = state.re.unsafe_ptr()
+    var final_ptr_im = state.im.unsafe_ptr()
+
+    for i in range(n):
+        final_ptr_re[i] *= scale
+        final_ptr_im[i] *= scale
