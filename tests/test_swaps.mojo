@@ -64,12 +64,22 @@ fn test_swap_strides() raises:
         l.append(i)
 
     for i in range(N):
-        print(l[i], end=", " if i < N - 1 else "\n")
+        print(
+            l[i],
+            "=",
+            bin(l[i])[2:].rjust(n, "0"),
+            end=", " if i < N - 1 else "\n\n",
+        )
 
     swap_strides(l, 2, 8)
 
     for i in range(N):
-        print(l[i], end=", ")
+        print(
+            l[i],
+            "=",
+            bin(l[i])[2:].rjust(n, "0"),
+            end=", " if i < N - 1 else "\n\n",
+        )
 
 
 fn main() raises:
