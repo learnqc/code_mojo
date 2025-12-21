@@ -1,10 +1,13 @@
 import benchmark
 from python import Python
 from butterfly.core.state import generate_state, QuantumState
-from butterfly.core.classical_fft import fft_dif_parallel_simd_phast
-from butterfly.core.fft_v3 import fft_v3
-from butterfly.core.fft_v4 import fft_v4
-from butterfly.core.fft_stockham import fft_stockham
+from butterfly.core.classical_fft import (
+    fft_dif_parallel_simd_phast,
+    fft_dif_parallel_simd_phast_kernel,
+    generate_factors,
+)
+from butterfly.core.fft_v3 import fft_v3, fft_v3_kernel
+from butterfly.core.fft_v4 import fft_v4, fft_v4_kernel
 
 
 fn main() raises:
@@ -37,8 +40,7 @@ fn main() raises:
         np_v.imag = p_im
 
         # Run Both
-        # fft_dif_parallel_simd_phast(v_state)
-        fft_v3(v_state, block_log=18)
+        fft_v4(v_state, block_log=12)
         # Using pyfftw.interfaces.numpy_fft.fft which is a drop-in replacement
         var fftw_res = pyfftw.interfaces.numpy_fft.fft(np_v, norm="ortho")
 
@@ -77,63 +79,57 @@ fn main() raises:
 
     for n in [15, 20, 25]:  # Benchmarking High N
         var size = 1 << n
-        var state = generate_state(n)
-
-        # Iterations
         var iters = 5 if n < 21 else 2
+
+        # PRE-COMPUTE FACTORS (Exclude from timing)
+        var state = generate_state(n)
+        ref factors_re, factors_im = generate_factors(size)
 
         var state_butterfly = state.copy()
         var state_v3 = state.copy()
         var state_v4 = state.copy()
-        var state_stockham = state.copy()
 
         # FFTW setup
-        # Use empty_aligned for optimal FFTW performance
         var fftw_in = pyfftw.empty_aligned(size, dtype="complex128")
         fftw_in.real = np.random.rand(size)
         fftw_in.imag = np.random.rand(size)
-
-        # Warmup
-        fft_dif_parallel_simd_phast(state_butterfly)
-        fft_v3(state_v3, block_log=18)
-        fft_v4(state_v4, block_log=12)
-        fft_stockham(state_stockham)
-
         var fftw_obj = pyfftw.builders.fft(
             fftw_in, planner_effort="FFTW_MEASURE"
         )
 
-        # 1. Phast
+        # Warmup
+        fft_dif_parallel_simd_phast_kernel(
+            state_butterfly, factors_re, factors_im
+        )
+        fft_v3_kernel(state_v3, block_log=18)
+        fft_v4_kernel(state_v4, factors_re, factors_im, block_log=12)
+
+        # 1. Phast Kernel
         var t_butterfly_0 = time.time()
         for _ in range(iters):
-            fft_dif_parallel_simd_phast(state_butterfly)
+            fft_dif_parallel_simd_phast_kernel(
+                state_butterfly, factors_re, factors_im
+            )
         var t_butterfly_1 = time.time()
         var dur_butterfly = Float64(
             (t_butterfly_1 - t_butterfly_0) * 1000.0 / iters
         )
 
-        # 2. V3
+        # 2. V3 Kernel
         var t_v3_0 = time.time()
         for _ in range(iters):
-            fft_v3(state_v3, block_log=18)
+            fft_v3_kernel(state_v3, block_log=18)
         var t_v3_1 = time.time()
         var dur_v3 = Float64((t_v3_1 - t_v3_0) * 1000.0 / iters)
 
-        # 3. V4
+        # 3. V4 Kernel
         var t_v4_0 = time.time()
         for _ in range(iters):
-            fft_v4(state_v4, block_log=12)
+            fft_v4_kernel(state_v4, factors_re, factors_im, block_log=12)
         var t_v4_1 = time.time()
         var dur_v4 = Float64((t_v4_1 - t_v4_0) * 1000.0 / iters)
 
-        # 4. Stockham
-        # var t_s_0 = time.time()
-        # for _ in range(iters):
-        #     fft_stockham(state_stockham)
-        # var t_s_1 = time.time()
-        # var dur_stockham = Float64((t_s_1 - t_s_0) * 1000.0 / iters)
-
-        # 5. FFTW
+        # 5. FFTW (Planned)
         var t4 = time.time()
         for _ in range(iters):
             _ = fftw_obj()
@@ -150,8 +146,6 @@ fn main() raises:
             dur_v3,
             ", ",
             dur_v4,
-            # ", ",
-            # dur_stockham,
             ", ",
             dur_fftw,
             ", ",
