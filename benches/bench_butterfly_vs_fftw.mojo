@@ -76,7 +76,7 @@ fn main() raises:
 
     print("n, Size, Phast(ms), V3(ms), V4(ms), FFTW(ms), % FFTW(V4)")
 
-    for n in [15, 20, 25]:  # Benchmarking High N
+    for n in [26, 27, 28]:  # Benchmarking High N
         var size = 1 << n
         var iters = 5 if n < 21 else 2
 
