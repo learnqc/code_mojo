@@ -14,8 +14,8 @@ from butterfly.algos.fused_gates import (
 from algorithm import parallelize, vectorize
 from memory import UnsafePointer
 
-alias BLOCK_LOG = 11
-alias BLOCK_SIZE = 1 << BLOCK_LOG
+alias DEFAULT_BLOCK_LOG = 11
+alias BLOCK_SIZE = 1 << DEFAULT_BLOCK_LOG
 
 
 struct TransformationGroup(Copyable, Movable):
@@ -65,20 +65,26 @@ struct CircuitAnalyzer:
 
     var groups: List[TransformationGroup]
     var use_radix8: Bool
+    var fuse_controlled: Bool
+    var block_log: Int
 
     fn __init__(
         out self,
         transformations: List[QuantumTransformation],
         use_radix8: Bool = False,
+        fuse_controlled: Bool = False,
+        block_log: Int = DEFAULT_BLOCK_LOG,
     ):
         self.groups = List[TransformationGroup]()
         self.use_radix8 = use_radix8
+        self.fuse_controlled = fuse_controlled
+        self.block_log = block_log
         self.analyze(transformations)
 
     fn is_local(self, t: QuantumTransformation) -> Bool:
         var involved = t.get_involved_qubits()
         for i in range(len(involved)):
-            if involved[i] >= BLOCK_LOG:
+            if involved[i] >= self.block_log:
                 return False
         return True
 
@@ -106,9 +112,14 @@ struct CircuitAnalyzer:
                         and not t3.is_permutation
                         and self.is_local(t2)
                         and self.is_local(t3)
-                        and not t.is_controlled()
-                        and not t2.is_controlled()
-                        and not t3.is_controlled()
+                        and (
+                            self.fuse_controlled
+                            or (
+                                not t.is_controlled()
+                                and not t2.is_controlled()
+                                and not t3.is_controlled()
+                            )
+                        )
                         and t.target != t2.target
                         and t.target != t3.target
                         and t2.target != t3.target
@@ -143,8 +154,13 @@ struct CircuitAnalyzer:
                     if (
                         not next_t.is_permutation
                         and not self.is_local(next_t)
-                        and not t.is_controlled()
-                        and not next_t.is_controlled()
+                        and (
+                            self.fuse_controlled
+                            or (
+                                not t.is_controlled()
+                                and not next_t.is_controlled()
+                            )
+                        )
                         and t.target != next_t.target
                     ):
                         var g = TransformationGroup(
@@ -169,6 +185,8 @@ fn execute_fused_v3[
     mut state: QuantumState,
     transformations: List[QuantumTransformation],
     use_radix8: Bool = False,
+    fuse_controlled: Bool = False,
+    block_log: Int = DEFAULT_BLOCK_LOG,
 ):
     """Main entry point for Radix-4 Cache-Blocking execution.
 
@@ -177,7 +195,7 @@ fn execute_fused_v3[
         transformations: List of transformations to apply.
         use_radix8: If True, use Radix-8 fusion for local gate triplets (default: False).
     """
-    var analyzer = CircuitAnalyzer(transformations, use_radix8)
+    var analyzer = CircuitAnalyzer(transformations, use_radix8, fuse_controlled)
 
     for i in range(len(analyzer.groups)):
         var g_ref = analyzer.groups[i].copy()
@@ -197,13 +215,13 @@ fn execute_local_group(
 ):
     """Execute a group of local gates using cache-blocking."""
     var size = state.size()
-    var num_blocks = size >> BLOCK_LOG
+    var num_blocks = size >> DEFAULT_BLOCK_LOG
     var ptr_re = UnsafePointer[FloatType](state.re.unsafe_ptr().address)
     var ptr_im = UnsafePointer[FloatType](state.im.unsafe_ptr().address)
 
     @parameter
     fn block_worker(block_idx: Int):
-        var start = block_idx << BLOCK_LOG
+        var start = block_idx << DEFAULT_BLOCK_LOG
         for i in range(len(transformations)):
             var t_copy = transformations[i].copy()
             apply_local_transform(
@@ -322,25 +340,65 @@ fn execute_global_group[
 fn execute_radix4_group[
     N: Int
 ](mut state: QuantumState, transformations: List[QuantumTransformation]):
-    """Execute two global gates fused into a Radix-4 passage."""
+    """Execute two gates fused into a Radix-4 passage using matrix-based approach.
+    """
     var t0 = transformations[0].copy()
     var t1 = transformations[1].copy()
 
-    var q_high = t0.target
-    var q_low = t1.target
-    var gate_high = t0.gate
-    var gate_low = t1.gate
+    # Determine qubit ordering
+    var q_high = max(t0.target, t1.target)
+    var q_low = min(t0.target, t1.target)
 
-    if q_low > q_high:
-        var tmp_q = q_high
-        q_high = q_low
-        q_low = tmp_q
-        var tmp_g = gate_high
-        gate_high = gate_low
-        gate_low = tmp_g
+    # Check if all involved qubits fit within the 2-qubit subspace [q_low, q_high]
+    var can_fuse = True
+    for q in t0.get_involved_qubits():
+        if q != q_high and q != q_low:
+            can_fuse = False
+            break
+    if can_fuse:
+        for q in t1.get_involved_qubits():
+            if q != q_high and q != q_low:
+                can_fuse = False
+                break
 
-    var M = compute_fused_matrix(gate_high, gate_low)
-    generic_radix4_kernel[N](state, q_high, q_low, M)
+    # If qubits don't fit in 2-qubit subspace, execute sequentially
+    if not can_fuse:
+        from butterfly.core.state import (
+            transform,
+            c_transform,
+            mc_transform_interval,
+        )
+
+        if t0.is_controlled():
+            if t0.num_controls() == 1:
+                c_transform(state, t0.controls[0], t0.target, t0.gate)
+            else:
+                mc_transform_interval(state, t0.controls, t0.target, t0.gate)
+        else:
+            transform(state, t0.target, t0.gate)
+
+        if t1.is_controlled():
+            if t1.num_controls() == 1:
+                c_transform(state, t1.controls[0], t1.target, t1.gate)
+            else:
+                mc_transform_interval(state, t1.controls, t1.target, t1.gate)
+        else:
+            transform(state, t1.target, t1.gate)
+        return
+
+    # For 2-qubit subspace, compute combined matrix
+    var M0 = t0.get_as_matrix4x4(q_high, q_low)
+    var M1 = t1.get_as_matrix4x4(q_high, q_low)
+
+    # Multiply matrices: M = M1 * M0 (apply M0 first, then M1)
+    from butterfly.algos.unitary_kernels import matmul_matrix4x4
+
+    var M = matmul_matrix4x4(M1, M0)
+
+    # Apply combined matrix
+    from butterfly.algos.fused_gates import transform_matrix4
+
+    transform_matrix4(state, q_high, q_low, M)
 
 
 fn compute_fused_matrix(u_high: Gate, u_low: Gate) -> Matrix4x4:

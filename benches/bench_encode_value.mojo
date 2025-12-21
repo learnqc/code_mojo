@@ -43,7 +43,7 @@ fn test_encode_value_v2[n: Int, v: FloatType]():
 fn test_encode_value_v3[n: Int, v: FloatType]():
     var circuit = QuantumCircuit(n)
     encode_value_circuit(circuit, n, v)
-    execute_fused_v3[n](circuit.state, circuit.transformations)
+    execute_fused_v3[n](circuit.state, circuit.transformations, block_log=20)
 
 
 # fn test_encode_value_swap[n: Int, v: FloatType]():
