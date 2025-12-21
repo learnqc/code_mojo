@@ -7,75 +7,51 @@ alias unit = benchmark.Unit.ms
 
 
 fn test_X[n: Int, t: Int]():
-    try:
-        state = init_state(n)
-        for _ in range(10):
-            transform(state, t, X)
-    except e:
-        print("Caught an error:", e)
+    state = init_state(n)
+    for _ in range(10):
+        transform(state, t, X)
 
 
 fn test_Y[n: Int, t: Int]():
-    try:
-        state = init_state(n)
-        for _ in range(10):
-            transform(state, t, Y)
-    except e:
-        print("Caught an error:", e)
+    state = init_state(n)
+    for _ in range(10):
+        transform(state, t, Y)
 
 
 fn test_Z[n: Int, t: Int]():
-    try:
-        state = init_state(n)
-        for _ in range(10):
-            transform(state, t, Z)
-    except e:
-        print("Caught an error:", e)
+    state = init_state(n)
+    for _ in range(10):
+        transform(state, t, Z)
 
 
 fn test_H[n: Int, t: Int]():
-    try:
-        state = init_state(n)
-        for _ in range(10):
-            transform(state, t, H)
-    except e:
-        print("Caught an error:", e)
+    state = init_state(n)
+    for _ in range(10):
+        transform(state, t, H)
 
 
 fn test_P[n: Int, t: Int]():
-    try:
-        state = init_state(n)
-        for _ in range(10):
-            transform(state, t, P(pi / 3))
-    except e:
-        print("Caught an error:", e)
+    state = init_state(n)
+    for _ in range(10):
+        transform(state, t, P(pi / 3))
 
 
 fn test_RX[n: Int, t: Int]():
-    try:
-        state = init_state(n)
-        for _ in range(10):
-            transform(state, t, RX(pi / 3))
-    except e:
-        print("Caught an error:", e)
+    state = init_state(n)
+    for _ in range(10):
+        transform(state, t, RX(pi / 3))
 
 
 fn test_RY[n: Int, t: Int]():
-    try:
-        state = init_state(n)
-        for _ in range(10):
-            transform(state, t, RY(pi / 3))
-    except e:
-        print("Caught an error:", e)
+    state = init_state(n)
+    for _ in range(10):
+        transform(state, t, RY(pi / 3))
 
 
 fn test_RZ[n: Int, t: Int]():
-    try:
-        state = init_state(n)
-        for _ in range(10):
-            transform(state, t, RZ(pi / 3))
-    except e:
-        print("Caught an error:", e)
+    state = init_state(n)
+    for _ in range(10):
+        transform(state, t, RZ(pi / 3))
 
 
 def main():

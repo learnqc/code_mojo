@@ -8,75 +8,51 @@ alias unit = benchmark.Unit.ms
 
 
 fn test_X_simd[n: Int, t: Int]():
-    try:
-        state = init_state(n)
-        for _ in range(10):
-            transform_simd[1 << n](state, t, X)
-    except e:
-        print("Caught an error:", e)
+    state = init_state(n)
+    for _ in range(10):
+        transform_simd[1 << n](state, t, X)
 
 
 fn test_Y_simd[n: Int, t: Int]():
-    try:
-        state = init_state(n)
-        for _ in range(10):
-            transform_simd[1 << n](state, t, Y)
-    except e:
-        print("Caught an error:", e)
+    state = init_state(n)
+    for _ in range(10):
+        transform_simd[1 << n](state, t, Y)
 
 
 fn test_Z_simd[n: Int, t: Int]():
-    try:
-        state = init_state(n)
-        for _ in range(10):
-            transform_simd[1 << n](state, t, Z)
-    except e:
-        print("Caught an error:", e)
+    state = init_state(n)
+    for _ in range(10):
+        transform_simd[1 << n](state, t, Z)
 
 
 fn test_H_simd[n: Int, t: Int]():
-    try:
-        state = init_state(n)
-        for _ in range(10):
-            transform_simd[1 << n](state, t, H)
-    except e:
-        print("Caught an error:", e)
+    state = init_state(n)
+    for _ in range(10):
+        transform_simd[1 << n](state, t, H)
 
 
 fn test_P_simd[n: Int, t: Int]():
-    try:
-        state = init_state(n)
-        for _ in range(10):
-            transform_simd[1 << n](state, t, P(pi/3))
-    except e:
-        print("Caught an error:", e)
+    state = init_state(n)
+    for _ in range(10):
+        transform_simd[1 << n](state, t, P(pi / 3))
 
 
 fn test_RX_simd[n: Int, t: Int]():
-    try:
-        state = init_state(n)
-        for _ in range(10):
-            transform_simd[1 << n](state, t, RX(pi/3))
-    except e:
-        print("Caught an error:", e)
+    state = init_state(n)
+    for _ in range(10):
+        transform_simd[1 << n](state, t, RX(pi / 3))
 
 
 fn test_RY_simd[n: Int, t: Int]():
-    try:
-        state = init_state(n)
-        for _ in range(10):
-            transform_simd[1 << n](state, t, RY(pi/3))
-    except e:
-        print("Caught an error:", e)
+    state = init_state(n)
+    for _ in range(10):
+        transform_simd[1 << n](state, t, RY(pi / 3))
 
 
 fn test_RZ_simd[n: Int, t: Int]():
-    try:
-        state = init_state(n)
-        for _ in range(10):
-            transform_simd[1 << n](state, t, RZ(pi/3))
-    except e:
-        print("Caught an error:", e)
+    state = init_state(n)
+    for _ in range(10):
+        transform_simd[1 << n](state, t, RZ(pi / 3))
 
 
 def main():
