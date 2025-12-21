@@ -11,6 +11,7 @@ from butterfly.algos.value_encoding import (
 from butterfly.algos.value_encoding_fast import encode_value_super_fast
 from butterfly.core.circuit import QuantumCircuit
 from butterfly.algos.value_encoding import encode_value_circuit
+from butterfly.core.execute_fused_v3 import execute_fused_v3
 from butterfly.utils.visualization import print_state
 
 
@@ -37,6 +38,12 @@ fn test_encode_value_v2[n: Int, v: FloatType]():
     var circuit = QuantumCircuit(n)
     encode_value_circuit(circuit, n, v)
     circuit.execute_simd_v2()
+
+
+fn test_encode_value_v3[n: Int, v: FloatType]():
+    var circuit = QuantumCircuit(n)
+    encode_value_circuit(circuit, n, v)
+    execute_fused_v3[n](circuit.state, circuit.transformations)
 
 
 # fn test_encode_value_swap[n: Int, v: FloatType]():
@@ -77,6 +84,11 @@ def main():
         2, iter
     )
     report_encode_value_v2.print_full("encode_value v2")
+
+    var report_encode_value_v3 = benchmark.run[test_encode_value_v3[n, v]](
+        2, iter
+    )
+    report_encode_value_v3.print_full("encode_value v3")
 
     # var report_encode_value_swap = benchmark.run[test_encode_value_swap[n, v]](
     #     2, iter
