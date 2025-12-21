@@ -11,6 +11,7 @@ from butterfly.core.fft_v4 import fft_v4, fft_v4_kernel
 
 
 fn main() raises:
+    var pre_compute_twiddles = False
     var pyfftw = Python.import_module("pyfftw")
     var np = Python.import_module("numpy")
     var time = Python.import_module("time")
@@ -73,18 +74,14 @@ fn main() raises:
             print("\tVerification PASSED! Diff Sum:", diff_sum)
         # -------------------------
 
-    print(
-        "n, Size, Phast(ms), V3(ms), V4(ms), Stockham(ms), FFTW(ms), % FFTW(V4)"
-    )
+    print("n, Size, Phast(ms), V3(ms), V4(ms), FFTW(ms), % FFTW(V4)")
 
     for n in [15, 20, 25]:  # Benchmarking High N
         var size = 1 << n
         var iters = 5 if n < 21 else 2
 
-        # PRE-COMPUTE FACTORS (Exclude from timing)
+        # Setup states
         var state = generate_state(n)
-        ref factors_re, factors_im = generate_factors(size)
-
         var state_butterfly = state.copy()
         var state_v3 = state.copy()
         var state_v4 = state.copy()
@@ -93,9 +90,15 @@ fn main() raises:
         var fftw_in = pyfftw.empty_aligned(size, dtype="complex128")
         fftw_in.real = np.random.rand(size)
         fftw_in.imag = np.random.rand(size)
-        var fftw_obj = pyfftw.builders.fft(
-            fftw_in, planner_effort="FFTW_MEASURE"
-        )
+
+        var fftw_obj = Python.evaluate("None")
+        if pre_compute_twiddles:
+            fftw_obj = pyfftw.builders.fft(
+                fftw_in, planner_effort="FFTW_MEASURE"
+            )
+
+        # Pre-compute factors once
+        ref factors_re, factors_im = generate_factors(size)
 
         # Warmup
         fft_dif_parallel_simd_phast_kernel(
@@ -107,9 +110,13 @@ fn main() raises:
         # 1. Phast Kernel
         var t_butterfly_0 = time.time()
         for _ in range(iters):
-            fft_dif_parallel_simd_phast_kernel(
-                state_butterfly, factors_re, factors_im
-            )
+            if not pre_compute_twiddles:
+                ref f_re, f_im = generate_factors(size)
+                fft_dif_parallel_simd_phast_kernel(state_butterfly, f_re, f_im)
+            else:
+                fft_dif_parallel_simd_phast_kernel(
+                    state_butterfly, factors_re, factors_im
+                )
         var t_butterfly_1 = time.time()
         var dur_butterfly = Float64(
             (t_butterfly_1 - t_butterfly_0) * 1000.0 / iters
@@ -125,14 +132,21 @@ fn main() raises:
         # 3. V4 Kernel
         var t_v4_0 = time.time()
         for _ in range(iters):
-            fft_v4_kernel(state_v4, factors_re, factors_im, block_log=12)
+            if not pre_compute_twiddles:
+                ref f_re, f_im = generate_factors(size)
+                fft_v4_kernel(state_v4, f_re, f_im, block_log=12)
+            else:
+                fft_v4_kernel(state_v4, factors_re, factors_im, block_log=12)
         var t_v4_1 = time.time()
         var dur_v4 = Float64((t_v4_1 - t_v4_0) * 1000.0 / iters)
 
-        # 5. FFTW (Planned)
+        # 4. FFTW (Planned vs Default)
         var t4 = time.time()
         for _ in range(iters):
-            _ = fftw_obj()
+            if pre_compute_twiddles:
+                _ = fftw_obj()
+            else:
+                _ = pyfftw.interfaces.numpy_fft.fft(fftw_in)
         var t5 = time.time()
         var dur_fftw = Float64((t5 - t4) * 1000.0 / iters)
 
@@ -149,5 +163,6 @@ fn main() raises:
             ", ",
             dur_fftw,
             ", ",
-            (dur_fftw / dur_v4),
+            (dur_fftw / dur_v4) * 100,
+            "%",
         )

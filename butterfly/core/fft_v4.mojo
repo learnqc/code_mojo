@@ -9,7 +9,7 @@ from algorithm import parallelize, vectorize
 from sys.info import simd_width_of
 from butterfly.core.types import Amplitude
 from butterfly.core.state import QuantumState, bit_reverse_state
-from butterfly.core.classical_fft import generate_factors
+from butterfly.core.classical_fft import generate_factors, load_twiddle_4x
 from utils.fast_div import FastDiv
 
 alias FloatType = DType.float64
@@ -36,6 +36,7 @@ fn fft_v4_kernel(
 ):
     """Core butterfly kernel for FFT V4."""
     var n = state.size()
+    var n_quarter = n // 4
     var log_n = Int(log2(Float64(n)))
 
     var ptr_re = state.re.unsafe_ptr()
@@ -61,8 +62,11 @@ fn fft_v4_kernel(
             var src_idxs = SIMD[DType.int64, simd_width]()
             for k in range(simd_width):
                 src_idxs[k] = (idx + k) * num_groups
-            ptr_tw_re.store[width=simd_width](idx, ptr_fac_re.gather(src_idxs))
-            ptr_tw_im.store[width=simd_width](idx, ptr_fac_im.gather(src_idxs))
+            var w_re, w_im = load_twiddle_4x[simd_width](
+                ptr_fac_re, ptr_fac_im, src_idxs, n_quarter
+            )
+            ptr_tw_re.store[width=simd_width](idx, w_re)
+            ptr_tw_im.store[width=simd_width](idx, w_im)
 
         parallelize[pack_worker](stride // simd_width)
 

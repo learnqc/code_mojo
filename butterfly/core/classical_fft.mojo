@@ -27,11 +27,11 @@ fn generate_factors(
 
     alias sqh = sqrt(0.5).cast[Type]()
 
-    factors_re = List[FloatType](length=n // 2, fill=0.0)
-    factors_im = List[FloatType](length=n // 2, fill=0.0)
+    # Allocate only N/4 elements (first quadrant)
+    factors_re = List[FloatType](length=n // 4, fill=0.0)
+    factors_im = List[FloatType](length=n // 4, fill=0.0)
 
     # Use parallelization for large N
-    # For small N, overhead might dominate, but with 2048 grain size it's fine.
     var limit = n // 8
     alias grain_size = 2048
     var num_chunks = (limit + grain_size - 1) // grain_size
@@ -46,27 +46,22 @@ fn generate_factors(
         if end > limit:
             end = limit
 
-        # Recompute starting W for this chunk to stay independent
-        # angle * start
         var thread_angle = angle * FloatType(start)
         var w_re = cos(thread_angle)
         var w_im = sin(thread_angle)
 
         for j in range(start, end):
+            # Store Quadrant 1 (0..N/8)
             ptr_re[j] = w_re
             ptr_im[j] = w_im
 
+            # Store Octant 2 (N/8..N/4) using symmetry
+            # W^{N/8 + j} = ((w_re + w_im) - i(w_re - w_im)) * 1/sqrt(2)
             var sum = (w_re + w_im) * sqh
             var diff = (w_re - w_im) * sqh
 
             ptr_re[j + n // 8] = sum
             ptr_im[j + n // 8] = -diff
-
-            ptr_re[j + n // 4] = w_im
-            ptr_im[j + n // 4] = -w_re
-
-            ptr_re[j + 3 * (n // 8)] = -diff
-            ptr_im[j + 3 * (n // 8)] = -sum
 
             # Update w = w * wm
             var t_re = w_re * wm_re - w_im * wm_im
@@ -306,17 +301,51 @@ fn fft_dif_simd(mut state: QuantumState, inverse: Bool = False):
     vectorize[norm_simd, simd_width](n)
 
 
-fn fft_dif_parallel_simd_phast(
-    mut state: QuantumState, inverse: Bool = False, debug_time: Bool = False
-):
-    """Parallelized + Vectorized DIF FFT using sequential twiddle buffering (PhastFT style).
-    OPTIMIZATION: Prevents strided gathers for twiddles by pre-packing the current stage's
-    twiddle sequence into a contiguous buffer. Since the same twiddle sequence repeats
-    for every block in the stage, this also improves cache locality for later stages.
+@always_inline
+fn load_twiddle_4x[
+    width: Int
+](
+    ptr_fac_re: UnsafePointer[FloatType],
+    ptr_fac_im: UnsafePointer[FloatType],
+    k: SIMD[DType.int64, width],
+    n_quarter: Int,
+) -> Tuple[SIMD[DType.float64, width], SIMD[DType.float64, width]]:
+    """Derive twiddle factors for second quadrant on the fly.
+    Identity: W^{j+N/4} = Im(W^j) - i Re(W^j).
     """
+
+    @parameter
+    if width > 1:
+        alias bool_vec = SIMD[DType.bool, width]
+        var is_q2_bool = rebind[bool_vec](k.ge(n_quarter))
+        var is_q2 = is_q2_bool.cast[DType.float64]()
+        var is_q1 = 1.0 - is_q2
+
+        var k_adj = k - is_q2_bool.cast[DType.int64]() * n_quarter
+        var w_re_base = ptr_fac_re.gather(k_adj)
+        var w_im_base = ptr_fac_im.gather(k_adj)
+
+        var w_re = is_q1 * w_re_base + is_q2 * w_im_base
+        var w_im = is_q1 * w_im_base - is_q2 * w_re_base
+        return w_re, w_im
+    else:
+        var k_val = Int(k[0])
+        if k_val >= n_quarter:
+            var k_adj = k_val - n_quarter
+            return ptr_fac_im[k_adj], -ptr_fac_re[k_adj]
+        else:
+            return ptr_fac_re[k_val], ptr_fac_im[k_val]
+
+
+fn fft_dif_parallel_simd_phast_kernel(
+    mut state: QuantumState,
+    factors_re: List[FloatType],
+    factors_im: List[FloatType],
+):
+    """Core butterfly kernel for Phast FFT."""
     var n = state.size()
+    var n_quarter = n // 4
     var log_n = Int(log2(Float64(n)))
-    ref factors_re, factors_im = generate_factors(n)
 
     var ptr_re = state.re.unsafe_ptr()
     var ptr_im = state.im.unsafe_ptr()
@@ -330,48 +359,23 @@ fn fft_dif_parallel_simd_phast(
     var tw_buf_re = List[FloatType](capacity=tw_max)
     var tw_buf_im = List[FloatType](capacity=tw_max)
 
-    # Fast initialization (unsafe setting length)
-    # Since we are writing to it before reading, we can just "set" the size if List supported it.
-    # But for now, use resize (assuming it's faster than loop)
-    # Or pointer arithmetic to set size? No private member access.
-    # We will assume resize is decent, or just use unsafe_ptr to write without resizing (unsafe but we can just use capacity).
-    # Wait, if we use capacity but size is 0, list might free/realloc?
-    # List is struct.
-    # Actually, we can just use the unsafe pointer from the start and IGNORE the size property
-    # as long as we don't call append/methods that rely on size.
-    # We allocated capacity. The memory is there.
-
-    # Pre-allocate buffer (always allocate to be safe, or alloc inside if needed? List alloc is fast enough if reused/outside)
-    # We moved alloc outside? Yes.
-
     var ptr_tw_buf_re = tw_buf_re.unsafe_ptr()
     var ptr_tw_buf_im = tw_buf_im.unsafe_ptr()
 
-    var t_start = perf_counter_ns()
-
     for _ in range(log_n):
-        var t_stage_start = perf_counter_ns()
         var fd = FastDiv[DType.uint32](stride)
         alias TargetType = Scalar[FastDiv[DType.uint32].uint_type]
-
         var num_groups = n // 2 // stride
 
         if (stride // 2) >= simd_width:
-            # Tiling Optimization for Large Strides (> L2 Cache)
-            # Threshold chosen based on N=22 benchmarks (Stride 1M was slow, Tiling fixed it).
-            # Compute tiling thresholds based on Cache Sizes
-            # L2 Cache Target: 4MB. L1 Cache Target: 64KB.
             alias target_l2_bytes = 4 * 1024 * 1024
             alias target_l1_bytes = 64 * 1024
             alias complex_size = 2 * float_bytes
-
             alias TILED_THRESHOLD = target_l2_bytes // complex_size
             alias TILE_SIZE = target_l1_bytes // complex_size
 
-            # Use Zero-Copy (Direct Gather) if strides are small enough (avoid buffer overhead)
-            # Factor Stride 1 (Stage 0), 2 (Stage 1), 4 (Stage 2) are good candidates.
             if num_groups <= 4 and stride >= TILED_THRESHOLD:
-                # Tiled Zero-Copy Mode (Generic num_groups)
+                # Tiled Zero-Copy Mode
                 var num_items = n // 2
                 var num_tiles = num_items // TILE_SIZE
 
@@ -396,9 +400,9 @@ fn fft_dif_parallel_simd_phast(
                             bot_idxs[i] = Int64(bot_idx_base + i)
                             fac_idxs[i] = Int64((j_base + i) * num_groups)
 
-                        var w_re = ptr_fac_re.gather(fac_idxs)
-                        var w_im = ptr_fac_im.gather(fac_idxs)
-
+                        var w_re, w_im = load_twiddle_4x[simd_width](
+                            ptr_fac_re, ptr_fac_im, fac_idxs, n_quarter
+                        )
                         var top_re = ptr_re.gather(top_idxs)
                         var top_im = ptr_im.gather(top_idxs)
                         var bot_re = ptr_re.gather(bot_idxs)
@@ -418,12 +422,8 @@ fn fft_dif_parallel_simd_phast(
                         ptr_im.scatter(bot_idxs, t_im)
 
                 parallelize[worker_tiled](num_tiles)
-
-                # Handle remainder if any (unlikely with power of 2 sizes, but good practice)
-                # Power of 2 sizes will always be divisible by 4096 (2^12) if n >= 13.
-
             elif num_groups == 1:
-                # Standard Zero-Copy: Use factors directly (Origin: ptr_fac_re)
+
                 @parameter
                 fn worker_fac(vec_idx: Int):
                     var idx_base = vec_idx * simd_width
@@ -433,29 +433,28 @@ fn fft_dif_parallel_simd_phast(
                     var block_start = block_idx * 2 * stride
                     var top_idx_base = block_start + j_base
                     var bot_idx_base = top_idx_base + stride
-
                     var top_idxs = SIMD[DType.int64, simd_width]()
                     var bot_idxs = SIMD[DType.int64, simd_width]()
                     for i in range(simd_width):
                         top_idxs[i] = Int64(top_idx_base + i)
                         bot_idxs[i] = Int64(bot_idx_base + i)
-
-                    var w_re = ptr_fac_re.load[width=simd_width](j_base)
-                    var w_im = ptr_fac_im.load[width=simd_width](j_base)
-
+                    var k_base = j_base * num_groups
+                    var k_vec = SIMD[DType.int64, simd_width]()
+                    for i in range(simd_width):
+                        k_vec[i] = k_base + i
+                    var w_re, w_im = load_twiddle_4x[simd_width](
+                        ptr_fac_re, ptr_fac_im, k_vec, n_quarter
+                    )
                     var top_re = ptr_re.gather(top_idxs)
                     var top_im = ptr_im.gather(top_idxs)
                     var bot_re = ptr_re.gather(bot_idxs)
                     var bot_im = ptr_im.gather(bot_idxs)
-
                     var sum_re = top_re + bot_re
                     var sum_im = top_im + bot_im
                     var diff_re = top_re - bot_re
                     var diff_im = top_im - bot_im
-
                     var t_re = diff_re * w_re - diff_im * w_im
                     var t_im = diff_re * w_im + diff_im * w_re
-
                     ptr_re.scatter(top_idxs, sum_re)
                     ptr_im.scatter(top_idxs, sum_im)
                     ptr_re.scatter(bot_idxs, t_re)
@@ -463,20 +462,16 @@ fn fft_dif_parallel_simd_phast(
 
                 parallelize[worker_fac]((n // 2) // simd_width, 8)
             else:
-                # Buffer Mode (Origin: ptr_tw_buf_re)
-
-                # Pack first
                 for idx in range(0, stride, simd_width):
-                    var idx_base = idx
-                    var src_idxs = SIMD[DType.int64, simd_width]()
+                    var k_vec = SIMD[DType.int64, simd_width]()
                     for i in range(simd_width):
-                        src_idxs[i] = Int64((idx_base + i) * num_groups)
-                    var val_re = ptr_fac_re.gather(src_idxs)
-                    var val_im = ptr_fac_im.gather(src_idxs)
-                    ptr_tw_buf_re.store(idx_base, val_re)
-                    ptr_tw_buf_im.store(idx_base, val_im)
+                        k_vec[i] = Int64((idx + i) * num_groups)
+                    var val_re, val_im = load_twiddle_4x[simd_width](
+                        ptr_fac_re, ptr_fac_im, k_vec, n_quarter
+                    )
+                    ptr_tw_buf_re.store(idx, val_re)
+                    ptr_tw_buf_im.store(idx, val_im)
 
-                # Run using buffer
                 @parameter
                 fn worker_buf(vec_idx: Int):
                     var idx_base = vec_idx * simd_width
@@ -486,120 +481,72 @@ fn fft_dif_parallel_simd_phast(
                     var block_start = block_idx * 2 * stride
                     var top_idx_base = block_start + j_base
                     var bot_idx_base = top_idx_base + stride
-
                     var top_idxs = SIMD[DType.int64, simd_width]()
                     var bot_idxs = SIMD[DType.int64, simd_width]()
                     for i in range(simd_width):
                         top_idxs[i] = Int64(top_idx_base + i)
                         bot_idxs[i] = Int64(bot_idx_base + i)
-
                     var w_re = ptr_tw_buf_re.load[width=simd_width](j_base)
                     var w_im = ptr_tw_buf_im.load[width=simd_width](j_base)
-
                     var top_re = ptr_re.gather(top_idxs)
                     var top_im = ptr_im.gather(top_idxs)
                     var bot_re = ptr_re.gather(bot_idxs)
                     var bot_im = ptr_im.gather(bot_idxs)
-
                     var sum_re = top_re + bot_re
                     var sum_im = top_im + bot_im
                     var diff_re = top_re - bot_re
                     var diff_im = top_im - bot_im
-
                     var t_re = diff_re * w_re - diff_im * w_im
                     var t_im = diff_re * w_im + diff_im * w_re
-
                     ptr_re.scatter(top_idxs, sum_re)
                     ptr_im.scatter(top_idxs, sum_im)
                     ptr_re.scatter(bot_idxs, t_re)
                     ptr_im.scatter(bot_idxs, t_im)
 
                 parallelize[worker_buf]((n // 2) // simd_width, 8)
-
         else:
-            # Fallback (Small Strides or Large SIMD width)
-            if stride == 4 and n >= 8:
-                # Optimized Stride 4 (Vectorized Swap + Kernel)
-                # target=2 (Stride 4) -> Swap Bit 2 with Bit 2 (No-op)
-                # swap_state_to_distance_4_simd(state, 2)
-                stride4_swapped_simd(state, ptr_fac_re, ptr_fac_im, num_groups)
-                # swap_state_to_distance_4_simd(state, 2)
-            elif stride == 2 and n >= 8:
-                # Optimized Fused Stride 2 + 1
-                swap_state_to_distance(state, 1, 4)
-                fused_stride2_stride1_swapped(state)
-                swap_state_to_distance(state, 1, 4)
-                if debug_time:
-                    var t_now = perf_counter_ns()
-                    print(
-                        "Stage Stride 2+1 (Fused): ",
-                        (t_now - t_stage_start) / 1e6,
-                        "ms",
-                    )
-                # Handled Stride 1 implicitly
-                break
-            else:
-                # Fallback Scalar Loop
-                for idx in range(n // 2):
-                    var res = fd.__divmod__(TargetType(idx))
-                    var block_idx = Int(res[0])
-                    var j = Int(res[1])
+            for block_idx in range(n // (2 * stride)):
+                var block_start = block_idx * 2 * stride
+                for j in range(stride):
+                    var idx0 = block_start + j
+                    var idx1 = idx0 + stride
+                    var k = j * num_groups
+                    var w_re: FloatType
+                    var w_im: FloatType
+                    if k >= n_quarter:
+                        w_re = ptr_fac_im[k - n_quarter]
+                        w_im = -ptr_fac_re[k - n_quarter]
+                    else:
+                        w_re = ptr_fac_re[k]
+                        w_im = ptr_fac_im[k]
+                    var a_re = state.re[idx0]
+                    var a_im = state.im[idx0]
+                    var b_re = state.re[idx1]
+                    var b_im = state.im[idx1]
+                    var diff_re = a_re - b_re
+                    var diff_im = a_im - b_im
+                    state.re[idx0] = a_re + b_re
+                    state.im[idx0] = a_im + b_im
+                    state.re[idx1] = diff_re * w_re - diff_im * w_im
+                    state.im[idx1] = diff_re * w_im + diff_im * w_re
+        stride >>= 1
 
-                    var block_start = block_idx * 2 * stride
-                    var top_idx = block_start + j
-                    var bot_idx = top_idx + stride
 
-                    var w_re = ptr_fac_re[j * num_groups]
-                    var w_im = ptr_fac_im[j * num_groups]
+fn fft_dif_parallel_simd_phast(
+    mut state: QuantumState, inverse: Bool = False, debug_time: Bool = False
+):
+    """Parallelized + Vectorized DIF FFT using sequential twiddle buffering (PhastFT style).
+    """
+    var n = state.size()
+    ref factors_re, factors_im = generate_factors(n, inverse)
 
-                    var top_re = ptr_re[top_idx]
-                    var top_im = ptr_im[top_idx]
-                    var bot_re = ptr_re[bot_idx]
-                    var bot_im = ptr_im[bot_idx]
+    fft_dif_parallel_simd_phast_kernel(state, factors_re, factors_im)
 
-                    var sum_re = top_re + bot_re
-                    var sum_im = top_im + bot_im
-                    var diff_re = top_re - bot_re
-                    var diff_im = top_im - bot_im
-
-                    var t_re = diff_re * w_re - diff_im * w_im
-                    var t_im = diff_re * w_im + diff_im * w_re
-
-                    ptr_re[top_idx] = sum_re
-                    ptr_im[top_idx] = sum_im
-                    ptr_re[bot_idx] = t_re
-                    ptr_im[bot_idx] = t_im
-
-        if debug_time:
-            var t_now = perf_counter_ns()
-            print(
-                "Stage Stride",
-                stride,
-                ": ",
-                (t_now - t_stage_start) / 1e6,
-                "ms",
-            )
-
-        stride = stride // 2
-
-    # Lists freed automatically
-
-    if debug_time:
-        var t_stages_end = perf_counter_ns()
-        print("Total Stages: ", (t_stages_end - t_start) / 1e6, "ms")
-
-    var t_bitrev_start = perf_counter_ns()
     bit_reverse_state(state)
-    if debug_time:
-        var t_bitrev_end = perf_counter_ns()
-        print("Bit Reversal: ", (t_bitrev_end - t_bitrev_start) / 1e6, "ms")
-    var scale = FloatType(1.0) / sqrt(FloatType(n))
-    var final_ptr_re = state.re.unsafe_ptr()
-    var final_ptr_im = state.im.unsafe_ptr()
-
+    var scale = 1.0 / sqrt(Float64(n)).cast[Type]()
     for i in range(n):
-        final_ptr_re[i] *= scale
-        final_ptr_im[i] *= scale
+        state.re[i] *= scale
+        state.im[i] *= scale
 
 
 fn fft_dif_parallel_simd_fused(
