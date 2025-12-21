@@ -2,6 +2,7 @@ import benchmark
 from python import Python
 from butterfly.core.state import generate_state, QuantumState
 from butterfly.core.classical_fft import fft_dif_parallel_simd_phast
+from butterfly.core.fft_v3 import fft_v3
 
 
 fn main() raises:
@@ -11,11 +12,12 @@ fn main() raises:
 
     # Configure pyfftw to use the cache to be faster
     _ = pyfftw.interfaces.cache.enable()
+    _ = pyfftw.config.NUM_THREADS = 10
 
     print("Benchmarking Butterfly vs FFTW")
 
     # --- Verification Step ---
-    for n in range(3, 19):
+    for n in range(3, 9):
         print("Verifying correctness against FFTW (n={})...".format(String(n)))
         var size = 1 << n
         var v_state = generate_state(n)
@@ -33,7 +35,8 @@ fn main() raises:
         np_v.imag = p_im
 
         # Run Both
-        fft_dif_parallel_simd_phast(v_state)
+        # fft_dif_parallel_simd_phast(v_state)
+        fft_v3(v_state, block_log=18)
         # Using pyfftw.interfaces.numpy_fft.fft which is a drop-in replacement
         var fftw_res = pyfftw.interfaces.numpy_fft.fft(np_v, norm="ortho")
 
@@ -66,16 +69,20 @@ fn main() raises:
             print("\tVerification PASSED! Diff Sum:", diff_sum)
         # -------------------------
 
-    print("n, Size, Butterfly(ms), FFTW(ms), Speedup(Butterfly/FFTW)")
+    print(
+        "n, Size, Butterfly(ms), V3(ms), FFTW(ms), Speedup(V3/FFTW),"
+        " Speedup(Butterfly/FFTW)"
+    )
 
-    for n in range(17, 28):  # Benchmarking High N
+    for n in [15, 20, 25]:  # Benchmarking High N
         var size = 1 << n
         var state = generate_state(n)
 
         # Iterations
         var iters = 5 if n < 21 else 2
 
-        var state_butterfly = state
+        var state_butterfly = state.copy()
+        var state_v3 = state.copy()
 
         # FFTW setup
         # Use empty_aligned for optimal FFTW performance
@@ -85,7 +92,11 @@ fn main() raises:
 
         # Warmup
         fft_dif_parallel_simd_phast(state_butterfly)
-        _ = pyfftw.interfaces.numpy_fft.fft(fftw_in)
+        fft_v3(state_butterfly, block_log=18)
+        # _ = pyfftw.interfaces.numpy_fft.fft(fftw_in)
+        var fftw_obj = pyfftw.builders.fft(
+            fftw_in, planner_effort="FFTW_MEASURE"
+        )
 
         # 3. Butterfly
         var t_butterfly_0 = time.time()
@@ -96,10 +107,18 @@ fn main() raises:
             (t_butterfly_1 - t_butterfly_0) * 1000.0 / iters
         )
 
+        # V3
+        var t_v3_0 = time.time()
+        for _ in range(iters):
+            fft_v3(state_v3, block_log=18)
+        var t_v3_1 = time.time()
+        var dur_v3 = Float64((t_v3_1 - t_v3_0) * 1000.0 / iters)
+
         # 4. FFTW
         var t4 = time.time()
         for _ in range(iters):
-            _ = pyfftw.interfaces.numpy_fft.fft(fftw_in)
+            # _ = pyfftw.interfaces.numpy_fft.fft(fftw_in)
+            _ = fftw_obj()
         var t5 = time.time()
         var dur_fftw = Float64((t5 - t4) * 1000.0 / iters)
 
@@ -110,7 +129,11 @@ fn main() raises:
             ", ",
             dur_butterfly,
             ", ",
+            dur_v3,
+            ", ",
             dur_fftw,
             ", ",
-            dur_fftw / dur_butterfly,
+            dur_v3 / dur_fftw,
+            ", ",
+            dur_butterfly / dur_fftw,
         )
