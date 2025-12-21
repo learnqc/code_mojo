@@ -58,6 +58,12 @@ fn bench_encode_circuit_super_fast[n: Int](value: Float64) raises:
         c.execute_simd_v2()
         keep(c.state.re.unsafe_ptr())
 
+    @parameter
+    fn wrapper_simd_run():
+        var c = circuit_simd.copy()
+        c.run()
+        keep(c.state.re.unsafe_ptr())
+
     # NOTE: wrapper including .copy() measures execution + copy.
     # If copy is fast, it's fine. If we want pure execution, we accept in-place modification.
     # Standard butterfly benchmarks usually measure in-place to get peak throughput.
@@ -82,6 +88,11 @@ fn bench_encode_circuit_super_fast[n: Int](value: Float64) raises:
         circuit_simd.execute_simd_v2()
         keep(circuit_simd.state.re.unsafe_ptr())
 
+    @parameter
+    fn wrapper_simd_run_inplace():
+        circuit_simd.run()
+        keep(circuit_simd.state.re.unsafe_ptr())
+
     print("\n[In-place Execution - modifies state every iteration]")
     print("circuit.execute_simd():")
     run[wrapper_circuit_inplace](2, 5).print(Unit.ms)
@@ -94,6 +105,9 @@ fn bench_encode_circuit_super_fast[n: Int](value: Float64) raises:
 
     print("circuit_simd.execute_simd_v2():")
     run[wrapper_simd_v2_inplace](2, 5).print(Unit.ms)
+
+    print("circuit_simd.run() [direct v2]:")
+    run[wrapper_simd_run_inplace](2, 5).print(Unit.ms)
 
     # 2. Correctness Verification (Starting from fresh |0> state)
     print("\nVerifying Correctness (Fresh State)...")
@@ -128,6 +142,12 @@ fn bench_encode_circuit_super_fast[n: Int](value: Float64) raises:
         cs_v2.transformations.append(circuit_builder.transformations[i].copy())
     cs_v2.execute_simd_v2()
     verify("circuit_simd.execute_simd_v2()", c_baseline.state, cs_v2.state)
+
+    var cs_run = QuantumCircuitSIMD[n]()
+    for i in range(len(circuit_builder.transformations)):
+        cs_run.transformations.append(circuit_builder.transformations[i].copy())
+    cs_run.run()
+    verify("circuit_simd.run()", c_baseline.state, cs_run.state)
 
 
 fn verify(name: String, baseline: QuantumState, test: QuantumState):
