@@ -5,6 +5,7 @@ from butterfly.algos.tail_stages import (
     stride4_swapped_simd,
 )
 from butterfly.algos.fused_stages import fused_stride2_stride1_swapped
+from butterfly.algos.radix4 import radix4_dif_simd
 
 from memory import UnsafePointer
 from algorithm import parallelize
@@ -664,7 +665,13 @@ fn fft_dif_parallel_simd_fused(
 
         elif stride == 4 and swapped:
             # Stage 4 + 2 + 1: Fused Restore & Tail
-            from butterfly.algos.fused_stages import fused_restore_and_tail_simd
+            from butterfly.algos.fused_stages import (
+                fused_stage0_swap_simd,
+                fused_restore_order_simd,
+                fused_stride2_stride1_swapped,
+                fused_restore_and_tail_simd,
+            )
+            from butterfly.algos.radix4 import radix4_dif_simd
 
             # print("DEBUG: Executing Fused Restore order")
             fused_restore_and_tail_simd(
@@ -925,6 +932,106 @@ fn fft_dif_parallel_simd_fused(
     if debug_time:
         print("Total Stages: ", (perf_counter_ns() - t_start) / 1e6, "ms")
 
+    bit_reverse_state(state)
+
+    # Normalization
+    var scale = FloatType(1.0) / sqrt(FloatType(n))
+    var final_ptr_re = state.re.unsafe_ptr()
+    var final_ptr_im = state.im.unsafe_ptr()
+
+    for i in range(n):
+        final_ptr_re[i] *= scale
+        final_ptr_im[i] *= scale
+
+
+fn fft_radix4_dif(
+    mut state: QuantumState,
+    factors_re: List[FloatType],
+    factors_im: List[FloatType],
+):
+    """
+    Radix-4 DIF FFT.
+    Fuses pairs of Radix-2 stages into Radix-4 stages.
+    Handles odd power-of-2 sizes by running one initial Radix-2 stage.
+    """
+    var n = state.size()
+    var log_n = Int(log2(FloatType(n)))
+
+    var current_n = n
+
+    # Handle Odd Stage
+    if log_n % 2 != 0:
+        # Run standard Radix-2 Stage (Stride N/2)
+        var stride = n // 2
+        var ptr_re = state.re.unsafe_ptr()
+        var ptr_im = state.im.unsafe_ptr()
+        var ptr_fac_re = factors_re.unsafe_ptr()
+        var ptr_fac_im = factors_im.unsafe_ptr()
+
+        alias simd_width = simd_width_of[Type]()
+
+        # Inline loop for simplicity (scalar/vectorized loop)
+        for k in range(0, stride, simd_width):
+            var vl = simd_width
+            if k + vl > stride:
+                vl = stride - k
+
+            if vl < simd_width:
+                # Scalar tail
+                for i in range(vl):
+                    var ki = k + i
+                    var re0 = ptr_re[ki]
+                    var im0 = ptr_im[ki]
+                    var re1 = ptr_re[ki + stride]
+                    var im1 = ptr_im[ki + stride]
+
+                    var sum_re = re0 + re1
+                    var sum_im = im0 + im1
+                    var diff_re = re0 - re1
+                    var diff_im = im0 - im1
+
+                    var w_re = ptr_fac_re[ki]
+                    var w_im = ptr_fac_im[ki]
+
+                    var t_re = diff_re * w_re - diff_im * w_im
+                    var t_im = diff_re * w_im + diff_im * w_re
+
+                    ptr_re[ki] = sum_re
+                    ptr_im[ki] = sum_im
+                    ptr_re[ki + stride] = t_re
+                    ptr_im[ki + stride] = t_im
+            else:
+                # Vector
+                var re0 = ptr_re.load[width=simd_width](k)
+                var im0 = ptr_im.load[width=simd_width](k)
+                var re1 = ptr_re.load[width=simd_width](k + stride)
+                var im1 = ptr_im.load[width=simd_width](k + stride)
+
+                var sum_re = re0 + re1
+                var sum_im = im0 + im1
+                var diff_re = re0 - re1
+                var diff_im = im0 - im1
+
+                var w_re = ptr_fac_re.load[width=simd_width](k)
+                var w_im = ptr_fac_im.load[width=simd_width](k)
+
+                var t_re = diff_re * w_re - diff_im * w_im
+                var t_im = diff_re * w_im + diff_im * w_re
+
+                ptr_re.store(k, sum_re)
+                ptr_im.store(k, sum_im)
+                ptr_re.store(k + stride, t_re)
+                ptr_im.store(k + stride, t_im)
+
+        current_n = n // 2
+
+    # Radix-4 Loop
+    while current_n >= 4:
+        var stride = current_n // 4
+        radix4_dif_simd(state, factors_re, factors_im, stride)
+        current_n = current_n // 4
+
+    # Bit Reverse
     bit_reverse_state(state)
 
     # Normalization

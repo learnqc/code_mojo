@@ -14,7 +14,7 @@ from butterfly.core.gates import *
 alias simd_width = simd_width_of[Type]()
 
 
-struct QuantumState(ImplicitlyCopyable, Sized):
+struct QuantumState(Copyable, Sized):
     var re: List[FloatType]
     var im: List[FloatType]
 
@@ -67,7 +67,7 @@ struct _QuantumStateIterator:
     var index: Int
 
     fn __init__(out self, state: QuantumState):
-        self.state = state
+        self.state = state.copy()
         self.index = 0
 
     fn __iter__(self) -> Self:
@@ -841,10 +841,6 @@ fn c_transform_interval_simd[
             # Inside the block, iterate over sub-blocks
             for j in range(c_stride // (2 * t_stride)):
                 var sub_start = block_start + j * 2 * t_stride
-                # Here, [sub_start, sub_start + t_stride) is a contiguous block of pairs
-                # with indices (idx, idx + t_stride).
-                # We can vectorize this loop:
-                # for idx in range(sub_start, sub_start + t_stride): ...
                 process_contiguous_simd[N](
                     state, sub_start, t_stride, t_stride, gate
                 )
@@ -855,9 +851,6 @@ fn c_transform_interval_simd[
             var num_periods = t_stride // (2 * c_stride)
             for p in range(num_periods):
                 var p_start = base + p * 2 * c_stride + c_stride
-                # Here [p_start, p_start + c_stride) is a contiguous block
-                # where control bit is 1.
-                # Pairs are (idx, idx + t_stride).
                 process_contiguous_simd[N](
                     state, p_start, c_stride, t_stride, gate
                 )
@@ -866,8 +859,14 @@ fn c_transform_interval_simd[
 fn c_transform_simd_base[
     N: Int
 ](mut state: QuantumState, control: Int, stride: Int, gate: Gate):
-    gate_re = [[gate[0][0].re, gate[0][1].re], [gate[1][0].re, gate[1][1].re]]
-    gate_im = [[gate[0][0].im, gate[0][1].im], [gate[1][0].im, gate[1][1].im]]
+    var gate_re = [
+        [gate[0][0].re, gate[0][1].re],
+        [gate[1][0].re, gate[1][1].re],
+    ]
+    var gate_im = [
+        [gate[0][0].im, gate[0][1].im],
+        [gate[1][0].im, gate[1][1].im],
+    ]
 
     alias num_work_items = 8
     alias num_threads = num_work_items
@@ -879,16 +878,15 @@ fn c_transform_simd_base[
     @always_inline
     @parameter
     fn butterfly_simd[simd_width: Int](idx: Int):
-        zero_idx = 2 * idx - idx % stride
-        one_idx = zero_idx + stride
+        var zero_idx = 2 * idx - idx % stride
+        var one_idx = zero_idx + stride
 
         var elem0_re = vector_re.load[width=simd_width](zero_idx)
         var elem0_im = vector_im.load[width=simd_width](zero_idx)
         var elem1_re = vector_re.load[width=simd_width](one_idx)
         var elem1_im = vector_im.load[width=simd_width](one_idx)
 
-        # Construct indices vector: zero_idx, zero_idx+1, ...
-        # We need to cast zero_idx to SIMD[DType.int64, simd_width] to add iota
+        # Precompute offsets for mask indexing? No, just keep simple for now.
         var offsets = SIMD[DType.int64, simd_width]()
         for i in range(simd_width):
             offsets[i] = i
@@ -897,40 +895,11 @@ fn c_transform_simd_base[
         var mask_val = indices & (1 << control)
         var mask = mask_val.cast[DType.bool]()
 
-        # Optimization: If no control bits set, skip
-        # reduce_or seems to be missing or mask is inferred as Bool?
-        # Commenting out optimization for now to ensure correctness of logic first.
-        # if not mask.reduce_or():
-        #    return
+        var elem0_orig_re = elem0_re
+        var elem0_orig_im = elem0_im
+        var elem1_orig_re = elem1_re
+        var elem1_orig_im = elem1_im
 
-        elem0_orig_re = elem0_re
-        elem0_orig_im = elem0_im
-
-        elem1_orig_re = elem1_re
-        elem1_orig_im = elem1_im
-
-        #         new_elem0_re = elem0_orig_re.fma(
-        #             gate_re[0][0],
-        #             -gate_im[0][0] * elem0_orig_im
-        #             + elem1_orig_re.fma(gate_re[0][1], -gate_im[0][1] * elem1_orig_im),
-        #         )
-        #         new_elem0_im = elem0_orig_re.fma(
-        #             gate_im[0][0],
-        #             gate_re[0][0] * elem0_orig_im
-        #             + elem1_orig_re.fma(gate_im[0][1], gate_re[0][1] * elem1_orig_im),
-        #         )
-        #         new_elem1_re = elem0_orig_re.fma(
-        #             gate_re[1][0],
-        #             -gate_im[1][0] * elem0_orig_im
-        #             + elem1_orig_re.fma(gate_re[1][1], -gate_im[1][1] * elem1_orig_im),
-        #         )
-        #         new_elem1_im = elem0_orig_re.fma(
-        #             gate_im[1][0],
-        #             gate_re[1][0] * elem0_orig_im
-        #             + elem1_orig_re.fma(gate_im[1][1], gate_re[1][1] * elem1_orig_im),
-        #         )
-
-        # Blend results based on mask
         elem0_re = mask.select(
             elem0_orig_re.fma(
                 gate_re[0][0],
@@ -979,13 +948,123 @@ fn c_transform_simd_base[
 
     @parameter
     @always_inline
-    fn worker_simd(item_id: Int):
+    fn worker_simd_gold(item_id: Int):
         var start = item_id * chunk_size
         var end = min(start + chunk_size, N // 2)
         for idx in range(start, end, simd_width):
             butterfly_simd[simd_width](idx)
 
-    parallelize[worker_simd](num_work_items, num_threads)
+    parallelize[worker_simd_gold](num_work_items, num_threads)
+
+
+fn c_transform_simd_base_v2[
+    N: Int
+](mut state: QuantumState, control: Int, stride: Int, gate: Gate):
+    var gate_re = [
+        [gate[0][0].re, gate[0][1].re],
+        [gate[1][0].re, gate[1][1].re],
+    ]
+    var gate_im = [
+        [gate[0][0].im, gate[0][1].im],
+        [gate[1][0].im, gate[1][1].im],
+    ]
+
+    alias num_work_items = 8
+    alias num_threads = num_work_items
+    alias chunk_size = max(1, N // 2 // num_work_items)
+
+    var vector_re = NDBuffer[Type, 1, _, N](state.re)
+    var vector_im = NDBuffer[Type, 1, _, N](state.im)
+
+    @always_inline
+    @parameter
+    fn butterfly_simd[simd_width: Int](idx: Int):
+        var lower_mask = stride - 1
+        var zero_idx = ((idx & ~lower_mask) << 1) | (idx & lower_mask)
+        var one_idx = zero_idx + stride
+
+        var elem0_re = vector_re.load[width=simd_width](zero_idx)
+        var elem0_im = vector_im.load[width=simd_width](zero_idx)
+        var elem1_re = vector_re.load[width=simd_width](one_idx)
+        var elem1_im = vector_im.load[width=simd_width](one_idx)
+
+        var offsets = SIMD[DType.int64, simd_width]()
+        for i in range(simd_width):
+            offsets[i] = i
+        var indices = SIMD[DType.int64, simd_width](zero_idx) + offsets
+
+        var control_mask = 1 << control
+        var mask_val = indices & control_mask
+        var mask = mask_val.cast[DType.bool]()
+
+        var elem0_orig_re = elem0_re
+        var elem0_orig_im = elem0_im
+        var elem1_orig_re = elem1_re
+        var elem1_orig_im = elem1_im
+
+        elem0_re = mask.select(
+            elem0_orig_re.fma(
+                gate_re[0][0],
+                -gate_im[0][0] * elem0_orig_im
+                + elem1_orig_re.fma(
+                    gate_re[0][1], -gate_im[0][1] * elem1_orig_im
+                ),
+            ),
+            elem0_re,
+        )
+        elem0_im = mask.select(
+            elem0_orig_re.fma(
+                gate_im[0][0],
+                gate_re[0][0] * elem0_orig_im
+                + elem1_orig_re.fma(
+                    gate_im[0][1], gate_re[0][1] * elem1_orig_im
+                ),
+            ),
+            elem0_im,
+        )
+        elem1_re = mask.select(
+            elem0_orig_re.fma(
+                gate_re[1][0],
+                -gate_im[1][0] * elem0_orig_im
+                + elem1_orig_re.fma(
+                    gate_re[1][1], -gate_im[1][1] * elem1_orig_im
+                ),
+            ),
+            elem1_re,
+        )
+        elem1_im = mask.select(
+            elem0_orig_re.fma(
+                gate_im[1][0],
+                gate_re[1][0] * elem0_orig_im
+                + elem1_orig_re.fma(
+                    gate_im[1][1], gate_re[1][1] * elem1_orig_im
+                ),
+            ),
+            elem1_im,
+        )
+
+        vector_re.store[width=simd_width](zero_idx, elem0_re)
+        vector_im.store[width=simd_width](zero_idx, elem0_im)
+        vector_re.store[width=simd_width](one_idx, elem1_re)
+        vector_im.store[width=simd_width](one_idx, elem1_im)
+
+    @parameter
+    @always_inline
+    fn worker_simd_v2(item_id: Int):
+        var start = item_id * chunk_size
+        var end = min(start + chunk_size, N // 2)
+        for idx in range(start, end, simd_width):
+            butterfly_simd[simd_width](idx)
+
+    parallelize[worker_simd_v2](num_work_items, num_threads)
+
+
+fn c_transform_simd_v2[
+    N: Int
+](mut state: QuantumState, control: Int, target: Int, gate: Gate):
+    stride = 1 << target
+    # In v2, we might dispatch to specialized kernels here
+    c_transform_simd_base_v2[N](state, control, stride, gate)
 
 
 fn c_transform_simd[

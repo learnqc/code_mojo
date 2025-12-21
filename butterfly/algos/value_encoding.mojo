@@ -132,3 +132,25 @@ fn encode_value_mix(n: Int, v: FloatType) -> State:
 
     iqft(state, [n - 1 - j for j in range(n)])
     return state^
+
+
+from butterfly.core.circuit import QuantumCircuit
+from butterfly.algos.qft import iqft as iqft_circuit
+
+
+fn encode_value_circuit(mut circuit: QuantumCircuit, n: Int, v: FloatType):
+    """
+    Adds value encoding gates to the circuit.
+
+    Args:
+        circuit: The QuantumCircuit to add gates to.
+        n: Number of qubits.
+        v: Value to encode.
+    """
+    for j in range(n):
+        circuit.h(j)
+
+    for j in range(n):
+        circuit.p(j, 2 * pi / 2 ** (j + 1) * v)
+
+    iqft_circuit(circuit, [n - 1 - j for j in range(n)], do_swap=True)

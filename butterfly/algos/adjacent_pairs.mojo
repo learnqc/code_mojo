@@ -215,27 +215,54 @@ fn swap_state_to_distance(mut state: QuantumState, target: Int, dist_val: Int):
 
         # Vectorized loop
         for k in range(start, end, simd_width):
-            var k_vec = SIMD[DType.int64, simd_width]()
-            for i in range(simd_width):
-                k_vec[i] = Int64(k + i)
+            var width_log2 = Int(count_trailing_zeros(simd_width))
 
-            var idx = insert_zero_bit(k_vec, low_pos)
-            idx = insert_zero_bit(idx, high_pos)
+            # Optimization: If both holes are above the SIMD vector width,
+            # effective indices are contiguous.
+            # low_pos is the smaller hole position.
+            if low_pos >= width_log2:
+                # Contiguous path
+                var idx_base = insert_zero_bit(k, low_pos)
+                idx_base = insert_zero_bit(idx_base, high_pos)
 
-            var i_vec = idx | stride
-            var j_vec = idx | dist_val
+                var i_base = idx_base | stride
+                var j_base = idx_base | dist_val
 
-            # Swap real
-            var val_i_re = ptr_re.gather(i_vec)
-            var val_j_re = ptr_re.gather(j_vec)
-            ptr_re.scatter(j_vec, val_i_re)
-            ptr_re.scatter(i_vec, val_j_re)
+                # Swap real
+                var v_re_i = ptr_re.load[width=simd_width](i_base)
+                var v_re_j = ptr_re.load[width=simd_width](j_base)
+                ptr_re.store[width=simd_width](j_base, v_re_i)
+                ptr_re.store[width=simd_width](i_base, v_re_j)
 
-            # Swap imag
-            var val_i_im = ptr_im.gather(i_vec)
-            var val_j_im = ptr_im.gather(j_vec)
-            ptr_im.scatter(j_vec, val_i_im)
-            ptr_im.scatter(i_vec, val_j_im)
+                # Swap imag
+                var v_im_i = ptr_im.load[width=simd_width](i_base)
+                var v_im_j = ptr_im.load[width=simd_width](j_base)
+                ptr_im.store[width=simd_width](j_base, v_im_i)
+                ptr_im.store[width=simd_width](i_base, v_im_j)
+
+            else:
+                # Scatter/Gather path
+                var k_vec = SIMD[DType.int64, simd_width]()
+                for i in range(simd_width):
+                    k_vec[i] = Int64(k + i)
+
+                var idx = insert_zero_bit(k_vec, low_pos)
+                idx = insert_zero_bit(idx, high_pos)
+
+                var i_vec = idx | stride
+                var j_vec = idx | dist_val
+
+                # Swap real
+                var val_i_re = ptr_re.gather(i_vec)
+                var val_j_re = ptr_re.gather(j_vec)
+                ptr_re.scatter(j_vec, val_i_re)
+                ptr_re.scatter(i_vec, val_j_re)
+
+                # Swap imag
+                var val_i_im = ptr_im.gather(i_vec)
+                var val_j_im = ptr_im.gather(j_vec)
+                ptr_im.scatter(j_vec, val_i_im)
+                ptr_im.scatter(i_vec, val_j_im)
 
     parallelize[worker](num_chunks)
 
