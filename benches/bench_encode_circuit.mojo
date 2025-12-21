@@ -32,18 +32,18 @@ fn bench_encode_circuit(n: Int, v: Float64) raises:
     #     circuit.execute()
     #     keep(circuit.state.re.unsafe_ptr())
 
-    # @parameter
-    # fn wrapper_opt():
-    #     circuit.execute_optimized()
-    #     keep(circuit.state.re.unsafe_ptr())
+    @parameter
+    fn wrapper_opt():
+        circuit.execute_optimized()
+        keep(circuit.state.re.unsafe_ptr())
 
     # print("Standard Execution:")
     # var report = run[wrapper_std]()
     # report.print(Unit.ms)
 
-    # print("Optimized Execution (Greedy Fusion):")
-    # var report2 = run[wrapper_opt]()
-    # report2.print(Unit.ms)
+    print("Optimized Execution (Greedy Fusion):")
+    var report2 = run[wrapper_opt]()
+    report2.print(Unit.ms)
 
 
 fn main() raises:
