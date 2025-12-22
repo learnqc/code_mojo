@@ -9,6 +9,7 @@ from butterfly.core.classical_fft import (
 from butterfly.core.fft_v3 import fft_v3, fft_v3_kernel
 from butterfly.core.fft_v4 import fft_v4, fft_v4_kernel
 from butterfly.core.fft_v4_plus import fft_v4_plus, fft_v4_plus_kernel
+from butterfly.core.fft_v4_opt import fft_v4_opt, fft_v4_opt_kernel
 
 
 fn main() raises:
@@ -19,7 +20,7 @@ fn main() raises:
 
     # Configure pyfftw to use the cache to be faster
     _ = pyfftw.interfaces.cache.enable()
-    _ = pyfftw.config.NUM_THREADS = 10
+    _ = pyfftw.config.NUM_THREADS = 8
 
     print("Benchmarking Butterfly vs FFTW")
 
@@ -42,7 +43,8 @@ fn main() raises:
         np_v.imag = p_im
 
         # Run Both (test V4 Plus)
-        fft_v4_plus(v_state, block_log=12)
+        # fft_v4_plus(v_state, block_log=12)
+        fft_v4_opt(v_state, block_log=12)
         # Using pyfftw.interfaces.numpy_fft.fft which is a drop-in replacement
         var fftw_res = pyfftw.interfaces.numpy_fft.fft(np_v, norm="ortho")
 
@@ -75,9 +77,27 @@ fn main() raises:
             print("\tVerification PASSED! Diff Sum:", diff_sum)
         # -------------------------
 
-    print("n, Size, Phast(ms), V3(ms), V4(ms), V4+(ms), FFTW(ms), % FFTW(V4+)")
+    var row_fmt = "{:<3} | {:<10} | {:<10.2f} | {:<10.2f} | {:<10.2f} | {:<10.2f} | {:<10.2f} | {:<10.2f} | {:<10.2f}"
+    var header_fmt = "{:<3} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10}"
+    var py_print = Python.evaluate(
+        "lambda fmt, *args: print(fmt.format(*args))"
+    )
 
-    for n in [26, 27, 28, 29]:  # Benchmarking High N
+    py_print(
+        header_fmt,
+        "n",
+        "Size",
+        "Phast(ms)",
+        "V3(ms)",
+        "V4(ms)",
+        "V4 Plus(ms)",
+        "V4 Opt(ms)",
+        "FFTW(ms)",
+        "% FFTW",
+    )
+    print("-" * 120)
+
+    for n in range(3, 29):  # Benchmarking High N
         var size = 1 << n
         var iters = 5 if n < 21 else 2
 
@@ -87,6 +107,7 @@ fn main() raises:
         var state_v3 = state.copy()
         var state_v4 = state.copy()
         var state_v4_plus = state.copy()
+        var state_v4_opt = state.copy()
 
         # FFTW setup
         var fftw_in = pyfftw.empty_aligned(size, dtype="complex128")
@@ -109,6 +130,7 @@ fn main() raises:
         fft_v3_kernel(state_v3, block_log=18)
         fft_v4_kernel(state_v4, factors_re, factors_im, block_log=12)
         fft_v4_plus_kernel(state_v4_plus, factors_re, factors_im, block_log=12)
+        fft_v4_opt_kernel(state_v4_opt, factors_re, factors_im, block_log=12)
 
         # 1. Phast Kernel
         var t_butterfly_0 = time.time()
@@ -150,9 +172,24 @@ fn main() raises:
                 ref f_re, f_im = generate_factors(size)
                 fft_v4_plus_kernel(state_v4_plus, f_re, f_im, block_log=12)
             else:
-                fft_v4_plus_kernel(state_v4_plus, factors_re, factors_im, block_log=12)
+                fft_v4_plus_kernel(
+                    state_v4_plus, factors_re, factors_im, block_log=12
+                )
         var t_v4_plus_1 = time.time()
         var dur_v4_plus = Float64((t_v4_plus_1 - t_v4_plus_0) * 1000.0 / iters)
+
+        # 5. V4 Opt Kernel
+        var t_v4_opt_0 = time.time()
+        for _ in range(iters):
+            if not pre_compute_twiddles:
+                ref f_re, f_im = generate_factors(size)
+                fft_v4_opt_kernel(state_v4_opt, f_re, f_im, block_log=12)
+            else:
+                fft_v4_opt_kernel(
+                    state_v4_opt, factors_re, factors_im, block_log=12
+                )
+        var t_v4_opt_1 = time.time()
+        var dur_v4_opt = Float64((t_v4_opt_1 - t_v4_opt_0) * 1000.0 / iters)
 
         # 5. FFTW (Planned vs Default)
         var t4 = time.time()
@@ -164,21 +201,16 @@ fn main() raises:
         var t5 = time.time()
         var dur_fftw = Float64((t5 - t4) * 1000.0 / iters)
 
-        print(
+        py_print(
+            row_fmt,
             n,
-            ", ",
             size,
-            ", ",
             dur_butterfly,
-            ", ",
             dur_v3,
-            ", ",
             dur_v4,
-            ", ",
             dur_v4_plus,
-            ", ",
+            dur_v4_opt,
             dur_fftw,
-            ", ",
-            (dur_fftw / dur_v4_plus) * 100,
-            "%",
+            (dur_fftw / dur_v4_opt) * 100,
+            " %",
         )

@@ -16,18 +16,12 @@ fn run_bench[n: Int]() raises:
 
     @parameter
     fn bench_v4():
-        try:
-            fft_v4(state, block_log=12)
-        except:
-            pass
+        fft_v4(state, block_log=12)
         keep(state.re.unsafe_ptr())
 
     @parameter
     fn bench_v4_plus():
-        try:
-            fft_v4_plus(state, block_log=12)
-        except:
-            pass
+        fft_v4_plus(state, block_log=12)
         keep(state.re.unsafe_ptr())
 
     print("  FFT V4 (Original):")
@@ -77,6 +71,9 @@ fn main() raises:
     print()
     print("=" * 80)
     print("Summary:")
-    print("  V4 Plus targets the scalar fallback bottleneck identified in profiling")
+    print(
+        "  V4 Plus targets the scalar fallback bottleneck identified in"
+        " profiling"
+    )
     print("  Expected improvement: 20-50% depending on problem size")
     print("=" * 80)
