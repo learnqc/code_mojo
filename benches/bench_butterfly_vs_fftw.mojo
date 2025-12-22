@@ -26,7 +26,7 @@ fn main() raises:
     print("Benchmarking Butterfly vs FFTW")
 
     # --- Verification Step ---
-    for n in range(3, 9):
+    for n in range(3, 22):
         print("Verifying correctness against FFTW (n={})...".format(String(n)))
         var size = 1 << n
         var v_state = generate_state(n)
@@ -77,8 +77,8 @@ fn main() raises:
             print("\tVerification PASSED! Diff Sum:", diff_sum)
         # -------------------------
 
-    var row_fmt = "{:<3} | {:<10} | {:<10.2f} | {:<10.2f} | {:<10.2f} | {:<10.2f} | {:<10.2f} | {:<10.2f} | {:<10.2f} | {:<10.2f}"
-    var header_fmt = "{:<3} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<11} | {:<10} | {:<10} | {:<10}"
+    var row_fmt = "{:<3} | {:<10} | {:<10.2f} | {:<10.2f} | {:<10.2f} | {:<11.2f} | {:<10.2f} | {:<12.2f} | {:<10.2f} | {:<10.2f}"
+    var header_fmt = "{:<3} | {:<10} | {:<10} | {:<10} | {:<10} | {:<11} | {:<10} | {:<12} | {:<10} | {:<10}"
     var py_print = Python.evaluate(
         "lambda fmt, *args: print(fmt.format(*args))"
     )
@@ -100,7 +100,7 @@ fn main() raises:
 
     for n in range(3, 26):  # Benchmarking High N
         var size = 1 << n
-        var iters = 5 if n < 21 else 2
+        var iters = 5 if n < 21 else 3 if n < 26 else 2
 
         # Setup states
         var state = generate_state(n)
@@ -232,5 +232,7 @@ fn main() raises:
             dur_v4_opt,
             dur_v4_super,
             dur_fftw,
-            (dur_fftw / dur_v4_super) * 100,
+            (dur_fftw / dur_v4_opt) * 100,
+            " %"
+            # (dur_fftw / dur_v4_super) * 100, " %"
         )
