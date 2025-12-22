@@ -10,6 +10,7 @@ from butterfly.core.fft_v3 import fft_v3, fft_v3_kernel
 from butterfly.core.fft_v4 import fft_v4, fft_v4_kernel
 from butterfly.core.fft_v4_plus import fft_v4_plus, fft_v4_plus_kernel
 from butterfly.core.fft_v4_opt import fft_v4_opt, fft_v4_opt_kernel
+from butterfly.core.fft_v4_super import fft_v4_super, fft_v4_super_kernel
 
 
 fn main() raises:
@@ -42,9 +43,8 @@ fn main() raises:
         np_v.real = p_re
         np_v.imag = p_im
 
-        # Run Both (test V4 Plus)
-        # fft_v4_plus(v_state, block_log=12)
-        fft_v4_opt(v_state, block_log=12)
+        # Run Both (test V4 Super)
+        fft_v4_super(v_state, block_log=12)
         # Using pyfftw.interfaces.numpy_fft.fft which is a drop-in replacement
         var fftw_res = pyfftw.interfaces.numpy_fft.fft(np_v, norm="ortho")
 
@@ -77,8 +77,8 @@ fn main() raises:
             print("\tVerification PASSED! Diff Sum:", diff_sum)
         # -------------------------
 
-    var row_fmt = "{:<3} | {:<10} | {:<10.2f} | {:<10.2f} | {:<10.2f} | {:<10.2f} | {:<10.2f} | {:<10.2f} | {:<10.2f}"
-    var header_fmt = "{:<3} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10}"
+    var row_fmt = "{:<3} | {:<10} | {:<10.2f} | {:<10.2f} | {:<10.2f} | {:<10.2f} | {:<10.2f} | {:<10.2f} | {:<10.2f} | {:<10.2f}"
+    var header_fmt = "{:<3} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<11} | {:<10} | {:<10} | {:<10}"
     var py_print = Python.evaluate(
         "lambda fmt, *args: print(fmt.format(*args))"
     )
@@ -92,12 +92,13 @@ fn main() raises:
         "V4(ms)",
         "V4 Plus(ms)",
         "V4 Opt(ms)",
+        "V4 Super(ms)",
         "FFTW(ms)",
         "% FFTW",
     )
     print("-" * 120)
 
-    for n in range(3, 29):  # Benchmarking High N
+    for n in range(3, 26):  # Benchmarking High N
         var size = 1 << n
         var iters = 5 if n < 21 else 2
 
@@ -108,6 +109,7 @@ fn main() raises:
         var state_v4 = state.copy()
         var state_v4_plus = state.copy()
         var state_v4_opt = state.copy()
+        var state_v4_super = state.copy()
 
         # FFTW setup
         var fftw_in = pyfftw.empty_aligned(size, dtype="complex128")
@@ -131,6 +133,9 @@ fn main() raises:
         fft_v4_kernel(state_v4, factors_re, factors_im, block_log=12)
         fft_v4_plus_kernel(state_v4_plus, factors_re, factors_im, block_log=12)
         fft_v4_opt_kernel(state_v4_opt, factors_re, factors_im, block_log=12)
+        fft_v4_super_kernel(
+            state_v4_super, factors_re, factors_im, block_log=12
+        )
 
         # 1. Phast Kernel
         var t_butterfly_0 = time.time()
@@ -191,7 +196,22 @@ fn main() raises:
         var t_v4_opt_1 = time.time()
         var dur_v4_opt = Float64((t_v4_opt_1 - t_v4_opt_0) * 1000.0 / iters)
 
-        # 5. FFTW (Planned vs Default)
+        # 6. V4 Super Kernel
+        var t_v4_super_0 = time.time()
+        for _ in range(iters):
+            if not pre_compute_twiddles:
+                ref f_re, f_im = generate_factors(size)
+                fft_v4_super_kernel(state_v4_super, f_re, f_im, block_log=12)
+            else:
+                fft_v4_super_kernel(
+                    state_v4_super, factors_re, factors_im, block_log=12
+                )
+        var t_v4_super_1 = time.time()
+        var dur_v4_super = Float64(
+            (t_v4_super_1 - t_v4_super_0) * 1000.0 / iters
+        )
+
+        # 7. FFTW (Planned vs Default)
         var t4 = time.time()
         for _ in range(iters):
             if pre_compute_twiddles:
@@ -210,7 +230,7 @@ fn main() raises:
             dur_v4,
             dur_v4_plus,
             dur_v4_opt,
+            dur_v4_super,
             dur_fftw,
-            (dur_fftw / dur_v4_opt) * 100,
-            " %",
+            (dur_fftw / dur_v4_super) * 100,
         )
