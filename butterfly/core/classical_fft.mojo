@@ -8,11 +8,12 @@ from butterfly.algos.fused_stages import fused_stride2_stride1_swapped
 from butterfly.algos.radix4 import radix4_dif_simd
 
 from memory import UnsafePointer
-from algorithm import parallelize
+from algorithm import parallelize, vectorize
 from buffer import NDBuffer
 from utils.fast_div import FastDiv
 from time import perf_counter_ns
-from math import log2
+from sys.info import simd_width_of
+from math import pi, cos, sin, sqrt, log2
 
 
 fn generate_factors(

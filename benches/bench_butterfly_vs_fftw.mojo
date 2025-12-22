@@ -8,6 +8,7 @@ from butterfly.core.classical_fft import (
 )
 from butterfly.core.fft_v3 import fft_v3, fft_v3_kernel
 from butterfly.core.fft_v4 import fft_v4, fft_v4_kernel
+from butterfly.core.fft_v4_plus import fft_v4_plus, fft_v4_plus_kernel
 
 
 fn main() raises:
@@ -40,8 +41,8 @@ fn main() raises:
         np_v.real = p_re
         np_v.imag = p_im
 
-        # Run Both
-        fft_v4(v_state, block_log=12)
+        # Run Both (test V4 Plus)
+        fft_v4_plus(v_state, block_log=12)
         # Using pyfftw.interfaces.numpy_fft.fft which is a drop-in replacement
         var fftw_res = pyfftw.interfaces.numpy_fft.fft(np_v, norm="ortho")
 
@@ -74,9 +75,9 @@ fn main() raises:
             print("\tVerification PASSED! Diff Sum:", diff_sum)
         # -------------------------
 
-    print("n, Size, Phast(ms), V3(ms), V4(ms), FFTW(ms), % FFTW(V4)")
+    print("n, Size, Phast(ms), V3(ms), V4(ms), V4+(ms), FFTW(ms), % FFTW(V4+)")
 
-    for n in [26, 27, 28]:  # Benchmarking High N
+    for n in [26, 27, 28, 29]:  # Benchmarking High N
         var size = 1 << n
         var iters = 5 if n < 21 else 2
 
@@ -85,6 +86,7 @@ fn main() raises:
         var state_butterfly = state.copy()
         var state_v3 = state.copy()
         var state_v4 = state.copy()
+        var state_v4_plus = state.copy()
 
         # FFTW setup
         var fftw_in = pyfftw.empty_aligned(size, dtype="complex128")
@@ -106,6 +108,7 @@ fn main() raises:
         )
         fft_v3_kernel(state_v3, block_log=18)
         fft_v4_kernel(state_v4, factors_re, factors_im, block_log=12)
+        fft_v4_plus_kernel(state_v4_plus, factors_re, factors_im, block_log=12)
 
         # 1. Phast Kernel
         var t_butterfly_0 = time.time()
@@ -140,7 +143,18 @@ fn main() raises:
         var t_v4_1 = time.time()
         var dur_v4 = Float64((t_v4_1 - t_v4_0) * 1000.0 / iters)
 
-        # 4. FFTW (Planned vs Default)
+        # 4. V4 Plus Kernel
+        var t_v4_plus_0 = time.time()
+        for _ in range(iters):
+            if not pre_compute_twiddles:
+                ref f_re, f_im = generate_factors(size)
+                fft_v4_plus_kernel(state_v4_plus, f_re, f_im, block_log=12)
+            else:
+                fft_v4_plus_kernel(state_v4_plus, factors_re, factors_im, block_log=12)
+        var t_v4_plus_1 = time.time()
+        var dur_v4_plus = Float64((t_v4_plus_1 - t_v4_plus_0) * 1000.0 / iters)
+
+        # 5. FFTW (Planned vs Default)
         var t4 = time.time()
         for _ in range(iters):
             if pre_compute_twiddles:
@@ -161,8 +175,10 @@ fn main() raises:
             ", ",
             dur_v4,
             ", ",
+            dur_v4_plus,
+            ", ",
             dur_fftw,
             ", ",
-            (dur_fftw / dur_v4) * 100,
+            (dur_fftw / dur_v4_plus) * 100,
             "%",
         )

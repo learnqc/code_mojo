@@ -1,5 +1,12 @@
 """
-FFT V4: Synthesis of PhastFT and V3.
+FFT V4 Plus: Enhanced version of V4 with vectorized/parallelized scaling.
+
+Improvements over V4:
+1. Vectorized/parallelized scaling (eliminates sequential bottleneck)
+
+This is a conservative enhancement that keeps V4's proven architecture
+while optimizing the final scaling step.
+
 Global: Table-based + Twiddle Packing (Phast Trick).
 Local: On-the-fly Cache-blocked (V3 Trick).
 """
@@ -28,13 +35,13 @@ fn compute_twiddle_simd[
     return cos(angle), sin(angle)
 
 
-fn fft_v4_kernel(
+fn fft_v4_plus_kernel(
     mut state: QuantumState,
     factors_re: List[Type],
     factors_im: List[Type],
     block_log: Int = 11,
 ):
-    """Core butterfly kernel for FFT V4."""
+    """Core butterfly kernel for FFT V4 Plus (identical to V4)."""
     var n = state.size()
     var n_quarter = n // 4
     var log_n = Int(log2(Float64(n)))
@@ -148,14 +155,57 @@ fn fft_v4_kernel(
         parallelize[local_block_worker](num_local_blocks)
 
 
-fn fft_v4(mut state: QuantumState, block_log: Int = 11):
+fn fft_v4_plus(mut state: QuantumState, block_log: Int = 11, adaptive: Bool = True):
+    """
+    FFT V4 Plus: Enhanced FFT with vectorized/parallelized scaling.
+
+    Args:
+        state: The quantum state to transform
+        block_log: Cache blocking parameter (default: 11 for 2KB blocks)
+        adaptive: Use adaptive scaling strategy (default: True)
+                  - For very small N (< 2^10), uses sequential (avoid overhead)
+                  - For medium-large N (2^10 to 2^28), uses parallel+vectorized
+                  - For very large N (> 2^28), uses sequential (avoid memory instability)
+    """
     var n = state.size()
     ref factors_re, factors_im = generate_factors(n)
 
-    fft_v4_kernel(state, factors_re, factors_im, block_log)
+    fft_v4_plus_kernel(state, factors_re, factors_im, block_log)
 
     bit_reverse_state(state)
+    # *** IMPROVEMENT: Vectorized/Parallelized Scaling (NEW IN V4 PLUS!) ***
     var scale = Float64(1.0) / sqrt(Float64(n))
-    for i in range(n):
-        state.re[i] *= scale
-        state.im[i] *= scale
+
+    # Adaptive scaling strategy with both lower and upper bounds
+    # Lower: 2^10 = 1024 elements (avoid parallelization overhead for small N)
+    # Upper: 2^28 = 268M elements (avoid memory instability for very large N)
+    alias PARALLEL_THRESHOLD = 1024
+    alias PARALLEL_UPPER_BOUND = 268435456  # 2^28
+
+    # Use sequential for very small (<2^10) or very large (>2^28) problems
+    if adaptive and (n < PARALLEL_THRESHOLD or n > PARALLEL_UPPER_BOUND):
+        # Sequential scaling (less overhead for small N, more stable for huge N)
+        for i in range(n):
+            state.re[i] *= scale
+            state.im[i] *= scale
+    else:
+        # Parallel + vectorized scaling (optimal for medium-large N)
+        var ptr_re = state.re.unsafe_ptr()
+        var ptr_im = state.im.unsafe_ptr()
+
+        @parameter
+        fn scale_worker(vec_idx: Int):
+            var idx = vec_idx * simd_width
+            var re = ptr_re.load[width=simd_width](idx)
+            var im = ptr_im.load[width=simd_width](idx)
+            ptr_re.store[width=simd_width](idx, re * scale)
+            ptr_im.store[width=simd_width](idx, im * scale)
+
+        var vec_count = n // simd_width
+        parallelize[scale_worker](vec_count)
+
+        # Handle remainder if n is not a multiple of simd_width
+        var remainder_start = vec_count * simd_width
+        for i in range(remainder_start, n):
+            state.re[i] *= scale
+            state.im[i] *= scale
