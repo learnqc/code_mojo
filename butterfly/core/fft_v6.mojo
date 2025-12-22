@@ -25,9 +25,9 @@ fn cft(
     var n = state.size()
 
     if 1 << len(targets) == n:
-        fft_v4(state)  # TODO: inverse, do_swap
+        fft_v4(state)
     else:
-        ft_v5_contiguous(state, targets, inverse, do_swap)
+        cft_v6_contiguous(state, targets, inverse, do_swap)
 
 
 alias simd_width = simd_width_of[FloatType]()
@@ -43,7 +43,7 @@ fn compute_twiddle[
     return cos(angle), sin(angle)
 
 
-fn cft_v5_contiguous(
+fn cft_v6_contiguous(
     mut state: QuantumState,
     targets: List[Int],
     inverse: Bool = False,
@@ -68,20 +68,24 @@ fn cft_v5_contiguous(
     alias scale = sqrt(0.5).cast[Type]()
 
     # Precompute Twiddle Table for k >= 4
-    # Size: (span / 2) * 2 floats (Re, Im)
-    # Initialize with dummy to guarantee valid pointer if k < 4 (though unused)
-    var twiddle_storage = List[FloatType](capacity=1)
-    twiddle_storage.append(0.0)
-    var twiddle_ptr = twiddle_storage.unsafe_ptr()
+    # Size: (span / 2) floats each for Re and Im
+    var twiddle_storage_re = List[FloatType](capacity=1)
+    var twiddle_storage_im = List[FloatType](capacity=1)
+    twiddle_storage_re.append(0.0)
+    twiddle_storage_im.append(0.0)
+    var twiddle_ptr_re = twiddle_storage_re.unsafe_ptr()
+    var twiddle_ptr_im = twiddle_storage_im.unsafe_ptr()
 
     if k >= 4:
         var half_span = span >> 1
-        # Use List to manage memory
-        twiddle_storage = List[FloatType](capacity=half_span * 2)
-        for _ in range(half_span * 2):
-            twiddle_storage.append(0.0)
+        twiddle_storage_re = List[FloatType](capacity=half_span)
+        twiddle_storage_im = List[FloatType](capacity=half_span)
+        for _ in range(half_span):
+            twiddle_storage_re.append(0.0)
+            twiddle_storage_im.append(0.0)
 
-        twiddle_ptr = twiddle_storage.unsafe_ptr()
+        twiddle_ptr_re = twiddle_storage_re.unsafe_ptr()
+        twiddle_ptr_im = twiddle_storage_im.unsafe_ptr()
 
         alias two_pi = 2.0 * pi
         var angle_base = two_pi if not inverse else -two_pi
@@ -89,8 +93,8 @@ fn cft_v5_contiguous(
 
         for j in range(half_span):
             var angle = angle_base * Float64(j) / base_n
-            twiddle_ptr[2 * j] = cos(angle)
-            twiddle_ptr[2 * j + 1] = sin(angle)
+            twiddle_ptr_re[j] = cos(angle)
+            twiddle_ptr_im[j] = sin(angle)
 
     @parameter
     fn subspace_worker(blk_idx: Int):
@@ -410,26 +414,46 @@ fn cft_v5_contiguous(
                 var n_points = s_step
 
                 for group in range(0, span, s_step):
-                    for j in range(s_stride):
+
+                    @parameter
+                    fn butterfly_vectorized[simd_width: Int](j: Int):
                         var idx0 = offset + (group + j) * stride
                         var idx1 = idx0 + s_stride * stride
 
-                        var w = compute_twiddle[True](j, n_points)
-                        var w_re = w[0]
-                        var w_im = w[1]
+                        var w_re = SIMD[Type, simd_width]()
+                        var w_im = SIMD[Type, simd_width]()
+                        if k >= 4:
+                            var shift = k - 1 - stage
+                            if shift == 0:
+                                w_re = twiddle_ptr_re.load[width=simd_width](j)
+                                w_im = twiddle_ptr_im.load[width=simd_width](j)
+                            else:
+                                for v_idx in range(simd_width):
+                                    var tidx = (j + v_idx) << shift
+                                    w_re[v_idx] = twiddle_ptr_re[tidx]
+                                    w_im[v_idx] = twiddle_ptr_im[tidx]
+                        else:
+                            for v_idx in range(simd_width):
+                                var w = compute_twiddle[True](
+                                    j + v_idx, n_points
+                                )
+                                w_re[v_idx] = w[0]
+                                w_im[v_idx] = w[1]
 
-                        var u_re = ptr_re[idx0]
-                        var u_im = ptr_im[idx0]
-                        var v_re = ptr_re[idx1]
-                        var v_im = ptr_im[idx1]
+                        var u_re = ptr_re.load[width=simd_width](idx0)
+                        var u_im = ptr_im.load[width=simd_width](idx0)
+                        var v_re = ptr_re.load[width=simd_width](idx1)
+                        var v_im = ptr_im.load[width=simd_width](idx1)
 
                         var v_rot_re = v_re * w_re - v_im * w_im
                         var v_rot_im = v_re * w_im + v_im * w_re
 
-                        ptr_re[idx0] = (u_re + v_rot_re) * scale
-                        ptr_im[idx0] = (u_im + v_rot_im) * scale
-                        ptr_re[idx1] = (u_re - v_rot_re) * scale
-                        ptr_im[idx1] = (u_im - v_rot_im) * scale
+                        ptr_re.store(idx0, (u_re + v_rot_re) * scale)
+                        ptr_im.store(idx0, (u_im + v_rot_im) * scale)
+                        ptr_re.store(idx1, (u_re - v_rot_re) * scale)
+                        ptr_im.store(idx1, (u_im - v_rot_im) * scale)
+
+                    vectorize[butterfly_vectorized, simd_width](s_stride)
         else:
             # Inverse QFT: DIF(k-1..0, neg) then Swap(end)
             # 1. DIF Stages
@@ -439,18 +463,36 @@ fn cft_v5_contiguous(
                 var n_points = s_step
 
                 for group in range(0, span, s_step):
-                    for j in range(s_stride):
+
+                    @parameter
+                    fn butterfly_vectorized_inv[simd_width: Int](j: Int):
                         var idx0 = offset + (group + j) * stride
                         var idx1 = idx0 + s_stride * stride
 
-                        var w = compute_twiddle[False](j, n_points)
-                        var w_re = w[0]
-                        var w_im = w[1]
+                        var w_re = SIMD[Type, simd_width]()
+                        var w_im = SIMD[Type, simd_width]()
+                        if k >= 4:
+                            var shift = k - 1 - stage
+                            if shift == 0:
+                                w_re = twiddle_ptr_re.load[width=simd_width](j)
+                                w_im = twiddle_ptr_im.load[width=simd_width](j)
+                            else:
+                                for v_idx in range(simd_width):
+                                    var tidx = (j + v_idx) << shift
+                                    w_re[v_idx] = twiddle_ptr_re[tidx]
+                                    w_im[v_idx] = twiddle_ptr_im[tidx]
+                        else:
+                            for v_idx in range(simd_width):
+                                var w = compute_twiddle[False](
+                                    j + v_idx, n_points
+                                )
+                                w_re[v_idx] = w[0]
+                                w_im[v_idx] = w[1]
 
-                        var u_re = ptr_re[idx0]
-                        var u_im = ptr_im[idx0]
-                        var v_re = ptr_re[idx1]
-                        var v_im = ptr_im[idx1]
+                        var u_re = ptr_re.load[width=simd_width](idx0)
+                        var u_im = ptr_im.load[width=simd_width](idx0)
+                        var v_re = ptr_re.load[width=simd_width](idx1)
+                        var v_im = ptr_im.load[width=simd_width](idx1)
 
                         # DIF: Butterfly then Rotate v
                         var res_re = (u_re + v_re) * scale
@@ -458,10 +500,12 @@ fn cft_v5_contiguous(
                         var diff_re = (u_re - v_re) * scale
                         var diff_im = (u_im - v_im) * scale
 
-                        ptr_re[idx0] = res_re
-                        ptr_im[idx0] = res_im
-                        ptr_re[idx1] = diff_re * w_re - diff_im * w_im
-                        ptr_im[idx1] = diff_re * w_im + diff_im * w_re
+                        ptr_re.store(idx0, res_re)
+                        ptr_im.store(idx0, res_im)
+                        ptr_re.store(idx1, diff_re * w_re - diff_im * w_im)
+                        ptr_im.store(idx1, diff_re * w_im + diff_im * w_re)
+
+                    vectorize[butterfly_vectorized_inv, simd_width](s_stride)
 
             # 2. Local Swap at END
             if do_swap:
@@ -508,43 +552,120 @@ fn cft_v5_contiguous(
 
                 parallelize[swap_worker](span)
 
-            for stage in range(k):
-                var s_stride = 1 << stage
-                var s_step = s_stride << 1
-                var n_points = s_step
-                var num_groups = span // s_step
+                for stage in range(k):
+                    var s_stride = 1 << stage
+                    var s_step = s_stride << 1
+                    var n_points = s_step
+                    var num_groups = span // s_step
+                    var shift = k - 1 - stage
 
-                @parameter
-                fn group_worker(group_idx: Int):
-                    var group = group_idx * s_step
-                    for j in range(s_stride):
-                        var idx0 = offset + (group + j) * stride
-                        var idx1 = idx0 + s_stride * stride
+                    if num_groups >= 16 or s_stride < simd_width:
 
-                        var w_re: FloatType
-                        var w_im: FloatType
-                        if k >= 4:
-                            var shift = k - 1 - stage
-                            var tidx = j << shift
-                            w_re = twiddle_ptr[2 * tidx]
-                            w_im = twiddle_ptr[2 * tidx + 1]
-                        else:
-                            var w = compute_twiddle[True](j, n_points)
-                            w_re = w[0]
-                            w_im = w[1]
+                        @parameter
+                        fn group_worker(group_idx: Int):
+                            var group = group_idx * s_step
 
-                        var u_re = ptr_re[idx0]
-                        var u_im = ptr_im[idx0]
-                        var v_re = ptr_re[idx1]
-                        var v_im = ptr_im[idx1]
-                        var v_rot_re = v_re * w_re - v_im * w_im
-                        var v_rot_im = v_re * w_im + v_im * w_re
-                        ptr_re[idx0] = (u_re + v_rot_re) * scale
-                        ptr_im[idx0] = (u_im + v_rot_im) * scale
-                        ptr_re[idx1] = (u_re - v_rot_re) * scale
-                        ptr_im[idx1] = (u_im - v_rot_im) * scale
+                            @parameter
+                            fn butterfly_vectorized[simd_width: Int](j: Int):
+                                var idx0 = offset + (group + j) * stride
+                                var idx1 = idx0 + s_stride * stride
 
-                parallelize[group_worker](num_groups)
+                                var w_re = SIMD[Type, simd_width]()
+                                var w_im = SIMD[Type, simd_width]()
+                                if k >= 4:
+                                    if shift == 0:
+                                        w_re = twiddle_ptr_re.load[
+                                            width=simd_width
+                                        ](j)
+                                        w_im = twiddle_ptr_im.load[
+                                            width=simd_width
+                                        ](j)
+                                    else:
+                                        for v_idx in range(simd_width):
+                                            var tidx = (j + v_idx) << shift
+                                            w_re[v_idx] = twiddle_ptr_re[tidx]
+                                            w_im[v_idx] = twiddle_ptr_im[tidx]
+                                else:
+                                    for v_idx in range(simd_width):
+                                        var w = compute_twiddle[True](
+                                            j + v_idx, n_points
+                                        )
+                                        w_re[v_idx] = w[0]
+                                        w_im[v_idx] = w[1]
+
+                                var u_re = ptr_re.load[width=simd_width](idx0)
+                                var u_im = ptr_im.load[width=simd_width](idx0)
+                                var v_re = ptr_re.load[width=simd_width](idx1)
+                                var v_im = ptr_im.load[width=simd_width](idx1)
+
+                                var v_rot_re = v_re * w_re - v_im * w_im
+                                var v_rot_im = v_re * w_im + v_im * w_re
+
+                                ptr_re.store(idx0, (u_re + v_rot_re) * scale)
+                                ptr_im.store(idx0, (u_im + v_rot_im) * scale)
+                                ptr_re.store(idx1, (u_re - v_rot_re) * scale)
+                                ptr_im.store(idx1, (u_im - v_rot_im) * scale)
+
+                            vectorize[butterfly_vectorized, simd_width](
+                                s_stride
+                            )
+
+                        parallelize[group_worker](num_groups)
+                    else:
+                        # Late stage: few groups, many butterflies per group. Parallelize the J loop.
+                        var total_vec_steps = num_groups * (
+                            s_stride // simd_width
+                        )
+                        var j_steps_per_group = s_stride // simd_width
+
+                        @parameter
+                        fn global_group_worker(global_vec_idx: Int):
+                            var group_idx = global_vec_idx // j_steps_per_group
+                            var j = (
+                                global_vec_idx % j_steps_per_group
+                            ) * simd_width
+                            var group = group_idx * s_step
+
+                            var idx0 = offset + (group + j) * stride
+                            var idx1 = idx0 + s_stride * stride
+
+                            var w_re = SIMD[Type, simd_width]()
+                            var w_im = SIMD[Type, simd_width]()
+                            if k >= 4:
+                                if shift == 0:
+                                    w_re = twiddle_ptr_re.load[
+                                        width=simd_width
+                                    ](j)
+                                    w_im = twiddle_ptr_im.load[
+                                        width=simd_width
+                                    ](j)
+                                else:
+                                    for v_idx in range(simd_width):
+                                        var tidx = (j + v_idx) << shift
+                                        w_re[v_idx] = twiddle_ptr_re[tidx]
+                                        w_im[v_idx] = twiddle_ptr_im[tidx]
+                            else:
+                                for v_idx in range(simd_width):
+                                    var w = compute_twiddle[True](
+                                        j + v_idx, n_points
+                                    )
+                                    w_re[v_idx] = w[0]
+                                    w_im[v_idx] = w[1]
+
+                            var u_re = ptr_re.load[width=simd_width](idx0)
+                            var u_im = ptr_im.load[width=simd_width](idx0)
+                            var v_re = ptr_re.load[width=simd_width](idx1)
+                            var v_im = ptr_im.load[width=simd_width](idx1)
+
+                            var v_rot_re = v_re * w_re - v_im * w_im
+                            var v_rot_im = v_re * w_im + v_im * w_re
+
+                            ptr_re.store(idx0, (u_re + v_rot_re) * scale)
+                            ptr_im.store(idx0, (u_im + v_rot_im) * scale)
+                            ptr_re.store(idx1, (u_re - v_rot_re) * scale)
+                            ptr_im.store(idx1, (u_im - v_rot_im) * scale)
+
+                        parallelize[global_group_worker](total_vec_steps)
         else:
             # Inverse: Parallel DIF Stages
             for stage in reversed(range(k)):
@@ -552,41 +673,111 @@ fn cft_v5_contiguous(
                 var s_step = s_stride << 1
                 var n_points = s_step
                 var num_groups = span // s_step
+                var shift = k - 1 - stage
 
-                @parameter
-                fn group_worker_inv(group_idx: Int):
-                    var group = group_idx * s_step
-                    for j in range(s_stride):
+                if num_groups >= 16 or s_stride < simd_width:
+
+                    @parameter
+                    fn group_worker_inv(group_idx: Int):
+                        var group = group_idx * s_step
+
+                        @parameter
+                        fn butterfly_vectorized_inv[simd_width: Int](j: Int):
+                            var idx0 = offset + (group + j) * stride
+                            var idx1 = idx0 + s_stride * stride
+
+                            var w_re = SIMD[Type, simd_width]()
+                            var w_im = SIMD[Type, simd_width]()
+
+                            if k >= 4:
+                                if shift == 0:
+                                    w_re = twiddle_ptr_re.load[
+                                        width=simd_width
+                                    ](j)
+                                    w_im = twiddle_ptr_im.load[
+                                        width=simd_width
+                                    ](j)
+                                else:
+                                    for v_idx in range(simd_width):
+                                        var tidx = (j + v_idx) << shift
+                                        w_re[v_idx] = twiddle_ptr_re[tidx]
+                                        w_im[v_idx] = twiddle_ptr_im[tidx]
+                            else:
+                                for v_idx in range(simd_width):
+                                    var w = compute_twiddle[False](
+                                        j + v_idx, n_points
+                                    )
+                                    w_re[v_idx] = w[0]
+                                    w_im[v_idx] = w[1]
+
+                            var u_re = ptr_re.load[width=simd_width](idx0)
+                            var u_im = ptr_im.load[width=simd_width](idx0)
+                            var v_re = ptr_re.load[width=simd_width](idx1)
+                            var v_im = ptr_im.load[width=simd_width](idx1)
+                            var res_re = (u_re + v_re) * scale
+                            var res_im = (u_im + v_im) * scale
+                            var diff_re = (u_re - v_re) * scale
+                            var diff_im = (u_im - v_im) * scale
+                            ptr_re.store(idx0, res_re)
+                            ptr_im.store(idx0, res_im)
+                            ptr_re.store(idx1, diff_re * w_re - diff_im * w_im)
+                            ptr_im.store(idx1, diff_re * w_im + diff_im * w_re)
+
+                        vectorize[butterfly_vectorized_inv, simd_width](
+                            s_stride
+                        )
+
+                    parallelize[group_worker_inv](num_groups)
+                else:
+                    # Late stage: few groups, many butterflies per group. Parallelize the J loop.
+                    var total_vec_steps = num_groups * (s_stride // simd_width)
+                    var j_steps_per_group = s_stride // simd_width
+
+                    @parameter
+                    fn global_group_worker_inv(global_vec_idx: Int):
+                        var group_idx = global_vec_idx // j_steps_per_group
+                        var j = (
+                            global_vec_idx % j_steps_per_group
+                        ) * simd_width
+                        var group = group_idx * s_step
+
                         var idx0 = offset + (group + j) * stride
                         var idx1 = idx0 + s_stride * stride
 
-                        var w_re: FloatType
-                        var w_im: FloatType
+                        var w_re = SIMD[Type, simd_width]()
+                        var w_im = SIMD[Type, simd_width]()
 
                         if k >= 4:
-                            var shift = k - 1 - stage
-                            var tidx = j << shift
-                            w_re = twiddle_ptr[2 * tidx]
-                            w_im = twiddle_ptr[2 * tidx + 1]
+                            if shift == 0:
+                                w_re = twiddle_ptr_re.load[width=simd_width](j)
+                                w_im = twiddle_ptr_im.load[width=simd_width](j)
+                            else:
+                                for v_idx in range(simd_width):
+                                    var tidx = (j + v_idx) << shift
+                                    w_re[v_idx] = twiddle_ptr_re[tidx]
+                                    w_im[v_idx] = twiddle_ptr_im[tidx]
                         else:
-                            var w = compute_twiddle[False](j, n_points)
-                            w_re = w[0]
-                            w_im = w[1]
+                            for v_idx in range(simd_width):
+                                var w = compute_twiddle[False](
+                                    j + v_idx, n_points
+                                )
+                                w_re[v_idx] = w[0]
+                                w_im[v_idx] = w[1]
 
-                        var u_re = ptr_re[idx0]
-                        var u_im = ptr_im[idx0]
-                        var v_re = ptr_re[idx1]
-                        var v_im = ptr_im[idx1]
+                        var u_re = ptr_re.load[width=simd_width](idx0)
+                        var u_im = ptr_im.load[width=simd_width](idx0)
+                        var v_re = ptr_re.load[width=simd_width](idx1)
+                        var v_im = ptr_im.load[width=simd_width](idx1)
                         var res_re = (u_re + v_re) * scale
                         var res_im = (u_im + v_im) * scale
                         var diff_re = (u_re - v_re) * scale
                         var diff_im = (u_im - v_im) * scale
-                        ptr_re[idx0] = res_re
-                        ptr_im[idx0] = res_im
-                        ptr_re[idx1] = diff_re * w_re - diff_im * w_im
-                        ptr_im[idx1] = diff_re * w_im + diff_im * w_re
+                        ptr_re.store(idx0, res_re)
+                        ptr_im.store(idx0, res_im)
+                        ptr_re.store(idx1, diff_re * w_re - diff_im * w_im)
+                        ptr_im.store(idx1, diff_re * w_im + diff_im * w_re)
 
-                parallelize[group_worker_inv](num_groups)
+                    parallelize[global_group_worker_inv](total_vec_steps)
 
             if do_swap:
 

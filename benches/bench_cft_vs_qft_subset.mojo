@@ -23,10 +23,7 @@ fn run_bench[n: Int, k: Int]() raises:
     # 1. Benchmark CFT (v5)
     @parameter
     fn bench_cft():
-        try:
-            apply_cft(state, targets, inverse=False, do_swap=True)
-        except:
-            pass
+        apply_cft(state, targets, inverse=False, do_swap=True)
         keep(state.re.unsafe_ptr())
 
     print("  CFT (Subspace):")
@@ -36,22 +33,19 @@ fn run_bench[n: Int, k: Int]() raises:
     # 2. Benchmark QFT (Gates)
     @parameter
     fn bench_qft():
-        try:
-            var circ = QuantumCircuit(n)
-            # We skip state copy in loop to focus on execution time,
-            # but ideally we should include setup if we want end-to-end.
-            # However, circ.execute is strict evaluation.
-            # Let's just measure execute + construction overhead (minimal).
-            circ.state = state.copy()  # Copy? No, moves/copies handle.
-            # Actually QuantumCircuit takes ownership or copies?
-            # Check circuit.mojo: circ.state is a field.
-            # If we reuse state, we might need to reset it.
-            # For benchmarking, we just run forward.
+        var circ = QuantumCircuit(n)
+        # We skip state copy in loop to focus on execution time,
+        # but ideally we should include setup if we want end-to-end.
+        # However, circ.execute is strict evaluation.
+        # Let's just measure execute + construction overhead (minimal).
+        circ.state = state.copy()  # Copy? No, moves/copies handle.
+        # Actually QuantumCircuit takes ownership or copies?
+        # Check circuit.mojo: circ.state is a field.
+        # If we reuse state, we might need to reset it.
+        # For benchmarking, we just run forward.
 
-            qft(circ, targets, do_swap=True)
-            circ.execute()
-        except:
-            pass
+        qft(circ, targets, do_swap=True)
+        circ.execute()
         keep(state.re.unsafe_ptr())
 
     print("  QFT (Chebyshev/Gates):")

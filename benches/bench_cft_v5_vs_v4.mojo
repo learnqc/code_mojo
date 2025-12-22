@@ -3,8 +3,8 @@ Benchmark v5 (Subspace) against v4 (Global Synthesis) for full-range FFT.
 """
 from butterfly.core.state import QuantumState, generate_state
 from butterfly.core.fft_v4 import fft_v4
-from butterfly.core.fft_v5 import apply_cft_v5_contiguous
-from butterfly.core.fft_v5_junie import apply_cft_v5_contiguous as apply_cft_v5_junie
+from butterfly.core.fft_v5 import cft_v5_contiguous
+from butterfly.core.fft_v6 import cft_v6_contiguous
 from benchmark import keep, run, Unit
 
 
@@ -29,14 +29,15 @@ fn run_bench[n: Int]() raises:
     fn bench_v5():
         # v5: Subspace, On-the-fly + Local Swap
         # No scaling included in apply_cft_v5_contiguous yet
-        apply_cft_v5_contiguous(state, targets, inverse=False, do_swap=True)
+        cft_v5_contiguous(state, targets, inverse=False, do_swap=True)
 
         keep(state.re.unsafe_ptr())
 
     @parameter
-    fn bench_v5_junie():
-        # v5_junie: Optimized Subspace (SIMD + Tables)
-        apply_cft_v5_junie(state, targets, inverse=False, do_swap=True)
+    fn bench_v6():
+        # v6: Subspace, On-the-fly + Local Swap
+        # No scaling included in apply_cft_v6_contiguous yet
+        cft_v6_contiguous(state, targets, inverse=False, do_swap=True)
 
         keep(state.re.unsafe_ptr())
 
@@ -48,18 +49,18 @@ fn run_bench[n: Int]() raises:
     var report_v5 = run[bench_v5](2, 5)
     report_v5.print(Unit.ms)
 
-    print("  CFT V5 JUNIE (Optimized Subspace):")
-    var report_v5_junie = run[bench_v5_junie](2, 5)
-    report_v5_junie.print(Unit.ms)
+    print("  CFT V6 (Optimized Subspace):")
+    var report_v6 = run[bench_v6](2, 5)
+    report_v6.print(Unit.ms)
 
-    var v5_speedup = report_v5.mean(Unit.ns) / report_v5_junie.mean(Unit.ns)
-    print("  Junie v5 is ", v5_speedup, "x FASTER than Original v5")
+    var v6_speedup = report_v6.mean(Unit.ns) / report_v5.mean(Unit.ns)
+    print("  v6 is ", v6_speedup, "x FASTER than Original v5")
 
-    var v4_speedup = report_v4.mean(Unit.ns) / report_v5_junie.mean(Unit.ns)
+    var v4_speedup = report_v4.mean(Unit.ns) / report_v6.mean(Unit.ns)
     if v4_speedup > 1.0:
-        print("  Junie v5 is ", v4_speedup, "x FASTER than v4")
+        print("  v6 is ", v4_speedup, "x FASTER than v4")
     else:
-        print("  Junie v5 is ", 1.0 / v4_speedup, "x SLOWER than v4")
+        print("  v6 is ", 1.0 / v4_speedup, "x SLOWER than v4")
 
 
 fn main() raises:
@@ -80,13 +81,13 @@ fn main() raises:
 
     @parameter
     fn bench_v5_partial():
-        apply_cft_v5_contiguous(state, targets, inverse=False, do_swap=True)
+        cft_v5_contiguous(state, targets, inverse=False, do_swap=True)
 
         keep(state.re.unsafe_ptr())
 
     @parameter
-    fn bench_v5_junie_partial():
-        apply_cft_v5_junie(state, targets, inverse=False, do_swap=True)
+    fn bench_v6_partial():
+        cft_v6_contiguous(state, targets, inverse=False, do_swap=True)
 
         keep(state.re.unsafe_ptr())
 
@@ -94,9 +95,9 @@ fn main() raises:
     var report_v5 = run[bench_v5_partial](2, 5)
     report_v5.print(Unit.ms)
 
-    print("  CFT V5 JUNIE (Optimized Subspace):")
-    var report_v5_junie = run[bench_v5_junie_partial](2, 5)
-    report_v5_junie.print(Unit.ms)
+    print("  CFT V6 (Optimized Subspace):")
+    var report_v6 = run[bench_v6_partial](2, 5)
+    report_v6.print(Unit.ms)
 
-    var speedup = report_v5.mean(Unit.ns) / report_v5_junie.mean(Unit.ns)
-    print("  Junie v5 is ", speedup, "x FASTER than Original v5")
+    var speedup = report_v5.mean(Unit.ns) / report_v6.mean(Unit.ns)
+    print("  v6 is ", speedup, "x FASTER than v5")
