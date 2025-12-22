@@ -14,7 +14,7 @@ from butterfly.core.gates import *
 alias simd_width = simd_width_of[Type]()
 
 
-struct QuantumState(Copyable, Sized):
+struct QuantumState(ImplicitlyCopyable, Sized):
     var re: List[FloatType]
     var im: List[FloatType]
 
@@ -373,8 +373,8 @@ fn transform_simd_base[
     alias num_threads = num_work_items
     alias chunk_size = max(1, N // 2 // num_work_items)
 
-    var vector_re = NDBuffer[Type, 1, _, N](state.re)
-    var vector_im = NDBuffer[Type, 1, _, N](state.im)
+    var vector_re = NDBuffer[Type, 1, _, N](state.re.unsafe_ptr())
+    var vector_im = NDBuffer[Type, 1, _, N](state.im.unsafe_ptr())
 
     @always_inline
     @parameter
@@ -686,8 +686,8 @@ fn process_contiguous_simd[
         [gate[1][0].im, gate[1][1].im],
     ]
 
-    var vector_re = NDBuffer[Type, 1, _, N](state.re)
-    var vector_im = NDBuffer[Type, 1, _, N](state.im)
+    var vector_re = NDBuffer[Type, 1, _, N](state.re.unsafe_ptr())
+    var vector_im = NDBuffer[Type, 1, _, N](state.im.unsafe_ptr())
 
     @parameter
     fn butterfly_simd[simd_width: Int](i: Int):
@@ -872,8 +872,8 @@ fn c_transform_simd_base[
     alias num_threads = num_work_items
     alias chunk_size = max(1, N // 2 // num_work_items)
 
-    var vector_re = NDBuffer[Type, 1, _, N](state.re)
-    var vector_im = NDBuffer[Type, 1, _, N](state.im)
+    var vector_re = NDBuffer[Type, 1, _, N](state.re.unsafe_ptr())
+    var vector_im = NDBuffer[Type, 1, _, N](state.im.unsafe_ptr())
 
     @always_inline
     @parameter
@@ -973,8 +973,8 @@ fn c_transform_simd_base_v2[
     alias num_threads = num_work_items
     alias chunk_size = max(1, N // 2 // num_work_items)
 
-    var vector_re = NDBuffer[Type, 1, _, N](state.re)
-    var vector_im = NDBuffer[Type, 1, _, N](state.im)
+    var vector_re = NDBuffer[Type, 1, _, N](state.re.unsafe_ptr())
+    var vector_im = NDBuffer[Type, 1, _, N](state.im.unsafe_ptr())
 
     @always_inline
     @parameter

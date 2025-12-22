@@ -11,24 +11,30 @@ from butterfly.core.state import (
     mc_transform_interval,
 )
 from butterfly.core.types import Gate
-from butterfly.core.circuit import QuantumTransformation
+from butterfly.core.circuit import (
+    Transformation,
+    GateTransformation,
+    SingleControlGateTransformation,
+    MultiControlGateTransformation,
+    BitReversalTransformation,
+)
 
 
 fn execute_transformations_simd[
     N: Int
-](mut state: QuantumState, transformations: List[QuantumTransformation]):
+](mut state: QuantumState, transformations: List[Transformation]):
     """Execute transformations using SIMD with compile-time N."""
     for i in range(len(transformations)):
-        var t = transformations[i].copy()
+        var t = transformations[i]
 
-        if t.is_permutation:
+        if t.isa[BitReversalTransformation]():
             bit_reverse_state(state)
-            continue
-
-        if t.is_controlled():
-            if t.num_controls() == 1:
-                c_transform_simd[N](state, t.controls[0], t.target, t.gate)
-            else:
-                mc_transform_interval(state, t.controls, t.target, t.gate)
-        else:
-            transform_simd[N](state, t.target, t.gate)
+        elif t.isa[SingleControlGateTransformation]():
+            var g = t[SingleControlGateTransformation].copy()
+            c_transform_simd[N](state, g.control, g.target, g.gate)
+        elif t.isa[MultiControlGateTransformation]():
+            var g = t[MultiControlGateTransformation].copy()
+            mc_transform_interval(state, g.controls, g.target, g.gate)
+        elif t.isa[GateTransformation]():
+            var g = t[GateTransformation].copy()
+            transform_simd[N](state, g.target, g.gate)

@@ -5,7 +5,17 @@ Minimizes memory passes by grouping local gates and using Radix-4 kernels for gl
 
 from butterfly.core.state import QuantumState, bit_reverse_state, simd_width
 from butterfly.core.types import FloatType, Type, Gate, Amplitude
-from butterfly.core.circuit import QuantumTransformation
+from butterfly.core.circuit import (
+    Transformation,
+    is_permutation,
+    is_controlled,
+    num_controls,
+    get_involved_qubits,
+    get_target,
+    get_gate,
+    get_as_matrix4x4,
+    get_controls,
+)
 from butterfly.algos.unitary_kernels import Matrix4x4, Matrix8x8, acc_mul
 from butterfly.algos.fused_gates import (
     compute_kron_product,
@@ -21,7 +31,7 @@ alias BLOCK_SIZE = 1 << DEFAULT_BLOCK_LOG
 struct TransformationGroup(Copyable, Movable):
     """A list of transformations that can be executed in a single pass."""
 
-    var transformations: List[QuantumTransformation]
+    var transformations: List[Transformation]
     var is_local: Bool  # If true, these can be block-executed
     var is_radix4: Bool  # If true, these are fused into a 4x4 matrix
     var is_radix8: Bool  # If true, these are fused into an 8x8 matrix
@@ -32,15 +42,15 @@ struct TransformationGroup(Copyable, Movable):
         is_radix4: Bool = False,
         is_radix8: Bool = False,
     ):
-        self.transformations = List[QuantumTransformation]()
+        self.transformations = List[Transformation]()
         self.is_local = is_local
         self.is_radix4 = is_radix4
         self.is_radix8 = is_radix8
 
     fn __copyinit__(out self, existing: Self):
-        self.transformations = List[QuantumTransformation]()
+        self.transformations = List[Transformation]()
         for i in range(len(existing.transformations)):
-            self.transformations.append(existing.transformations[i].copy())
+            self.transformations.append(existing.transformations[i])
         self.is_local = existing.is_local
         self.is_radix4 = existing.is_radix4
         self.is_radix8 = existing.is_radix8
@@ -56,7 +66,7 @@ struct TransformationGroup(Copyable, Movable):
             self.is_local, self.is_radix4, self.is_radix8
         )
         for i in range(len(self.transformations)):
-            new_g.transformations.append(self.transformations[i].copy())
+            new_g.transformations.append(self.transformations[i])
         return new_g^
 
 
@@ -70,7 +80,7 @@ struct CircuitAnalyzer:
 
     fn __init__(
         out self,
-        transformations: List[QuantumTransformation],
+        transformations: List[Transformation],
         use_radix8: Bool = False,
         fuse_controlled: Bool = False,
         block_log: Int = DEFAULT_BLOCK_LOG,
@@ -81,23 +91,23 @@ struct CircuitAnalyzer:
         self.block_log = block_log
         self.analyze(transformations)
 
-    fn is_local(self, t: QuantumTransformation) -> Bool:
-        var involved = t.get_involved_qubits()
+    fn is_local(self, t: Transformation) -> Bool:
+        var involved = get_involved_qubits(t)
         for i in range(len(involved)):
             if involved[i] >= self.block_log:
                 return False
         return True
 
-    fn analyze(mut self, transformations: List[QuantumTransformation]):
+    fn analyze(mut self, transformations: List[Transformation]):
         var i = 0
         var n = len(transformations)
 
         while i < n:
-            var t = transformations[i].copy()
+            var t = transformations[i]
 
-            if t.is_permutation:
+            if is_permutation(t):
                 var g = TransformationGroup()
-                g.transformations.append(t^)
+                g.transformations.append(t)
                 self.groups.append(g^)
                 i += 1
                 continue
@@ -105,76 +115,79 @@ struct CircuitAnalyzer:
             if self.is_local(t):
                 # Try to form Radix-8 triplet for local gates (if enabled)
                 if self.use_radix8 and i + 2 < n:
-                    var t2 = transformations[i + 1].copy()
-                    var t3 = transformations[i + 2].copy()
+                    var t2 = transformations[i + 1]
+                    var t3 = transformations[i + 2]
+                    # Note: Need explicit copy if calling mutation methods, but for reading properties via helpers, passing ref/val is handled by helper
+                    # But helpers use .copy(), so pass t2, t3 is fine.
+
                     if (
-                        not t2.is_permutation
-                        and not t3.is_permutation
+                        not is_permutation(t2)
+                        and not is_permutation(t3)
                         and self.is_local(t2)
                         and self.is_local(t3)
                         and (
                             self.fuse_controlled
                             or (
-                                not t.is_controlled()
-                                and not t2.is_controlled()
-                                and not t3.is_controlled()
+                                not is_controlled(t)
+                                and not is_controlled(t2)
+                                and not is_controlled(t3)
                             )
                         )
-                        and t.target != t2.target
-                        and t.target != t3.target
-                        and t2.target != t3.target
+                        and get_target(t) != get_target(t2)
+                        and get_target(t) != get_target(t3)
+                        and get_target(t2) != get_target(t3)
                     ):
                         var g = TransformationGroup(
                             is_local=True, is_radix4=False, is_radix8=True
                         )
-                        g.transformations.append(t^)
-                        g.transformations.append(t2^)
-                        g.transformations.append(t3^)
+                        g.transformations.append(t)
+                        g.transformations.append(t2)
+                        g.transformations.append(t3)
                         self.groups.append(g^)
                         i += 3
                         continue
 
                 # Start a local group (cache-blocked execution)
                 var g = TransformationGroup(is_local=True)
-                g.transformations.append(t^)
+                g.transformations.append(t)
                 i += 1
                 while i < n:
-                    var next_t_existing = transformations[i].copy()
-                    if next_t_existing.is_permutation or not self.is_local(
+                    var next_t_existing = transformations[i]
+                    if is_permutation(next_t_existing) or not self.is_local(
                         next_t_existing
                     ):
                         break
-                    g.transformations.append(next_t_existing^)
+                    g.transformations.append(next_t_existing)
                     i += 1
                 self.groups.append(g^)
             else:
                 # Global gate - try to pair into Radix-4
                 if i + 1 < n:
-                    var next_t = transformations[i + 1].copy()
+                    var next_t = transformations[i + 1]
                     if (
-                        not next_t.is_permutation
+                        not is_permutation(next_t)
                         and not self.is_local(next_t)
                         and (
                             self.fuse_controlled
                             or (
-                                not t.is_controlled()
-                                and not next_t.is_controlled()
+                                not is_controlled(t)
+                                and not is_controlled(next_t)
                             )
                         )
-                        and t.target != next_t.target
+                        and get_target(t) != get_target(next_t)
                     ):
                         var g = TransformationGroup(
                             is_local=False, is_radix4=True
                         )
-                        g.transformations.append(t^)
-                        g.transformations.append(next_t^)
+                        g.transformations.append(t)
+                        g.transformations.append(next_t)
                         self.groups.append(g^)
                         i += 2
                         continue
 
                 # Fallback: Single Global group
                 var g = TransformationGroup(is_local=False, is_radix4=False)
-                g.transformations.append(t^)
+                g.transformations.append(t)
                 self.groups.append(g^)
                 i += 1
 
@@ -183,7 +196,7 @@ fn execute_fused_v3[
     N: Int
 ](
     mut state: QuantumState,
-    transformations: List[QuantumTransformation],
+    transformations: List[Transformation],
     use_radix8: Bool = False,
     fuse_controlled: Bool = False,
     block_log: Int = DEFAULT_BLOCK_LOG,
@@ -211,7 +224,7 @@ fn execute_fused_v3[
 
 
 fn execute_local_group(
-    mut state: QuantumState, transformations: List[QuantumTransformation]
+    mut state: QuantumState, transformations: List[Transformation]
 ):
     """Execute a group of local gates using cache-blocking."""
     var size = state.size()
@@ -223,9 +236,9 @@ fn execute_local_group(
     fn block_worker(block_idx: Int):
         var start = block_idx << DEFAULT_BLOCK_LOG
         for i in range(len(transformations)):
-            var t_copy = transformations[i].copy()
+            var t_copy = transformations[i]
             apply_local_transform(
-                ptr_re, ptr_im, start, t_copy.target, t_copy.gate
+                ptr_re, ptr_im, start, get_target(t_copy), get_gate(t_copy)
             )
 
     parallelize[block_worker](num_blocks)
@@ -281,26 +294,26 @@ fn apply_local_transform(
 
 
 fn execute_radix8_local_group(
-    mut state: QuantumState, transformations: List[QuantumTransformation]
+    mut state: QuantumState, transformations: List[Transformation]
 ):
     """Execute a triplet of local gates using Radix-8 fusion."""
     # Should have exactly 3 transformations
     if len(transformations) != 3:
         return
 
-    var t0 = transformations[0].copy()
-    var t1 = transformations[1].copy()
-    var t2 = transformations[2].copy()
+    var t0 = transformations[0]
+    var t1 = transformations[1]
+    var t2 = transformations[2]
 
     # Sort by target (descending for Kronecker product ordering)
     var targets = List[Int](capacity=3)
     var gates = List[Gate](capacity=3)
-    targets.append(t0.target)
-    targets.append(t1.target)
-    targets.append(t2.target)
-    gates.append(t0.gate)
-    gates.append(t1.gate)
-    gates.append(t2.gate)
+    targets.append(get_target(t0))
+    targets.append(get_target(t1))
+    targets.append(get_target(t2))
+    gates.append(get_gate(t0))
+    gates.append(get_gate(t1))
+    gates.append(get_gate(t2))
 
     # Bubble sort
     for _ in range(2):
@@ -328,7 +341,7 @@ fn execute_radix8_local_group(
 
 fn execute_global_group[
     N: Int
-](mut state: QuantumState, transformations: List[QuantumTransformation]):
+](mut state: QuantumState, transformations: List[Transformation]):
     """Execute a group of global gates."""
     from butterfly.core.execute_simd_v2_dispatch import (
         execute_transformations_simd_v2,
@@ -339,24 +352,24 @@ fn execute_global_group[
 
 fn execute_radix4_group[
     N: Int
-](mut state: QuantumState, transformations: List[QuantumTransformation]):
+](mut state: QuantumState, transformations: List[Transformation]):
     """Execute two gates fused into a Radix-4 passage using matrix-based approach.
     """
-    var t0 = transformations[0].copy()
-    var t1 = transformations[1].copy()
+    var t0 = transformations[0]
+    var t1 = transformations[1]
 
     # Determine qubit ordering
-    var q_high = max(t0.target, t1.target)
-    var q_low = min(t0.target, t1.target)
+    var q_high = max(get_target(t0), get_target(t1))
+    var q_low = min(get_target(t0), get_target(t1))
 
     # Check if all involved qubits fit within the 2-qubit subspace [q_low, q_high]
     var can_fuse = True
-    for q in t0.get_involved_qubits():
+    for q in get_involved_qubits(t0):
         if q != q_high and q != q_low:
             can_fuse = False
             break
     if can_fuse:
-        for q in t1.get_involved_qubits():
+        for q in get_involved_qubits(t1):
             if q != q_high and q != q_low:
                 can_fuse = False
                 break
@@ -369,26 +382,32 @@ fn execute_radix4_group[
             mc_transform_interval,
         )
 
-        if t0.is_controlled():
-            if t0.num_controls() == 1:
-                c_transform(state, t0.controls[0], t0.target, t0.gate)
+        if is_controlled(t0):
+            if num_controls(t0) == 1:
+                var controls = get_controls(t0)
+                c_transform(state, controls[0], get_target(t0), get_gate(t0))
             else:
-                mc_transform_interval(state, t0.controls, t0.target, t0.gate)
+                mc_transform_interval(
+                    state, get_controls(t0), get_target(t0), get_gate(t0)
+                )
         else:
-            transform(state, t0.target, t0.gate)
+            transform(state, get_target(t0), get_gate(t0))
 
-        if t1.is_controlled():
-            if t1.num_controls() == 1:
-                c_transform(state, t1.controls[0], t1.target, t1.gate)
+        if is_controlled(t1):
+            if num_controls(t1) == 1:
+                var controls = get_controls(t1)
+                c_transform(state, controls[0], get_target(t1), get_gate(t1))
             else:
-                mc_transform_interval(state, t1.controls, t1.target, t1.gate)
+                mc_transform_interval(
+                    state, get_controls(t1), get_target(t1), get_gate(t1)
+                )
         else:
-            transform(state, t1.target, t1.gate)
+            transform(state, get_target(t1), get_gate(t1))
         return
 
     # For 2-qubit subspace, compute combined matrix
-    var M0 = t0.get_as_matrix4x4(q_high, q_low)
-    var M1 = t1.get_as_matrix4x4(q_high, q_low)
+    var M0 = get_as_matrix4x4(t0, q_high, q_low)
+    var M1 = get_as_matrix4x4(t1, q_high, q_low)
 
     # Multiply matrices: M = M1 * M0 (apply M0 first, then M1)
     from butterfly.algos.unitary_kernels import matmul_matrix4x4
