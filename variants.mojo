@@ -30,7 +30,9 @@ struct Processor2(Processor):
         state += 2
 
 
-alias Transformation = Variant[Processor1, Processor2]
+alias OneOf = Variant[Int, Bool]
+
+alias Transformation = Variant[Processor1, Processor2, OneOf]
 
 
 struct TransformationGroup(Processor):
@@ -51,7 +53,7 @@ struct TransformationGroup(Processor):
 
 fn main() raises:
     print("Hello Mojo")
-    processors: List[Transformation] = [Processor1(), Processor2()]
+    processors: List[Transformation] = [Processor1(), Processor2(), OneOf(True)]
     var state = 0
     print("Initial state: ", state)
     TransformationGroup(processors).process(state)

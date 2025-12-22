@@ -10,11 +10,11 @@ from butterfly.utils.visualization import print_state
 from butterfly.core.classical_fft import (
     fft_dit,
     fft_dif,
-    fft_dif_parallel,
-    fft_dif_parallel_simd,
-    fft_dif_parallel_simd_ndbuffer,
-    fft_dif_parallel_ndbuffer,
-    fft_dif_parallel_fastdiv,
+    # fft_dif_parallel,
+    # fft_dif_parallel_simd,
+    # fft_dif_parallel_simd_ndbuffer,
+    # fft_dif_parallel_ndbuffer,
+    # fft_dif_parallel_fastdiv,
 )
 
 from butterfly.core.fft import fft
@@ -23,8 +23,8 @@ from butterfly.core.fft_fma_optimized import fft_fma_opt
 
 
 fn main() raises:
-    print_state(encode_value_interval[21](4.7))
-    alias n = 21
+    print_state(encode_value_interval[3](4.7))
+    alias n = 3
     # Initialize random_state once locally
     var random_state = generate_state(n)
 
@@ -61,8 +61,8 @@ fn main() raises:
         # fft_numpy_style(state)
         # fft_fma_opt[1 << n](state)
         # fft_dit(state)
-        # fft_dif(state)
-        fft_dif_parallel(state)
+        fft_dif(state)
+        # fft_dif_parallel(state)
         # fft_dif_parallel_fastdiv(state)
         # fft_dif_parallel_simd(state)
         # fft_dif_parallel_simd_ndbuffer(state)
