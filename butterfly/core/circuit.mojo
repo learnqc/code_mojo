@@ -915,7 +915,81 @@ struct QuantumCircuit(Copyable):
             execute_transformations_simd[1 << 26](
                 self.state, self.transformations
             )
-        # ... (restoring pattern)
+        elif num_qubits == 23:
+            execute_transformations_simd[1 << 23](
+                self.state, self.transformations
+            )
+        elif num_qubits == 27:
+            execute_transformations_simd[1 << 27](
+                self.state, self.transformations
+            )
+        elif num_qubits == 28:
+            execute_transformations_simd[1 << 28](
+                self.state, self.transformations
+            )
+        elif num_qubits == 29:
+            execute_transformations_simd[1 << 29](
+                self.state, self.transformations
+            )
+        elif num_qubits == 30:
+            execute_transformations_simd[1 << 30](
+                self.state, self.transformations
+            )
+        elif num_qubits == 22:
+            execute_transformations_simd[1 << 22](
+                self.state, self.transformations
+            )
+        elif num_qubits == 21:
+            execute_transformations_simd[1 << 21](
+                self.state, self.transformations
+            )
+        elif num_qubits == 20:
+            execute_transformations_simd[1 << 20](
+                self.state, self.transformations
+            )
+        elif num_qubits == 19:
+            execute_transformations_simd[1 << 19](
+                self.state, self.transformations
+            )
+        elif num_qubits == 18:
+            execute_transformations_simd[1 << 18](
+                self.state, self.transformations
+            )
+        elif num_qubits == 17:
+            execute_transformations_simd[1 << 17](
+                self.state, self.transformations
+            )
+        elif num_qubits == 16:
+            execute_transformations_simd[1 << 16](
+                self.state, self.transformations
+            )
+        elif num_qubits == 15:
+            execute_transformations_simd[1 << 15](
+                self.state, self.transformations
+            )
+        elif num_qubits == 14:
+            execute_transformations_simd[1 << 14](
+                self.state, self.transformations
+            )
+        elif num_qubits == 13:
+            execute_transformations_simd[1 << 13](
+                self.state, self.transformations
+            )
+        elif num_qubits == 12:
+            execute_transformations_simd[1 << 12](
+                self.state, self.transformations
+            )
+        elif num_qubits == 11:
+            execute_transformations_simd[1 << 11](
+                self.state, self.transformations
+            )
+        elif num_qubits == 10:
+            execute_transformations_simd[1 << 10](
+                self.state, self.transformations
+            )
+        else:
+            # Fall back to standard execution for other sizes
+            self.execute()
 
     fn execute_simd_v2(mut self):
         """

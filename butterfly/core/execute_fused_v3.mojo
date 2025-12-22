@@ -228,17 +228,25 @@ fn execute_local_group(
 ):
     """Execute a group of local gates using cache-blocking."""
     var size = state.size()
-    var num_blocks = size >> DEFAULT_BLOCK_LOG
+    # Handle cases where state size is less than block size
+    var actual_block_size = size if size < BLOCK_SIZE else BLOCK_SIZE
+    var num_blocks = size // actual_block_size
+
     var ptr_re = UnsafePointer[FloatType](state.re.unsafe_ptr().address)
     var ptr_im = UnsafePointer[FloatType](state.im.unsafe_ptr().address)
 
     @parameter
     fn block_worker(block_idx: Int):
-        var start = block_idx << DEFAULT_BLOCK_LOG
+        var start = block_idx * actual_block_size
         for i in range(len(transformations)):
             var t_copy = transformations[i]
             apply_local_transform(
-                ptr_re, ptr_im, start, get_target(t_copy), get_gate(t_copy)
+                ptr_re,
+                ptr_im,
+                start,
+                get_target(t_copy),
+                get_gate(t_copy),
+                actual_block_size,
             )
 
     parallelize[block_worker](num_blocks)
@@ -250,10 +258,11 @@ fn apply_local_transform(
     start: Int,
     target: Int,
     gate: Gate,
+    block_size: Int,
 ):
     """Applies a local transform to a specific cache block."""
     var stride = 1 << target
-    var count = BLOCK_SIZE // 2
+    var count = block_size // 2
 
     var g00 = gate[0][0]
     var g01 = gate[0][1]
@@ -290,7 +299,11 @@ fn apply_local_transform(
         p_re.store(idx1, res1_re)
         p_im.store(idx1, res1_im)
 
-    vectorize[v_butterfly, simd_width](count)
+    if stride < simd_width:
+        for i in range(count):
+            v_butterfly[1](i)
+    else:
+        vectorize[v_butterfly, simd_width](count)
 
 
 fn execute_radix8_local_group(

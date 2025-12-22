@@ -33,11 +33,11 @@ fn encode_value_mojo_circuit(
 
 
 fn main() raises:
-    n = 3
-    v = 4.7
-    var circuit = QuantumCircuit(n)
-    encode_value_mojo_circuit(circuit, n, v, True)
-    circuit.execute()
-    # print_state(circuit.state)
-    for i in range(2**n):
-        print(circuit.state[i])
+    alias v = 4.7
+    for n in range(3, 6):
+        var circuit = QuantumCircuit(n)
+        encode_value_mojo_circuit(circuit, n, v, True)
+        circuit.execute()
+        print("=== N=", n, " ===")
+        for i in range(2**n):
+            print(circuit.state[i])
