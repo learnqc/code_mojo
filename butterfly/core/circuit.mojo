@@ -288,29 +288,27 @@ fn num_controls(t: Transformation) -> Int:
 
 fn get_target(t: Transformation) -> Int:
     if t.isa[GateTransformation]():
-        return t[GateTransformation].copy().target
+        return t[GateTransformation].target
     elif t.isa[SingleControlGateTransformation]():
-        return t[SingleControlGateTransformation].copy().target
+        return t[SingleControlGateTransformation].target
     elif t.isa[MultiControlGateTransformation]():
-        return t[MultiControlGateTransformation].copy().target
+        return t[MultiControlGateTransformation].target
     elif t.isa[UnitaryTransformation]():
-        return t[UnitaryTransformation].copy().target
+        return t[UnitaryTransformation].target
     elif t.isa[ControlledUnitaryTransformation]():
-        return t[ControlledUnitaryTransformation].copy().target
+        return t[ControlledUnitaryTransformation].target
     return -1
 
 
 fn get_gate(t: Transformation) -> Gate:
     # Assumes not permutation
     if t.isa[GateTransformation]():
-        return t[GateTransformation].copy().gate
+        return t[GateTransformation].gate
     elif t.isa[SingleControlGateTransformation]():
-        return t[SingleControlGateTransformation].copy().gate
+        return t[SingleControlGateTransformation].gate
     elif t.isa[MultiControlGateTransformation]():
-        return t[MultiControlGateTransformation].copy().gate
-    # Fallback
-    var r = InlineArray[Amplitude, 2](Amplitude(0, 0), Amplitude(0, 0))
-    return Gate(r, r)
+        return t[MultiControlGateTransformation].gate
+    return X
 
 
 fn get_controls(t: Transformation) -> List[Int]:
@@ -1684,7 +1682,7 @@ struct QuantumCircuit(Copyable):
         else:
             for i in range(register.size):
                 targets.append(register.start + i)
-        qft(self, targets, swap)
+        _qft(self, targets, swap)
 
     fn iqft(
         mut self,
@@ -1700,7 +1698,7 @@ struct QuantumCircuit(Copyable):
         else:
             for i in range(register.size):
                 targets.append(register.start + i)
-        iqft(self, targets, swap)
+        _iqft(self, targets, swap)
 
     fn bit_reverse(mut self):
         """Add an efficient bit-reversal operation to the circuit."""
@@ -1993,9 +1991,10 @@ alias Circuit = QuantumCircuit
 alias Register = QuantumRegister
 
 
-# Standalone QFT/IQFT functions
-fn qft(mut qc: QuantumCircuit, targets: List[Int], swap: Bool = True):
-    """Apply Quantum Fourier Transform to the specified target qubits."""
+# Internal QFT/IQFT helper functions (use QuantumCircuit.qft() method or QFT() factory instead)
+fn _qft(mut qc: QuantumCircuit, targets: List[Int], swap: Bool = True):
+    """Internal helper: Apply Quantum Fourier Transform to the specified target qubits.
+    """
     var n = len(targets)
     for j in range(n - 1, -1, -1):
         qc.h(targets[j])
@@ -2007,8 +2006,8 @@ fn qft(mut qc: QuantumCircuit, targets: List[Int], swap: Bool = True):
         qc.mswap(targets)
 
 
-fn iqft(mut qc: QuantumCircuit, targets: List[Int], swap: Bool = True):
-    """Apply Inverse Quantum Fourier Transform to the specified target qubits.
+fn _iqft(mut qc: QuantumCircuit, targets: List[Int], swap: Bool = True):
+    """Internal helper: Apply Inverse Quantum Fourier Transform to the specified target qubits.
     """
     var n = len(targets)
     for j in range(n - 1, -1, -1):
