@@ -33,52 +33,92 @@ from utils.variant import Variant
 struct GateTransformation(Copyable, Movable):
     var gate: Gate
     var target: Int
+    var name: String
+    var arg: FloatType
 
-    fn __init__(out self, gate: Gate, target: Int):
+    fn __init__(
+        out self,
+        gate: Gate,
+        target: Int,
+        name: String = "unitary",
+        arg: FloatType = 0.0,
+    ):
         self.gate = gate
         self.target = target
+        self.name = name
+        self.arg = arg
 
     fn __copyinit__(out self, existing: Self):
         self.gate = existing.gate
         self.target = existing.target
+        self.name = existing.name
+        self.arg = existing.arg
 
     fn __moveinit__(out self, deinit existing: Self):
         self.gate = existing.gate
         self.target = existing.target
+        self.name = existing.name^
+        self.arg = existing.arg
 
 
 struct SingleControlGateTransformation(Copyable, Movable):
     var gate: Gate
     var target: Int
     var control: Int
+    var name: String
+    var arg: FloatType
 
-    fn __init__(out self, gate: Gate, target: Int, control: Int):
+    fn __init__(
+        out self,
+        gate: Gate,
+        target: Int,
+        control: Int,
+        name: String = "unitary",
+        arg: FloatType = 0.0,
+    ):
         self.gate = gate
         self.target = target
         self.control = control
+        self.name = name
+        self.arg = arg
 
     fn __copyinit__(out self, existing: Self):
         self.gate = existing.gate
         self.target = existing.target
         self.control = existing.control
+        self.name = existing.name
+        self.arg = existing.arg
 
     fn __moveinit__(out self, deinit existing: Self):
         self.gate = existing.gate
         self.target = existing.target
         self.control = existing.control
+        self.name = existing.name^
+        self.arg = existing.arg
 
 
 struct MultiControlGateTransformation(Copyable, Movable):
     var gate: Gate
     var target: Int
     var controls: List[Int]
+    var name: String
+    var arg: FloatType
 
-    fn __init__(out self, gate: Gate, target: Int, controls: List[Int]):
+    fn __init__(
+        out self,
+        gate: Gate,
+        target: Int,
+        controls: List[Int],
+        name: String = "unitary",
+        arg: FloatType = 0.0,
+    ):
         self.gate = gate
         self.target = target
         self.controls = List[Int](capacity=len(controls))
         for i in range(len(controls)):
             self.controls.append(controls[i])
+        self.name = name
+        self.arg = arg
 
     fn __copyinit__(out self, existing: Self):
         self.gate = existing.gate
@@ -86,32 +126,46 @@ struct MultiControlGateTransformation(Copyable, Movable):
         self.controls = List[Int](capacity=len(existing.controls))
         for i in range(len(existing.controls)):
             self.controls.append(existing.controls[i])
+        self.name = existing.name
+        self.arg = existing.arg
 
     fn __moveinit__(out self, deinit existing: Self):
         self.gate = existing.gate
         self.target = existing.target
         self.controls = existing.controls^
+        self.name = existing.name^
+        self.arg = existing.arg
 
 
 struct UnitaryTransformation(Copyable, Movable):
     var u: List[Amplitude]
     var target: Int
     var m: Int
+    var name: String
 
-    fn __init__(out self, deinit u: List[Amplitude], target: Int, m: Int):
+    fn __init__(
+        out self,
+        deinit u: List[Amplitude],
+        target: Int,
+        m: Int,
+        name: String = "unitary",
+    ):
         self.u = u^
         self.target = target
         self.m = m
+        self.name = name
 
     fn __copyinit__(out self, existing: Self):
         self.u = existing.u.copy()
         self.target = existing.target
         self.m = existing.m
+        self.name = existing.name
 
     fn __moveinit__(out self, deinit existing: Self):
         self.u = existing.u^
         self.target = existing.target
         self.m = existing.m
+        self.name = existing.name^
 
 
 struct ControlledUnitaryTransformation(Copyable, Movable):
@@ -119,26 +173,35 @@ struct ControlledUnitaryTransformation(Copyable, Movable):
     var target: Int
     var control: Int
     var m: Int
+    var name: String
 
     fn __init__(
-        out self, deinit u: List[Amplitude], target: Int, control: Int, m: Int
+        out self,
+        deinit u: List[Amplitude],
+        target: Int,
+        control: Int,
+        m: Int,
+        name: String = "unitary",
     ):
         self.u = u^
         self.target = target
         self.control = control
         self.m = m
+        self.name = name
 
     fn __copyinit__(out self, existing: Self):
         self.u = existing.u.copy()
         self.target = existing.target
         self.control = existing.control
         self.m = existing.m
+        self.name = existing.name
 
     fn __moveinit__(out self, deinit existing: Self):
         self.u = existing.u^
         self.target = existing.target
         self.control = existing.control
         self.m = existing.m
+        self.name = existing.name^
 
 
 struct BitReversalTransformation(Copyable, Movable):
@@ -898,23 +961,41 @@ struct QuantumCircuit(Copyable):
         self.fused_transformations = existing.fused_transformations^
         self.is_fused = existing.is_fused
 
-    fn add(mut self, gate: Gate, target: Int):
+    fn add(
+        mut self,
+        gate: Gate,
+        target: Int,
+        name: String = "unitary",
+        arg: FloatType = 0.0,
+    ):
         """Add a gate to the circuit on the specified target qubit."""
         self.is_fused = False
-        self.transformations.append(GateTransformation(gate, target))
+        self.transformations.append(GateTransformation(gate, target, name, arg))
 
-    fn add_controlled(mut self, gate: Gate, target: Int, control: Int):
+    fn add_controlled(
+        mut self,
+        gate: Gate,
+        target: Int,
+        control: Int,
+        name: String = "unitary",
+        arg: FloatType = 0.0,
+    ):
         """Add a controlled gate to the circuit."""
         self.transformations.append(
-            SingleControlGateTransformation(gate, target, control)
+            SingleControlGateTransformation(gate, target, control, name, arg)
         )
 
     fn add_multi_controlled(
-        mut self, gate: Gate, target: Int, var controls: List[Int]
+        mut self,
+        gate: Gate,
+        target: Int,
+        var controls: List[Int],
+        name: String = "unitary",
+        arg: FloatType = 0.0,
     ):
         """Add a multi-controlled gate to the circuit."""
         self.transformations.append(
-            MultiControlGateTransformation(gate, target, controls)
+            MultiControlGateTransformation(gate, target, controls, name, arg)
         )
 
     fn execute(mut self):
@@ -1377,75 +1458,166 @@ struct QuantumCircuit(Copyable):
         """Set the amplitude at a specific basis state index."""
         self.state[idx] = amp
 
+    fn inverse(self) -> QuantumCircuit:
+        """Return a new QuantumCircuit that is the inverse of this circuit."""
+        var res = QuantumCircuit(self.num_qubits)
+        # Copy registers
+        for i in range(len(self.registers)):
+            var r = self.registers[i].copy()
+            _ = res.add_register(r.name, r.size)
+
+        # Iterate transformations in reverse
+        for i in range(len(self.transformations) - 1, -1, -1):
+            var t = self.transformations[i].copy()
+            if t.isa[GateTransformation]():
+                var g = t[GateTransformation].copy()
+                if g.name == "h":
+                    res.h(g.target)
+                elif g.name == "x":
+                    res.x(g.target)
+                elif g.name == "y":
+                    res.y(g.target)
+                elif g.name == "z":
+                    res.z(g.target)
+                elif g.name == "rx":
+                    res.rx(g.target, -g.arg)
+                elif g.name == "ry":
+                    res.ry(g.target, -g.arg)
+                elif g.name == "rz":
+                    res.rz(g.target, -g.arg)
+                elif g.name == "p":
+                    res.p(g.target, -g.arg)
+                else:
+                    # Arbitrary unitary
+                    res.unitary(dagger(g.gate), g.target)
+            elif t.isa[SingleControlGateTransformation]():
+                var g = t[SingleControlGateTransformation].copy()
+                if g.name == "h":
+                    res.ch(g.target, g.control)
+                elif g.name == "x":
+                    res.cx(g.target, g.control)
+                elif g.name == "y":
+                    res.cy(g.target, g.control)
+                elif g.name == "z":
+                    res.cz(g.target, g.control)
+                elif g.name == "rx":
+                    res.crx(g.target, g.control, -g.arg)
+                elif g.name == "ry":
+                    res.cry(g.target, g.control, -g.arg)
+                elif g.name == "rz":
+                    res.crz(g.target, g.control, -g.arg)
+                elif g.name == "p":
+                    res.cp(g.target, g.control, -g.arg)
+                else:
+                    res.c_unitary(dagger(g.gate), g.control, g.target)
+            elif t.isa[MultiControlGateTransformation]():
+                var g = t[MultiControlGateTransformation].copy()
+                if g.name == "x":
+                    res.mcx(g.controls.copy(), g.target)
+                else:
+                    res.add_multi_controlled(
+                        dagger(g.gate),
+                        g.target,
+                        g.controls.copy(),
+                        g.name,
+                        -g.arg,
+                    )
+            elif t.isa[UnitaryTransformation]():
+                var g = t[UnitaryTransformation].copy()
+                if g.m == 1:
+                    res.unitary(dagger(g.u, g.m), g.target, g.name)
+                else:
+                    # Registry-based
+                    res.append_u(
+                        dagger(g.u, g.m),
+                        QuantumRegister("", g.target, g.m),
+                        g.name,
+                    )
+            elif t.isa[ControlledUnitaryTransformation]():
+                var g = t[ControlledUnitaryTransformation].copy()
+                if g.m == 1:
+                    res.c_unitary(dagger(g.u, g.m), g.control, g.target, g.name)
+                else:
+                    res.c_append_u(
+                        dagger(g.u, g.m),
+                        g.control,
+                        QuantumRegister("", g.target, g.m),
+                        g.name,
+                    )
+            elif t.isa[BitReversalTransformation]():
+                res.bit_reverse()
+
+        return res^
+
     # Gate-specific methods
     fn h(mut self, target: Int):
         """Apply Hadamard gate to target qubit."""
-        self.add(H, target)
+        self.add(H, target, "h")
 
     fn x(mut self, target: Int):
         """Apply Pauli-X gate to target qubit."""
-        self.add(X, target)
+        self.add(X, target, "x")
 
     fn y(mut self, target: Int):
         """Apply Pauli-Y gate to target qubit."""
-        self.add(Y, target)
+        self.add(Y, target, "y")
 
     fn z(mut self, target: Int):
         """Apply Pauli-Z gate to target qubit."""
-        self.add(Z, target)
+        self.add(Z, target, "z")
 
     fn rx(mut self, target: Int, theta: FloatType):
         """Apply RX rotation gate to target qubit."""
-        self.add(RX(theta), target)
+        self.add(RX(theta), target, "rx", theta)
 
     fn ry(mut self, target: Int, theta: FloatType):
         """Apply RY rotation gate to target qubit."""
-        self.add(RY(theta), target)
+        self.add(RY(theta), target, "ry", theta)
 
     fn rz(mut self, target: Int, theta: FloatType):
         """Apply RZ rotation gate to target qubit."""
-        self.add(RZ(theta), target)
+        self.add(RZ(theta), target, "rz", theta)
 
     fn p(mut self, target: Int, theta: FloatType):
         """Apply phase gate to target qubit."""
-        self.add(P(theta), target)
+        self.add(P(theta), target, "p", theta)
 
     # Controlled versions
     fn ch(mut self, target: Int, control: Int):
         """Apply controlled Hadamard gate."""
-        self.add_controlled(H, target, control)
+        self.add_controlled(H, target, control, "h")
 
     fn cx(mut self, target: Int, control: Int):
         """Apply controlled X (CNOT) gate."""
-        self.add_controlled(X, target, control)
+        self.add_controlled(X, target, control, "x")
 
     fn cy(mut self, target: Int, control: Int):
         """Apply controlled Y gate."""
-        self.add_controlled(Y, target, control)
+        self.add_controlled(Y, target, control, "y")
 
     fn cz(mut self, target: Int, control: Int):
         """Apply controlled Z gate."""
-        self.add_controlled(Z, target, control)
+        self.add_controlled(Z, target, control, "z")
 
     fn crx(mut self, target: Int, control: Int, theta: FloatType):
         """Apply controlled RX rotation gate."""
-        self.add_controlled(RX(theta), target, control)
+        self.add_controlled(RX(theta), target, control, "rx", theta)
 
     fn cry(mut self, target: Int, control: Int, theta: FloatType):
         """Apply controlled RY rotation gate."""
-        self.add_controlled(RY(theta), target, control)
+        self.add_controlled(RY(theta), target, control, "ry", theta)
 
     fn crz(mut self, target: Int, control: Int, theta: FloatType):
         """Apply controlled RZ rotation gate."""
-        self.add_controlled(RZ(theta), target, control)
+        self.add_controlled(RZ(theta), target, control, "rz", theta)
 
     fn cp(mut self, target: Int, control: Int, theta: FloatType):
         """Apply controlled phase gate."""
-        self.add_controlled(P(theta), target, control)
+        self.add_controlled(P(theta), target, control, "p", theta)
 
     fn mcx(mut self, var controls: List[Int], target: Int):
         """Apply multi-controlled X gate."""
-        self.add_multi_controlled(X, target, controls^)
+        self.add_multi_controlled(X, target, controls^, "x")
 
     fn swap(mut self, q1: Int, q2: Int):
         """Apply SWAP gate between two qubits using 3 CNOTs."""
@@ -1529,17 +1701,34 @@ struct QuantumCircuit(Copyable):
         """Return the number of registers in the circuit."""
         return len(self.registers)
 
-    fn unitary(mut self, var u: List[Amplitude], target: Int):
+    fn unitary(
+        mut self, var u: List[Amplitude], target: Int, name: String = "unitary"
+    ):
         """Add an arbitrary unitary transformation acting on a single qubit."""
         self.is_fused = False
-        self.transformations.append(UnitaryTransformation(u^, target, 1))
+        self.transformations.append(UnitaryTransformation(u^, target, 1, name))
+
+    fn unitary(mut self, gate: Gate, target: Int, name: String = "unitary"):
+        """Add a single-qubit gate to the circuit via a unitary matrix (Gate).
+        """
+        var u = List[Amplitude](capacity=4)
+        u.append(gate[0][0])
+        u.append(gate[0][1])
+        u.append(gate[1][0])
+        u.append(gate[1][1])
+        self.unitary(u^, target, name)
 
     fn u(mut self, var u: List[Amplitude], target: Int):
         """Add an arbitrary unitary transformation acting on a single qubit (shorthand).
         """
         self.unitary(u^, target)
 
-    fn append_u(mut self, var u: List[Amplitude], register: QuantumRegister):
+    fn append_u(
+        mut self,
+        var u: List[Amplitude],
+        register: QuantumRegister,
+        name: String = "unitary",
+    ):
         """Add an arbitrary unitary transformation acting on an entire register.
         """
         if len(u) != (1 << (2 * register.size)):
@@ -1551,16 +1740,37 @@ struct QuantumCircuit(Copyable):
             )
         self.is_fused = False
         self.transformations.append(
-            UnitaryTransformation(u^, register.start, register.size)
+            UnitaryTransformation(u^, register.start, register.size, name)
         )
 
-    fn c_unitary(mut self, var u: List[Amplitude], control: Int, target: Int):
+    fn c_unitary(
+        mut self,
+        var u: List[Amplitude],
+        control: Int,
+        target: Int,
+        name: String = "unitary",
+    ):
         """Add an arbitrary controlled unitary transformation acting on a single target.
         """
         self.is_fused = False
         self.transformations.append(
-            ControlledUnitaryTransformation(u^, target, control, 1)
+            ControlledUnitaryTransformation(u^, target, control, 1, name)
         )
+
+    fn c_unitary(
+        mut self,
+        gate: Gate,
+        control: Int,
+        target: Int,
+        name: String = "unitary",
+    ):
+        """Add a single-qubit controlled gate via a unitary matrix (Gate)."""
+        var u = List[Amplitude](capacity=4)
+        u.append(gate[0][0])
+        u.append(gate[0][1])
+        u.append(gate[1][0])
+        u.append(gate[1][1])
+        self.c_unitary(u^, control, target, name)
 
     fn cu(mut self, var u: List[Amplitude], control: Int, target: Int):
         """Add an arbitrary controlled unitary acting on a single target (shorthand).
@@ -1572,6 +1782,7 @@ struct QuantumCircuit(Copyable):
         var u: List[Amplitude],
         control: Int,
         register: QuantumRegister,
+        name: String = "unitary",
     ):
         """Add an arbitrary controlled unitary transformation acting on a register.
         """
@@ -1585,9 +1796,16 @@ struct QuantumCircuit(Copyable):
         self.is_fused = False
         self.transformations.append(
             ControlledUnitaryTransformation(
-                u^, register.start, control, register.size
+                u^, register.start, control, register.size, name
             )
         )
+
+    fn append_circuit(mut self, other: QuantumCircuit):
+        """Append a circuit to the current one.
+
+        Assumes the qubits map one-to-one (offset 0).
+        """
+        self.append_circuit(other, QuantumRegister("", 0, other.num_qubits))
 
     fn append_circuit(
         mut self, other: QuantumCircuit, target_register: QuantumRegister

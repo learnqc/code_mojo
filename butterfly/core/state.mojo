@@ -1192,6 +1192,40 @@ fn mat_vec_mul(U: List[Amplitude], vec: List[Amplitude]) -> List[Amplitude]:
     return res^
 
 
+fn dagger(u: List[Amplitude], m: Int) -> List[Amplitude]:
+    """Computes the conjugate transpose (dagger) of a 2^m x 2^m matrix.
+
+    Args:
+        u: Flattened unitary matrix.
+        m: Number of qubits the unitary acts on (dimension is 2^m x 2^m).
+
+    Returns:
+        The conjugate transpose of u.
+    """
+    var dim = 1 << m
+    var res = List[Amplitude](capacity=len(u))
+    # dagger(U)_{ij} = conj(U_{ji})
+    for i in range(dim):
+        for j in range(dim):
+            var val = u[j * dim + i]
+            res.append(Amplitude(val.re, -val.im))
+    return res^
+
+
+fn dagger(g: Gate) -> Gate:
+    """Computes the conjugate transpose (dagger) of a 2x2 gate matrix."""
+    return Gate(
+        InlineArray[Amplitude, 2](
+            Amplitude(g[0][0].re, -g[0][0].im),
+            Amplitude(g[1][0].re, -g[1][0].im),
+        ),
+        InlineArray[Amplitude, 2](
+            Amplitude(g[0][1].re, -g[0][1].im),
+            Amplitude(g[1][1].re, -g[1][1].im),
+        ),
+    )
+
+
 fn transform_u(mut state: QuantumState, U: List[Amplitude], t: Int, m: Int):
     """
     Applies an arbitrary unitary matrix U (of size 2^m x 2^m)
