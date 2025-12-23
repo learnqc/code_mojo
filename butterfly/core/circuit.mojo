@@ -1441,6 +1441,61 @@ struct QuantumCircuit(Copyable):
             elif t.isa[BitReversalTransformation]():
                 self.bit_reverse()
 
+    fn c_append_circuit(
+        mut self,
+        other: QuantumCircuit,
+        target_register: QuantumRegister,
+        control: Int,
+    ):
+        """Append a circuit, controlled by a single qubit."""
+        var controls = List[Int]()
+        controls.append(control)
+        self.mc_append_circuit(other, target_register, controls^)
+
+    fn mc_append_circuit(
+        mut self,
+        other: QuantumCircuit,
+        target_register: QuantumRegister,
+        var controls: List[Int],
+    ):
+        """Append a circuit, controlled by multiple qubits."""
+        var offset = target_register.start
+        self.is_fused = False
+        for i in range(len(other.transformations)):
+            var t = other.transformations[i].copy()
+            if t.isa[GateTransformation]():
+                var g = t[GateTransformation].copy()
+                var new_controls = List[Int](capacity=len(controls))
+                for j in range(len(controls)):
+                    new_controls.append(controls[j])
+                self.add_multi_controlled(
+                    g.gate, g.target + offset, new_controls^
+                )
+            elif t.isa[SingleControlGateTransformation]():
+                var g = t[SingleControlGateTransformation].copy()
+                var new_controls = List[Int](capacity=len(controls) + 1)
+                for j in range(len(controls)):
+                    new_controls.append(controls[j])
+                new_controls.append(g.control + offset)
+                self.add_multi_controlled(
+                    g.gate, g.target + offset, new_controls^
+                )
+            elif t.isa[MultiControlGateTransformation]():
+                var g = t[MultiControlGateTransformation].copy()
+                var new_controls = List[Int](
+                    capacity=len(controls) + len(g.controls)
+                )
+                for j in range(len(controls)):
+                    new_controls.append(controls[j])
+                for j in range(len(g.controls)):
+                    new_controls.append(g.controls[j] + offset)
+                self.add_multi_controlled(
+                    g.gate, g.target + offset, new_controls^
+                )
+            elif t.isa[BitReversalTransformation]():
+                # Bit reversal doesn't easily support control, skip for now
+                pass
+
 
 alias Circuit = QuantumCircuit
 alias Register = QuantumRegister
