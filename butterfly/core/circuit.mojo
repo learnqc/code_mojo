@@ -196,13 +196,6 @@ struct ControlledUnitaryTransformation(Copyable, Movable):
         self.m = existing.m
         self.name = existing.name
 
-    fn __moveinit__(out self, deinit existing: Self):
-        self.u = existing.u^
-        self.target = existing.target
-        self.control = existing.control
-        self.m = existing.m
-        self.name = existing.name^
-
 
 struct BitReversalTransformation(Copyable, Movable):
     fn __init__(out self):
@@ -215,6 +208,27 @@ struct BitReversalTransformation(Copyable, Movable):
         pass
 
 
+struct DiagonalTransformation(Copyable, Movable):
+    var items: List[Int]
+    var offset: Int
+    var size: Int
+
+    fn __init__(out self, var items: List[Int], offset: Int = 0, size: Int = 0):
+        self.items = items^
+        self.offset = offset
+        self.size = size
+
+    fn __copyinit__(out self, existing: Self):
+        self.items = existing.items.copy()
+        self.offset = existing.offset
+        self.size = existing.size
+
+    fn __moveinit__(out self, deinit existing: Self):
+        self.items = existing.items^
+        self.offset = existing.offset
+        self.size = existing.size
+
+
 alias Transformation = Variant[
     GateTransformation,
     SingleControlGateTransformation,
@@ -222,6 +236,7 @@ alias Transformation = Variant[
     BitReversalTransformation,
     UnitaryTransformation,
     ControlledUnitaryTransformation,
+    DiagonalTransformation,
 ]
 
 
@@ -1019,6 +1034,19 @@ struct QuantumCircuit(Copyable):
                 c_transform_u(self.state, g.u, g.control, g.target, g.m)
             elif t.isa[BitReversalTransformation]():
                 bit_reverse_state(self.state)
+            elif t.isa[DiagonalTransformation]():
+                var g = t[DiagonalTransformation].copy()
+                var n_shortcut = g.size if g.size > 0 else self.num_qubits
+                var mask = (1 << n_shortcut) - 1
+                for k in range(len(self.state)):
+                    var val = (k >> g.offset) & mask
+                    # Check if val is in items
+                    for p_idx in range(len(g.items)):
+                        if val == g.items[p_idx]:
+                            self.state[k] = Amplitude(
+                                -self.state[k].re, -self.state[k].im
+                            )
+                            break
 
     fn execute_fused(mut self):
         """Execute pre-computed fused transformations."""
@@ -1619,6 +1647,10 @@ struct QuantumCircuit(Copyable):
         """Apply multi-controlled X gate."""
         self.add_multi_controlled(X, target, controls^, "x")
 
+    fn mcp(mut self, theta: FloatType, var controls: List[Int], target: Int):
+        """Apply multi-controlled phase gate."""
+        self.add_multi_controlled(P(theta), target, controls^, "p", theta)
+
     fn swap(mut self, q1: Int, q2: Int):
         """Apply SWAP gate between two qubits using 3 CNOTs."""
         self.cx(q2, q1)
@@ -1674,6 +1706,16 @@ struct QuantumCircuit(Copyable):
         """Add an efficient bit-reversal operation to the circuit."""
         self.is_fused = False
         self.transformations.append(BitReversalTransformation())
+
+    fn diagonal_phase_flip(
+        mut self, items: List[Int], offset: Int = 0, size: Int = 0
+    ):
+        """Add a diagonal transformation that flips the phase of specified indices.
+        """
+        self.is_fused = False
+        self.transformations.append(
+            DiagonalTransformation(items.copy(), offset, size)
+        )
 
     # Register management
     fn add_register(mut self, name: String, size: Int) -> QuantumRegister:
@@ -1836,6 +1878,11 @@ struct QuantumCircuit(Copyable):
                 var g = t[UnitaryTransformation].copy()
                 self.transformations.append(
                     UnitaryTransformation(g.u.copy(), g.target + offset, g.m)
+                )
+            elif t.isa[DiagonalTransformation]():
+                var g = t[DiagonalTransformation].copy()
+                self.diagonal_phase_flip(
+                    g.items.copy(), g.offset + offset, g.size
                 )
             elif t.isa[ControlledUnitaryTransformation]():
                 var g = t[ControlledUnitaryTransformation].copy()

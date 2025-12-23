@@ -3,6 +3,18 @@ from butterfly.core.types import *
 from collections import InlineArray
 
 
+@always_inline
+fn is_bit_set(mask: Int, i: Int) -> Bool:
+    """Return True if the i-th bit of mask is set."""
+    return (mask >> i) & 1 == 1
+
+
+@always_inline
+fn is_bit_not_set(mask: Int, i: Int) -> Bool:
+    """Return True if the i-th bit of mask is not set."""
+    return (mask >> i) & 1 == 0
+
+
 fn cis(theta: FloatType) -> Amplitude:
     return Amplitude(cos(theta), sin(theta))
 
