@@ -1453,6 +1453,51 @@ struct QuantumCircuit(Copyable):
         self.cx(q1, q2)
         self.cx(q2, q1)
 
+    fn mswap(mut self, targets: List[Int]):
+        """Apply multiple swaps to reverse the order of qubits in the target list.
+        """
+        var n = len(targets)
+        for j in range(n // 2):
+            self.swap(targets[j], targets[n - 1 - j])
+
+    fn mswap(mut self, register: QuantumRegister):
+        """Apply multiple swaps to reverse the order of qubits in a register."""
+        var n = register.size
+        for j in range(n // 2):
+            self.swap(register.start + j, register.start + n - 1 - j)
+
+    fn qft(
+        mut self,
+        register: QuantumRegister,
+        reversed: Bool = False,
+        swap: Bool = True,
+    ):
+        """Apply Quantum Fourier Transform to a register."""
+        var targets = List[Int]()
+        if reversed:
+            for i in range(register.size - 1, -1, -1):
+                targets.append(register.start + i)
+        else:
+            for i in range(register.size):
+                targets.append(register.start + i)
+        qft(self, targets, swap)
+
+    fn iqft(
+        mut self,
+        register: QuantumRegister,
+        reversed: Bool = False,
+        swap: Bool = True,
+    ):
+        """Apply Inverse Quantum Fourier Transform to a register."""
+        var targets = List[Int]()
+        if reversed:
+            for i in range(register.size - 1, -1, -1):
+                targets.append(register.start + i)
+        else:
+            for i in range(register.size):
+                targets.append(register.start + i)
+        iqft(self, targets, swap)
+
     fn bit_reverse(mut self):
         """Add an efficient bit-reversal operation to the circuit."""
         self.is_fused = False
@@ -1681,3 +1726,47 @@ struct QuantumCircuit(Copyable):
 
 alias Circuit = QuantumCircuit
 alias Register = QuantumRegister
+
+
+# Standalone QFT/IQFT functions
+fn qft(mut qc: QuantumCircuit, targets: List[Int], swap: Bool = True):
+    """Apply Quantum Fourier Transform to the specified target qubits."""
+    var n = len(targets)
+    for j in range(n - 1, -1, -1):
+        qc.h(targets[j])
+        for k in range(j - 1, -1, -1):
+            var theta = pi * (2.0 ** (k - j))
+            qc.cp(targets[j], targets[k], theta)
+
+    if swap:
+        qc.mswap(targets)
+
+
+fn iqft(mut qc: QuantumCircuit, targets: List[Int], swap: Bool = True):
+    """Apply Inverse Quantum Fourier Transform to the specified target qubits.
+    """
+    var n = len(targets)
+    for j in range(n - 1, -1, -1):
+        qc.h(targets[j])
+        for k in range(j - 1, -1, -1):
+            var theta = -pi * (2.0 ** (k - j))
+            qc.cp(targets[j], targets[k], theta)
+
+    if swap:
+        qc.mswap(targets)
+
+
+fn QFT(m: Int, reversed: Bool = False, swap: Bool = True) -> QuantumCircuit:
+    """Create a new QuantumCircuit with a QFT acting on m qubits."""
+    var qc = QuantumCircuit(m)
+    var reg = qc.add_register("q", m)
+    qc.qft(reg, reversed, swap)
+    return qc^
+
+
+fn IQFT(m: Int, reversed: Bool = False, swap: Bool = True) -> QuantumCircuit:
+    """Create a new QuantumCircuit with an IQFT acting on m qubits."""
+    var qc = QuantumCircuit(m)
+    var reg = qc.add_register("q", m)
+    qc.iqft(reg, reversed, swap)
+    return qc^
