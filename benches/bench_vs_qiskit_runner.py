@@ -6,55 +6,56 @@ import numpy as np
 from qiskit import QuantumCircuit, QuantumRegister, transpile
 from qiskit_aer import Aer
 from qiskit.circuit.library import QFT
+from encode_value_qiskit import encode_value_qiskit_circuit
 
-def encode_value_qiskit(n: int, value: float) -> QuantumCircuit:
-    """Create value encoding circuit in Qiskit."""
-    qr = QuantumRegister(n)
-    qc = QuantumCircuit(qr)
+# def encode_value_qiskit(n: int, value: float) -> QuantumCircuit:
+#     """Create value encoding circuit in Qiskit."""
+#     qr = QuantumRegister(n)
+#     qc = QuantumCircuit(qr)
     
-    # Hadamard on all qubits
-    for j in range(n):
-        qc.h(j)
+#     # Hadamard on all qubits
+#     for j in range(n):
+#         qc.h(j)
 
-    for j in range(n):
-        qc.p(2 * np.pi / (2 ** (n - j)) * value, j)
+#     for j in range(n):
+#         qc.p(2 * np.pi / (2 ** (n - j)) * value, j)
     
-    # Manual IQFT (Identical to Mojo: Target 0 to n-1, H then CPs)
-    for j in range(n):
-        # Target goes 0, 1, ..., n-1
-        # This matches Mojo's execution order when targets=[n-1...0] and loop is reversed
+#     # Manual IQFT (Identical to Mojo: Target 0 to n-1, H then CPs)
+#     for j in range(n):
+#         # Target goes 0, 1, ..., n-1
+#         # This matches Mojo's execution order when targets=[n-1...0] and loop is reversed
         
-        qc.h(j)
+#         qc.h(j)
         
-        # CPs with "previous" targets in the sequence (which are higher indices in targets list)
-        # Mojo: for k in reversed(range(j)). targets[k] are > targets[j] if targets=[n-1...0]??
-        # WAIT. targets = [n-1, n-2, ... 0].
-        # j (loop index) goes n-1 down to 0. targets[j] goes 0 to n-1.
-        # Let's say outer loop index is 'idx'. targets[idx] is t.
-        # Inner loop 'k' from idx-1 down to 0. targets[k] is > t.
-        # So we want CP(t, >t).
+#         # CPs with "previous" targets in the sequence (which are higher indices in targets list)
+#         # Mojo: for k in reversed(range(j)). targets[k] are > targets[j] if targets=[n-1...0]??
+#         # WAIT. targets = [n-1, n-2, ... 0].
+#         # j (loop index) goes n-1 down to 0. targets[j] goes 0 to n-1.
+#         # Let's say outer loop index is 'idx'. targets[idx] is t.
+#         # Inner loop 'k' from idx-1 down to 0. targets[k] is > t.
+#         # So we want CP(t, >t).
         
-        for k in range(j + 1, n):
-            # angle matches Mojo: -pi / 2**(k-j)? 
-            # Mojo: -pi / 2**(idx - k_idx).
-            # If idx > k_idx, then 2**positive.
-            # In my python: j < k. So 2**(k-j).
-            angle = -np.pi / (2 ** (k - j))
-            qc.cp(angle, k, j)
+#         for k in range(j + 1, n):
+#             # angle matches Mojo: -pi / 2**(k-j)? 
+#             # Mojo: -pi / 2**(idx - k_idx).
+#             # If idx > k_idx, then 2**positive.
+#             # In my python: j < k. So 2**(k-j).
+#             angle = -np.pi / (2 ** (k - j))
+#             qc.cp(angle, k, j)
             
-    # Swaps
-    for i in range(n // 2):
-        qc.swap(i, n - 1 - i)
+#     # Swaps
+#     for i in range(n // 2):
+#         qc.swap(i, n - 1 - i)
             
 
 
-    return qc
+#     return qc
 
 def benchmark_qiskit(n: int, value: float, iterations: int) -> float:
     times = []
     backend = Aer.get_backend('statevector_simulator')
     
-    qc = encode_value_qiskit(n, value)
+    qc = encode_value_qiskit_circuit(n, value)
     qc = transpile(qc, backend)
     
     # Warmup
@@ -79,7 +80,7 @@ def verify_state_correctness(n: int, value: float, mojo_re: list, mojo_im: list)
     print(f"  Verifying N={n}...", end=" ", flush=True)
     
     # Qiskit State
-    qc = encode_value_qiskit(n, value)
+    qc = encode_value_qiskit_circuit(n, value)
     backend = Aer.get_backend('statevector_simulator')
     qc = transpile(qc, backend)
     result = backend.run(qc).result()
@@ -134,25 +135,8 @@ def run_mojo_benchmark():
     while i < len(lines):
         line = lines[i]
         
-        # Check for verification block
-        if line.startswith("VERIFICATION_START N="):
-            try:
-                n_verify = int(line.split("=")[1])
-                re_vals = []
-                im_vals = []
-                i += 1
-                while i < len(lines) and not lines[i].startswith("VERIFICATION_END"):
-                    parts = lines[i].split()
-                    if len(parts) >= 2:
-                        re_vals.append(float(parts[0]))
-                        im_vals.append(float(parts[1]))
-                    i += 1
-                verify_state_correctness(n_verify, 0.5, re_vals, im_vals)
-            except Exception as e:
-                print(f"Verification parsing failed for N={n_verify}: {e}")
-        
         # Check for timing data
-        elif "," in line and "N" not in line:
+        if "," in line and "N" not in line:
             parts = line.split(",")
             try:
                 n = int(parts[0].strip())
@@ -179,8 +163,8 @@ def main():
     
     results = []
     
-    # N=3 to 25
-    for n in range(3, 26):
+    # N=3 to 29
+    for n in range(26, 30):
         iters = get_iterations(n)
         try:
             q_time = benchmark_qiskit(n, value, iters)

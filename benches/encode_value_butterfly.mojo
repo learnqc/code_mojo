@@ -34,7 +34,7 @@ fn encode_value_mojo_circuit(
 
 fn main() raises:
     alias v = 4.7
-    for n in range(3, 6):
+    for n in range(26, 27):
         var circuit = QuantumCircuit(n)
         encode_value_mojo_circuit(circuit, n, v, True)
         circuit.execute()

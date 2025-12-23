@@ -8,29 +8,37 @@ from butterfly.algos.qft import iqft
 from math import pi
 
 
-fn build_encode_circuit(mut circuit: QuantumCircuit, n: Int, value: Float64):
-    """Builds the value encoding circuit using Library IQFT (Reference)."""
-    # 1. Hadamard Layer
+fn encode_value_mojo_circuit(
+    mut circuit: QuantumCircuit, n: Int, v: FloatType, swap: Bool = False
+):
+    """
+    Adds value encoding gates to the circuit (Verified Logic).
+    """
     for j in range(n):
         circuit.h(j)
 
-    # 2. Phase Encoding Layer
     for j in range(n):
-        circuit.p(j, 2 * pi / 2 ** (n - j) * value)
+        if swap:
+            circuit.p(j, 2 * pi / 2 ** (n - j) * v)
+        else:
+            circuit.p(j, 2 * pi / 2 ** (j + 1) * v)
 
-    # 3. Inverse QFT (Library Call)
-    # Matches value_encoding.mojo: targets = [n-1, ..., 0]
     var targets = List[Int]()
-    for j in range(n):
-        targets.append(n - 1 - j)
-    iqft(circuit, targets, do_swap=True)
+    if swap:
+        for j in range(n):
+            targets.append(j)
+    else:
+        for j in range(n):
+            targets.append(n - 1 - j)
+
+    iqft(circuit, targets, do_swap=swap)
 
 
 fn benchmark_v3_simd(n: Int, value: Float64, iterations: Int) -> Float64:
     """Benchmark V3 executor for given problem size."""
     # Build circuit once
     var circuit = QuantumCircuit(n)
-    build_encode_circuit(circuit, n, value)
+    encode_value_mojo_circuit(circuit, n, value, swap=True)
     var transformations = circuit.transformations.copy()
 
     # Warmup
@@ -168,7 +176,7 @@ fn get_iterations(n: Int) -> Int:
 
 fn verify_state(n: Int, value: Float64):
     var circuit = QuantumCircuit(n)
-    build_encode_circuit(circuit, n, value)
+    encode_value_mojo_circuit(circuit, n, value, swap=True)
     var transformations = circuit.transformations.copy()
 
     var state = QuantumState(n)
