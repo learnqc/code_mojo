@@ -972,3 +972,241 @@ def print_grid_state(
             row_im.append(state[r][c].im)
         var qs = QuantumState(row_re^, row_im^)
         print_state(qs, (Int(r), Int(col_bits)), short, use_color)
+
+
+def get_bg_color_code(
+    re: FloatType, im: FloatType, max_amp: FloatType, use_log: Bool = False
+) -> String:
+    var angle = atan2(im, re)
+    var deg = angle * 180.0 / pi
+    if deg < 0:
+        deg += 360.0
+
+    # Map 0-360 to 0-255
+    var idx = Int(deg / 360.0 * 256.0) % 256
+
+    var r = FloatType(c6_data[3 * idx])
+    var g = FloatType(c6_data[3 * idx + 1])
+    var b = FloatType(c6_data[3 * idx + 2])
+
+    # Scale by intensity
+    var mag = sqrt(re * re + im * im)
+    var intensity: FloatType = 0.0
+
+    if use_log:
+        if max_amp > 1e-9:
+            # log10(1+x) scaling
+            intensity = log10(1.0 + mag) / log10(1.0 + max_amp)
+    else:
+        intensity = mag / max_amp
+
+    # Apply intensity scaling
+    r = r * intensity
+    g = g * intensity
+    b = b * intensity
+
+    # TrueColor ANSI Background: \033[48;2;R;G;Bm
+    return (
+        "\033[48;2;"
+        + String(Int(r))
+        + ";"
+        + String(Int(g))
+        + ";"
+        + String(Int(b))
+        + "m"
+    )
+
+
+def get_alpha_char(intensity: FloatType) -> String:
+    if intensity > 0.6:
+        return "█"
+    elif intensity > 0.3:
+        return "▓"
+    elif intensity > 0.1:
+        return "▒"
+    elif intensity > 0.001:
+        return "░"
+    else:
+        return " "
+
+
+def print_state_colored_cells(
+    state: QuantumState, max_width: Int = 80, use_log: Bool = False
+):
+    """
+    Prints the quantum state as a row of colored cells.
+    Hue = Phase (Foreground), Alpha = Amplitude Magnitude (Character Density).
+    """
+    var N = len(state)
+
+    # Absolute scaling ref
+    var ref_amp: FloatType = 1.0
+
+    var row = String("")
+    for i in range(N):
+        var amp = state[i]
+
+        # 1. Unscaled Color (Preserve Hue)
+        var fg_code = get_color_code(amp.re, amp.im)
+
+        # 2. Intensity (Alpha) calculation
+        var mag = sqrt(amp.re * amp.re + amp.im * amp.im)
+        if use_log:
+            var intensity = log10(1.0 + mag) / log10(1.0 + ref_amp)
+            var char = get_alpha_char(intensity)
+            row += fg_code + char + char + "\033[0m" + "  "
+        else:
+            var intensity = mag / ref_amp
+            var char = get_alpha_char(intensity)
+            row += fg_code + char + char + "\033[0m" + "  "
+
+    print(row)
+
+
+def print_grid_state_colored_cells(
+    state: GridState,
+    use_log: Bool = False,
+    origin_bottom: Bool = False,
+    signed_y: Bool = False,
+):
+    """
+    Prints the GridState as a 2D grid of colored cells with indices and grid lines.
+    """
+    var ref_amp: FloatType = 1.0
+    var rows = len(state)
+    if rows == 0:
+        return
+    var cols = len(state[0])
+
+    # Calculate padding for row indices
+    var row_idx_width = len(String(rows - 1))
+    if signed_y:
+        # Two's complement largest negative can be "-rows/2", which is same length or +1
+        row_idx_width = len(String(-(rows // 2)))
+
+    var h_line_seg = "----+"
+    var h_line = " " * (row_idx_width + 1) + "+"
+    for _ in range(cols):
+        h_line += h_line_seg
+
+    print(h_line)
+
+    # 1. Print Rows
+    # ... (row_indices calculation remains the same)
+    var row_indices = List[Int]()
+    if not signed_y:
+        if origin_bottom:
+            for i in range(rows - 1, -1, -1):
+                row_indices.append(i)
+        else:
+            for i in range(rows):
+                row_indices.append(i)
+    else:
+        for i in range(rows // 2 - 1, -1, -1):
+            row_indices.append(i)
+        for i in range(rows - 1, rows - rows // 2 - 1, -1):
+            row_indices.append(i)
+
+    for r in row_indices:
+        var r_val = r
+        if signed_y and r >= (rows // 2):
+            r_val = r - rows
+
+        # Row Index Label
+        var r_str = String(r_val)
+        var pad = " " * (row_idx_width - len(r_str))
+        var line = pad + r_str + " |"
+
+        for c in range(cols):
+            var amp = state[r][c]
+            var fg_code = get_color_code(amp.re, amp.im)
+            var mag = sqrt(amp.re * amp.re + amp.im * amp.im)
+
+            # Symmetrical centering in 4-char cell: " XX |"
+            if use_log:
+                var intensity = log10(1.0 + mag) / log10(1.0 + ref_amp)
+                var char = get_alpha_char(intensity)
+                line += fg_code + " " + char + char + " " + "\033[0m" + "|"
+            else:
+                var intensity = mag / ref_amp
+                var char = get_alpha_char(intensity)
+                line += fg_code + " " + char + char + " " + "\033[0m" + "|"
+
+        print(line)
+        print(h_line)
+
+    # 2. Print Bottom Axis
+    # Prefix length: row_idx_width + 1 (space) + 1 (pipe) = width + 2.
+    var axis_pad = " " * (row_idx_width + 2)
+    var axis_line = axis_pad
+
+    # Sparse Labeling
+    var col_active = List[Bool](capacity=cols)
+    for c in range(cols):
+        var active = False
+        for r in range(rows):
+            var amp = state[r][c]
+            var mag = sqrt(amp.re * amp.re + amp.im * amp.im)
+            if mag > 0.01:
+                active = True
+                break
+        col_active.append(active)
+
+    for c in range(cols):
+        var s = String(c)
+        var slot_width = 5  # Matches "----+"
+        var should_print = col_active[c]
+
+        if should_print:
+            # Center label in the 4-char content area (index 0..3)
+            # " XX |" -> we want label under the XX
+            # If s is "0", we want "  0  "
+            # If s is "10", we want " 10  " or "  10 "
+            var label_pad = " " * ((4 - len(s)) // 2 + 1)
+            var centered_s = label_pad + s
+            axis_line += centered_s + " " * (slot_width - len(centered_s))
+        else:
+            axis_line += " " * slot_width
+
+    print(axis_line)
+
+
+def print_grid_state_colored_cells(
+    state: QuantumState,
+    num_rows: Int = 1,
+    use_log: Bool = False,
+    origin_bottom: Bool = False,
+    signed_y: Bool = False,
+):
+    """
+    Prints the QuantumState as a 2D grid of colored cells by reshaping it.
+    """
+    var size = state.size()
+    var num_cols = size // num_rows
+    if num_cols * num_rows != size:
+        # Fallback to single row if invalid num_rows
+        # print("Warning: num_rows does not divide state size. Using 1 row.")
+        var grid = GridState()
+        var row = List[Amplitude](capacity=size)
+        for i in range(size):
+            row.append(state[i])
+        grid.append(row^)
+        print_grid_state_colored_cells(grid, use_log, origin_bottom, signed_y)
+        return
+
+    var grid = GridState()
+    for r in range(num_rows):
+        var row = List[Amplitude](capacity=num_cols)
+        for c in range(num_cols):
+            # Reshape logic: (row << col_bits) + col?
+            # In our function encoding demo, it was (col << row_bits) + row.
+            # But the 'num_rows' parameter implies we want 'num_rows' vertical cells.
+            # Usually row-major is (r * num_cols) + c.
+            # Let's stick to standard row-major for this utility, UNLESS the user
+            # specifically wants the function encoding layout (Value vs Key).
+            # If the user provides num_rows, they likely expect row-major.
+            var idx = r * num_cols + c
+            row.append(state[idx])
+        grid.append(row^)
+
+    print_grid_state_colored_cells(grid, use_log, origin_bottom, signed_y)

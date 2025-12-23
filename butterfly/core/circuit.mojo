@@ -855,7 +855,7 @@ struct QuantumCircuit(Copyable):
     fn execute(mut self):
         """Execute all transformations in the circuit on the quantum state."""
         for i in range(len(self.transformations)):
-            var t = self.transformations[i]
+            var t = self.transformations[i].copy()
             if t.isa[GateTransformation]():
                 var g = t[GateTransformation].copy()
                 transform(self.state, g.target, g.gate)
@@ -1412,6 +1412,34 @@ struct QuantumCircuit(Copyable):
     fn num_registers(self) -> Int:
         """Return the number of registers in the circuit."""
         return len(self.registers)
+
+    fn append_circuit(
+        mut self, other: QuantumCircuit, target_register: QuantumRegister
+    ):
+        """Append a circuit to the current one, mapping its qubits to the target register.
+        """
+        var offset = target_register.start
+        self.is_fused = False
+        for i in range(len(other.transformations)):
+            var t = other.transformations[i].copy()
+            if t.isa[GateTransformation]():
+                var g = t[GateTransformation].copy()
+                self.add(g.gate, g.target + offset)
+            elif t.isa[SingleControlGateTransformation]():
+                var g = t[SingleControlGateTransformation].copy()
+                self.add_controlled(
+                    g.gate, g.target + offset, g.control + offset
+                )
+            elif t.isa[MultiControlGateTransformation]():
+                var g = t[MultiControlGateTransformation].copy()
+                var mapped_controls = List[Int](capacity=len(g.controls))
+                for j in range(len(g.controls)):
+                    mapped_controls.append(g.controls[j] + offset)
+                self.add_multi_controlled(
+                    g.gate, g.target + offset, mapped_controls^
+                )
+            elif t.isa[BitReversalTransformation]():
+                self.bit_reverse()
 
 
 alias Circuit = QuantumCircuit

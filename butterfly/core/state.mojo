@@ -1179,3 +1179,64 @@ def measure_qubit(
         if reset:
             transform(state, t, X)
     return v
+
+
+fn mat_vec_mul(U: List[Amplitude], vec: List[Amplitude]) -> List[Amplitude]:
+    var m = len(vec)
+    var res = List[Amplitude](capacity=m)
+    for i in range(m):
+        var sum = `0`
+        for j in range(m):
+            sum = sum + U[i * m + j] * vec[j]
+        res.append(sum)
+    return res^
+
+
+fn transform_u(mut state: QuantumState, U: List[Amplitude], t: Int, m: Int):
+    """
+    Applies an arbitrary unitary matrix U (of size 2^m x 2^m)
+    starting at target qubit t.
+    """
+    var n = Int(log2(Float64(state.size())))
+    var vec_size = 1 << m
+
+    for suffix in range(1 << t):
+        for prefix in range(1 << (n - m - t)):
+            var vec = List[Amplitude](capacity=vec_size)
+            for target in range(vec_size):
+                var k = (prefix << (t + m)) + (target << t) + suffix
+                vec.append(state[k])
+
+            var vec_out = mat_vec_mul(U, vec)
+
+            for target in range(vec_size):
+                var k = (prefix << (t + m)) + (target << t) + suffix
+                state[k] = vec_out[target]
+
+
+fn c_transform_u(
+    mut state: QuantumState, U: List[Amplitude], c: Int, t: Int, m: Int
+):
+    """
+    Applies an arbitrary unitary matrix U (of size 2^m x 2^m)
+    starting at target qubit t, controlled by qubit c.
+    """
+    var n = Int(log2(Float64(state.size())))
+    var vec_size = 1 << m
+
+    for suffix in range(1 << t):
+        for prefix in range(1 << (n - m - t)):
+            var vec = List[Amplitude](capacity=vec_size)
+            for idx in range(vec_size):
+                var k = (prefix << (t + m)) + (idx << t) + suffix
+                if is_bit_set(k, c):
+                    vec.append(state[k])
+                else:
+                    vec.append(`0`)
+
+            var vec_out = mat_vec_mul(U, vec)
+
+            for idx in range(vec_size):
+                var k = (prefix << (t + m)) + (idx << t) + suffix
+                if is_bit_set(k, c):
+                    state[k] = vec_out[idx]
