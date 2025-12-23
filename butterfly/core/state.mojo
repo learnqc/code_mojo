@@ -1232,7 +1232,7 @@ fn c_transform_u(
                 if is_bit_set(k, c):
                     vec.append(state[k])
                 else:
-                    vec.append(`0`)
+                    vec.append(Amplitude(0.0))
 
             var vec_out = mat_vec_mul(U, vec)
 

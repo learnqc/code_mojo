@@ -3,6 +3,8 @@ from butterfly.core.state import (
     transform,
     c_transform,
     mc_transform_interval,
+    transform_u,
+    c_transform_u,
     bit_reverse_state,
 )
 from butterfly.core.types import *
@@ -91,6 +93,54 @@ struct MultiControlGateTransformation(Copyable, Movable):
         self.controls = existing.controls^
 
 
+struct UnitaryTransformation(Copyable, Movable):
+    var u: List[Amplitude]
+    var target: Int
+    var m: Int
+
+    fn __init__(out self, deinit u: List[Amplitude], target: Int, m: Int):
+        self.u = u^
+        self.target = target
+        self.m = m
+
+    fn __copyinit__(out self, existing: Self):
+        self.u = existing.u.copy()
+        self.target = existing.target
+        self.m = existing.m
+
+    fn __moveinit__(out self, deinit existing: Self):
+        self.u = existing.u^
+        self.target = existing.target
+        self.m = existing.m
+
+
+struct ControlledUnitaryTransformation(Copyable, Movable):
+    var u: List[Amplitude]
+    var target: Int
+    var control: Int
+    var m: Int
+
+    fn __init__(
+        out self, deinit u: List[Amplitude], target: Int, control: Int, m: Int
+    ):
+        self.u = u^
+        self.target = target
+        self.control = control
+        self.m = m
+
+    fn __copyinit__(out self, existing: Self):
+        self.u = existing.u.copy()
+        self.target = existing.target
+        self.control = existing.control
+        self.m = existing.m
+
+    fn __moveinit__(out self, deinit existing: Self):
+        self.u = existing.u^
+        self.target = existing.target
+        self.control = existing.control
+        self.m = existing.m
+
+
 struct BitReversalTransformation(Copyable, Movable):
     fn __init__(out self):
         pass
@@ -107,6 +157,8 @@ alias Transformation = Variant[
     SingleControlGateTransformation,
     MultiControlGateTransformation,
     BitReversalTransformation,
+    UnitaryTransformation,
+    ControlledUnitaryTransformation,
 ]
 
 
@@ -127,6 +179,15 @@ fn get_involved_qubits(t: Transformation) -> List[Int]:
         res.append(g.target)
         for i in range(len(g.controls)):
             res.append(g.controls[i])
+    elif t.isa[UnitaryTransformation]():
+        var g = t[UnitaryTransformation].copy()
+        for i in range(g.m):
+            res.append(g.target + i)
+    elif t.isa[ControlledUnitaryTransformation]():
+        var g = t[ControlledUnitaryTransformation].copy()
+        res.append(g.control)
+        for i in range(g.m):
+            res.append(g.target + i)
     return res^
 
 
@@ -154,6 +215,10 @@ fn get_target(t: Transformation) -> Int:
         return t[SingleControlGateTransformation].copy().target
     elif t.isa[MultiControlGateTransformation]():
         return t[MultiControlGateTransformation].copy().target
+    elif t.isa[UnitaryTransformation]():
+        return t[UnitaryTransformation].copy().target
+    elif t.isa[ControlledUnitaryTransformation]():
+        return t[ControlledUnitaryTransformation].copy().target
     return -1
 
 
@@ -865,6 +930,12 @@ struct QuantumCircuit(Copyable):
             elif t.isa[MultiControlGateTransformation]():
                 var g = t[MultiControlGateTransformation].copy()
                 mc_transform_interval(self.state, g.controls, g.target, g.gate)
+            elif t.isa[UnitaryTransformation]():
+                var g = t[UnitaryTransformation].copy()
+                transform_u(self.state, g.u, g.target, g.m)
+            elif t.isa[ControlledUnitaryTransformation]():
+                var g = t[ControlledUnitaryTransformation].copy()
+                c_transform_u(self.state, g.u, g.control, g.target, g.m)
             elif t.isa[BitReversalTransformation]():
                 bit_reverse_state(self.state)
 
@@ -1413,6 +1484,66 @@ struct QuantumCircuit(Copyable):
         """Return the number of registers in the circuit."""
         return len(self.registers)
 
+    fn unitary(mut self, var u: List[Amplitude], target: Int):
+        """Add an arbitrary unitary transformation acting on a single qubit."""
+        self.is_fused = False
+        self.transformations.append(UnitaryTransformation(u^, target, 1))
+
+    fn u(mut self, var u: List[Amplitude], target: Int):
+        """Add an arbitrary unitary transformation acting on a single qubit (shorthand).
+        """
+        self.unitary(u^, target)
+
+    fn append_u(mut self, var u: List[Amplitude], register: QuantumRegister):
+        """Add an arbitrary unitary transformation acting on an entire register.
+        """
+        if len(u) != (1 << (2 * register.size)):
+            print(
+                "Warning: Unitary size mismatch. Expected",
+                (1 << (2 * register.size)),
+                "got",
+                len(u),
+            )
+        self.is_fused = False
+        self.transformations.append(
+            UnitaryTransformation(u^, register.start, register.size)
+        )
+
+    fn c_unitary(mut self, var u: List[Amplitude], control: Int, target: Int):
+        """Add an arbitrary controlled unitary transformation acting on a single target.
+        """
+        self.is_fused = False
+        self.transformations.append(
+            ControlledUnitaryTransformation(u^, target, control, 1)
+        )
+
+    fn cu(mut self, var u: List[Amplitude], control: Int, target: Int):
+        """Add an arbitrary controlled unitary acting on a single target (shorthand).
+        """
+        self.c_unitary(u^, control, target)
+
+    fn c_append_u(
+        mut self,
+        var u: List[Amplitude],
+        control: Int,
+        register: QuantumRegister,
+    ):
+        """Add an arbitrary controlled unitary transformation acting on a register.
+        """
+        if len(u) != (1 << (2 * register.size)):
+            print(
+                "Warning: Unitary size mismatch. Expected",
+                (1 << (2 * register.size)),
+                "got",
+                len(u),
+            )
+        self.is_fused = False
+        self.transformations.append(
+            ControlledUnitaryTransformation(
+                u^, register.start, control, register.size
+            )
+        )
+
     fn append_circuit(
         mut self, other: QuantumCircuit, target_register: QuantumRegister
     ):
@@ -1437,6 +1568,18 @@ struct QuantumCircuit(Copyable):
                     mapped_controls.append(g.controls[j] + offset)
                 self.add_multi_controlled(
                     g.gate, g.target + offset, mapped_controls^
+                )
+            elif t.isa[UnitaryTransformation]():
+                var g = t[UnitaryTransformation].copy()
+                self.transformations.append(
+                    UnitaryTransformation(g.u.copy(), g.target + offset, g.m)
+                )
+            elif t.isa[ControlledUnitaryTransformation]():
+                var g = t[ControlledUnitaryTransformation].copy()
+                self.transformations.append(
+                    ControlledUnitaryTransformation(
+                        g.u.copy(), g.target + offset, g.control + offset, g.m
+                    )
                 )
             elif t.isa[BitReversalTransformation]():
                 self.bit_reverse()
@@ -1492,9 +1635,48 @@ struct QuantumCircuit(Copyable):
                 self.add_multi_controlled(
                     g.gate, g.target + offset, new_controls^
                 )
+            elif t.isa[UnitaryTransformation]():
+                var g = t[UnitaryTransformation].copy()
+                var new_controls = List[Int](capacity=len(controls))
+                for j in range(len(controls)):
+                    new_controls.append(controls[j])
+                self.add_multi_controlled_unitary(
+                    g.u.copy(), g.target + offset, new_controls^, g.m
+                )
+            elif t.isa[ControlledUnitaryTransformation]():
+                var g = t[ControlledUnitaryTransformation].copy()
+                var new_controls = List[Int](capacity=len(controls) + 1)
+                for j in range(len(controls)):
+                    new_controls.append(controls[j])
+                new_controls.append(g.control + offset)
+                self.add_multi_controlled_unitary(
+                    g.u.copy(), g.target + offset, new_controls^, g.m
+                )
             elif t.isa[BitReversalTransformation]():
                 # Bit reversal doesn't easily support control, skip for now
                 pass
+
+    # Multi-controlled Unitary helper
+    fn add_multi_controlled_unitary(
+        mut self,
+        var u: List[Amplitude],
+        target: Int,
+        var controls: List[Int],
+        m: Int,
+    ):
+        """Add a multi-controlled unitary."""
+        if len(controls) == 1:
+            self.transformations.append(
+                ControlledUnitaryTransformation(u^, target, controls[0], m)
+            )
+        elif len(controls) == 0:
+            self.transformations.append(UnitaryTransformation(u^, target, m))
+        else:
+            # Placeholder: Multi-controlled arbitrary unitary not yet fully supported
+            # for qubit counts > 1. For now, we only support single control.
+            self.transformations.append(
+                ControlledUnitaryTransformation(u^, target, controls[0], m)
+            )
 
 
 alias Circuit = QuantumCircuit
