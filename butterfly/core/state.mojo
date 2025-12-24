@@ -1106,6 +1106,65 @@ fn iqft_interval(
         bit_reverse_state(state)
 
 
+fn apply_cft_stage(
+    mut state: QuantumState,
+    target: Int,
+    subspace_indices: List[Int],
+    twiddle_stride: Int,
+    ptr_fac_re: UnsafePointer[FloatType],
+    ptr_fac_im: UnsafePointer[FloatType],
+    inverse: Bool = False,
+):
+    """
+    Apply a single DIF FFT stage to a target qubit.
+
+    Args:
+        state: The QuantumState to transform.
+        target: The target qubit index.
+        subspace_indices: Qubits in the transform that are logically LOWER than target.
+        twiddle_stride: Stride multiplier for the factors table.
+        ptr_fac_re: Precomputed real twiddle factors pointer.
+        ptr_fac_im: Precomputed imaginary twiddle factors pointer.
+        inverse: If True, applies the inverse stage.
+    """
+    var l = state.size()
+    var stride = 1 << target
+    var ptr_re = state.re.unsafe_ptr()
+    var ptr_im = state.im.unsafe_ptr()
+
+    # Scalar implementation for arbitrary bit configurations
+    # This matches the logic of a single DIF stage.
+    for k in range(l // (2 * stride)):
+        var block_start = k * 2 * stride
+        for idx in range(block_start, block_start + stride):
+            var idx1 = idx + stride
+
+            # Extract twiddle index j from the subspace bits
+            var j = 0
+            for i in range(len(subspace_indices)):
+                if (idx >> subspace_indices[i]) & 1:
+                    j |= 1 << i
+
+            var tw_idx = j * twiddle_stride
+            var w_re = ptr_fac_re[tw_idx]
+            var w_im = ptr_fac_im[tw_idx]
+            if inverse:
+                w_im = -w_im
+
+            var a_re = ptr_re[idx]
+            var a_im = ptr_im[idx]
+            var b_re = ptr_re[idx1]
+            var b_im = ptr_im[idx1]
+
+            var d_re = a_re - b_re
+            var d_im = a_im - b_im
+
+            ptr_re[idx] = a_re + b_re
+            ptr_im[idx] = a_im + b_im
+            ptr_re[idx1] = d_re * w_re - d_im * w_im
+            ptr_im[idx1] = d_re * w_im + d_im * w_re
+
+
 fn iqft_simd[
     N: Int
 ](mut state: QuantumState, targets: List[Int], swap: Bool = False):
@@ -1132,6 +1191,58 @@ fn iqft_simd_interval[
 
     if swap:
         bit_reverse_state(state)
+
+
+fn partial_bit_reverse_state(mut state: QuantumState, targets: List[Int]):
+    """
+    Perform bit-reversal swapping on a subset of qubits.
+    """
+    var k = len(targets)
+    if k <= 1:
+        return
+
+    # Sort targets ascending
+    var sorted_targets = targets.copy()
+    for i in range(k):
+        for j in range(i + 1, k):
+            if sorted_targets[i] > sorted_targets[j]:
+                var temp = sorted_targets[i]
+                sorted_targets[i] = sorted_targets[j]
+                sorted_targets[j] = temp
+
+    var size = state.size()
+    var ptr_re = state.re.unsafe_ptr()
+    var ptr_im = state.im.unsafe_ptr()
+
+    for i_large in range(size):
+        # Extract small index i from large index i_large
+        var i_small = 0
+        for b in range(k):
+            if (i_large >> sorted_targets[b]) & 1:
+                i_small |= 1 << b
+
+        # Reverse i_small to get j_small
+        var j_small = 0
+        for b in range(k):
+            if (i_small >> b) & 1:
+                j_small |= 1 << (k - 1 - b)
+
+        if i_small < j_small:
+            # Construct j_large from i_large by replacing target bits
+            var j_large = i_large
+            for b in range(k):
+                var bit_val = (j_small >> b) & 1
+                if bit_val:
+                    j_large |= 1 << sorted_targets[b]
+                else:
+                    j_large &= ~(1 << sorted_targets[b])
+
+            var tmp_re = ptr_re[i_large]
+            var tmp_im = ptr_im[i_large]
+            ptr_re[i_large] = ptr_re[j_large]
+            ptr_im[i_large] = ptr_im[j_large]
+            ptr_re[j_large] = tmp_re
+            ptr_im[j_large] = tmp_im
 
 
 def measure_qubit(
@@ -1181,15 +1292,379 @@ def measure_qubit(
     return v
 
 
-fn mat_vec_mul(U: List[Amplitude], vec: List[Amplitude]) -> List[Amplitude]:
-    var m = len(vec)
-    var res = List[Amplitude](capacity=m)
-    for i in range(m):
-        var sum = `0`
-        for j in range(m):
-            sum = sum + U[i * m + j] * vec[j]
-        res.append(sum)
-    return res^
+@always_inline
+fn compute_twiddle[
+    inverse: Bool
+](j: Int, n: Int) -> Tuple[FloatType, FloatType]:
+    """Compute on-the-fly twiddle factor W_n^j."""
+    alias angle_base = -2.0 * pi if not inverse else 2.0 * pi
+    var angle = angle_base * Float64(j) / Float64(n)
+    return cos(angle), sin(angle)
+
+
+fn cft(
+    mut state: QuantumState,
+    targets: List[Int],
+    inverse: Bool = False,
+    do_swap: Bool = True,
+):
+    """
+    Apply Classical Fourier Transform (CFT) to a contiguous set of qubits using the subspace approach.
+    Assumes targets are sorted and contiguous: [b, b+1, ..., b+k-1].
+    """
+    var k = len(targets)
+    if k == 0:
+        return
+
+    var n_total = state.size()
+    var b = targets[0]
+    var stride = 1 << b
+    var span = 1 << k
+    var num_subspaces = n_total // span
+
+    var ptr_re = state.re.unsafe_ptr()
+    var ptr_im = state.im.unsafe_ptr()
+    alias scale = sqrt(0.5).cast[Type]()
+
+    # Precompute Twiddle Table for k >= 4
+    # Size: (span / 2) floats each for Re and Im
+    var twiddle_storage_re = List[FloatType](capacity=1)
+    var twiddle_storage_im = List[FloatType](capacity=1)
+    twiddle_storage_re.append(0.0)
+    twiddle_storage_im.append(0.0)
+    var twiddle_ptr_re = twiddle_storage_re.unsafe_ptr()
+    var twiddle_ptr_im = twiddle_storage_im.unsafe_ptr()
+
+    if k >= 4:
+        var half_span = span >> 1
+        twiddle_storage_re = List[FloatType](capacity=half_span)
+        twiddle_storage_im = List[FloatType](capacity=half_span)
+        for _ in range(half_span):
+            twiddle_storage_re.append(0.0)
+            twiddle_storage_im.append(0.0)
+
+        twiddle_ptr_re = twiddle_storage_re.unsafe_ptr()
+        twiddle_ptr_im = twiddle_storage_im.unsafe_ptr()
+
+        alias two_pi = 2.0 * pi
+        var angle_base = two_pi if not inverse else -two_pi
+        var base_n = Float64(span)
+
+        for j in range(half_span):
+            var angle = angle_base * Float64(j) / base_n
+            twiddle_ptr_re[j] = cos(angle)
+            twiddle_ptr_im[j] = sin(angle)
+
+    @parameter
+    fn subspace_worker(blk_idx: Int):
+        # Calculate base offset using bit-insertion
+        var low_mask = stride - 1
+        var offset = (blk_idx & low_mask) | ((blk_idx & ~low_mask) << k)
+
+        if k == 1:
+            var i0 = offset
+            var i1 = offset + stride
+            var u_re = ptr_re[i0]
+            var u_im = ptr_im[i0]
+            var v_re = ptr_re[i1]
+            var v_im = ptr_im[i1]
+            ptr_re[i0] = (u_re + v_re) * scale
+            ptr_im[i0] = (u_im + v_im) * scale
+            ptr_re[i1] = (u_re - v_re) * scale
+            ptr_im[i1] = (u_im - v_im) * scale
+            return
+
+        if k == 2:
+            var i0 = offset
+            var i1 = offset + stride
+            var i2 = offset + 2 * stride
+            var i3 = offset + 3 * stride
+            var a0_re = ptr_re[i0]
+            var a0_im = ptr_im[i0]
+            var a1_re = ptr_re[i1]
+            var a1_im = ptr_im[i1]
+            var a2_re = ptr_re[i2]
+            var a2_im = ptr_im[i2]
+            var a3_re = ptr_re[i3]
+            var a3_im = ptr_im[i3]
+
+            if not inverse:
+                if do_swap:
+                    var t_re = a1_re
+                    a1_re = a2_re
+                    a2_re = t_re
+                    var t_im = a1_im
+                    a1_im = a2_im
+                    a2_im = t_im
+                var r0_re = (a0_re + a1_re) * scale
+                var r0_im = (a0_im + a1_im) * scale
+                var d0_re = (a0_re - a1_re) * scale
+                var d0_im = (a0_im - a1_im) * scale
+                var r1_re = (a2_re + a3_re) * scale
+                var r1_im = (a2_im + a3_im) * scale
+                var d1_re = (a2_re - a3_re) * scale
+                var d1_im = (a2_im - a3_im) * scale
+                ptr_re[i0] = (r0_re + r1_re) * scale
+                ptr_im[i0] = (r0_im + r1_im) * scale
+                ptr_re[i2] = (r0_re - r1_re) * scale
+                ptr_im[i2] = (r0_im - r1_im) * scale
+                var v1_rot_re = -d1_im
+                var v1_rot_im = d1_re
+                ptr_re[i1] = (d0_re + v1_rot_re) * scale
+                ptr_im[i1] = (d0_im + v1_rot_im) * scale
+                ptr_re[i3] = (d0_re - v1_rot_re) * scale
+                ptr_im[i3] = (d0_im - v1_rot_im) * scale
+            else:
+                var r0_re = (a0_re + a2_re) * scale
+                var r0_im = (a0_im + a2_im) * scale
+                var d0_re = (a0_re - a2_re) * scale
+                var d0_im = (a0_im - a2_im) * scale
+                var r1_re = (a1_re + a3_re) * scale
+                var r1_im = (a1_im + a3_im) * scale
+                var d1_re = (a1_re - a3_re) * scale
+                var d1_im = (a1_im - a3_im) * scale
+                var v1_rot_re = d1_im
+                var v1_rot_im = -d1_re  # W4^1_inv = -i
+                var res0_re = (r0_re + r1_re) * scale
+                var res0_im = (r0_im + r1_im) * scale
+                var res1_re = (r0_re - r1_re) * scale
+                var res1_im = (r0_im - r1_im) * scale
+                var res2_re = (d0_re + v1_rot_re) * scale
+                var res2_im = (d0_im + v1_rot_im) * scale
+                var res3_re = (d0_re - v1_rot_re) * scale
+                var res3_im = (d0_im - v1_rot_im) * scale
+                if do_swap:
+                    ptr_re[i0] = res0_re
+                    ptr_im[i0] = res0_im
+                    ptr_re[i1] = res2_re
+                    ptr_im[i1] = res2_im
+                    ptr_re[i2] = res1_re
+                    ptr_im[i2] = res1_im
+                    ptr_re[i3] = res3_re
+                    ptr_im[i3] = res3_im
+                else:
+                    ptr_re[i0] = res0_re
+                    ptr_im[i0] = res0_im
+                    ptr_re[i1] = res1_re
+                    ptr_im[i1] = res1_im
+                    ptr_re[i2] = res2_re
+                    ptr_im[i2] = res2_im
+                    ptr_re[i3] = res3_re
+                    ptr_im[i3] = res3_im
+            return
+
+        if k == 3:
+            var i0 = offset
+            var i1 = offset + stride
+            var i2 = offset + 2 * stride
+            var i3 = offset + 3 * stride
+            var i4 = offset + 4 * stride
+            var i5 = offset + 5 * stride
+            var i6 = offset + 6 * stride
+            var i7 = offset + 7 * stride
+            var a0_re = ptr_re[i0]
+            var a0_im = ptr_im[i0]
+            var a1_re = ptr_re[i1]
+            var a1_im = ptr_im[i1]
+            var a2_re = ptr_re[i2]
+            var a2_im = ptr_im[i2]
+            var a3_re = ptr_re[i3]
+            var a3_im = ptr_im[i3]
+            var a4_re = ptr_re[i4]
+            var a4_im = ptr_im[i4]
+            var a5_re = ptr_re[i5]
+            var a5_im = ptr_im[i5]
+            var a6_re = ptr_re[i6]
+            var a6_im = ptr_im[i6]
+            var a7_re = ptr_re[i7]
+            var a7_im = ptr_im[i7]
+
+            if not inverse:
+                if do_swap:
+                    var t_re = a1_re
+                    a1_re = a4_re
+                    a4_re = t_re
+                    var t_im = a1_im
+                    a1_im = a4_im
+                    a4_im = t_im
+                    t_re = a3_re
+                    a3_re = a6_re
+                    a6_re = t_re
+                    t_im = a3_im
+                    a3_im = a6_im
+                    a6_im = t_im
+                var s0r0_re = (a0_re + a1_re) * scale
+                var s0r0_im = (a0_im + a1_im) * scale
+                var s0d0_re = (a0_re - a1_re) * scale
+                var s0d0_im = (a0_im - a1_im) * scale
+                var s0r1_re = (a2_re + a3_re) * scale
+                var s0r1_im = (a2_im + a3_im) * scale
+                var s0d1_re = (a2_re - a3_re) * scale
+                var s0d1_im = (a2_im - a3_im) * scale
+                var s0r2_re = (a4_re + a5_re) * scale
+                var s0r2_im = (a4_im + a5_im) * scale
+                var s0d2_re = (a4_re - a5_re) * scale
+                var s0d2_im = (a4_im - a5_im) * scale
+                var s0r3_re = (a6_re + a7_re) * scale
+                var s0r3_im = (a6_im + a7_im) * scale
+                var s0d3_re = (a6_re - a7_re) * scale
+                var s0d3_im = (a6_im - a7_im) * scale
+                var s1r0_re = (s0r0_re + s0r1_re) * scale
+                var s1r0_im = (s0r0_im + s0r1_im) * scale
+                var s1d0_re = (s0r0_re - s0r1_re) * scale
+                var s1d0_im = (s0r0_im - s0r1_im) * scale
+                var v1_rot_re = -s0d1_im
+                var v1_rot_im = s0d1_re
+                var s1r1_re = (s0d0_re + v1_rot_re) * scale
+                var s1r1_im = (s0d0_im + v1_rot_im) * scale
+                var s1d1_re = (s0d0_re - v1_rot_re) * scale
+                var s1d1_im = (s0d0_im - v1_rot_im) * scale
+                var s1r2_re = (s0r2_re + s0r3_re) * scale
+                var s1r2_im = (s0r2_im + s0r3_im) * scale
+                var s1d2_re = (s0r2_re - s0r3_re) * scale
+                var s1d2_im = (s0r2_im - s0r3_im) * scale
+                var v3_rot_re = -s0d3_im
+                var v3_rot_im = s0d3_re
+                var s1r3_re = (s0d2_re + v3_rot_re) * scale
+                var s1r3_im = (s0d2_im + v3_rot_im) * scale
+                var s1d3_re = (s0d2_re - v3_rot_re) * scale
+                var s1d3_im = (s0d2_im - v3_rot_im) * scale
+                ptr_re[i0] = (s1r0_re + s1r2_re) * scale
+                ptr_im[i0] = (s1r0_im + s1r2_im) * scale
+                ptr_re[i4] = (s1r0_re - s1r2_re) * scale
+                ptr_im[i4] = (s1r0_im - s1r2_im) * scale
+                var v5_rot_re = (s1r3_re - s1r3_im) * scale
+                var v5_rot_im = (s1r3_re + s1r3_im) * scale
+                ptr_re[i1] = (s1r1_re + v5_rot_re) * scale
+                ptr_im[i1] = (s1r1_im + v5_rot_im) * scale
+                ptr_re[i5] = (s1r1_re - v5_rot_re) * scale
+                ptr_im[i5] = (s1r1_im - v5_rot_im) * scale
+                var v6_rot_re = -s1d2_im
+                var v6_rot_im = s1d2_re
+                ptr_re[i2] = (s1d0_re + v6_rot_re) * scale
+                ptr_im[i2] = (s1d0_im + v6_rot_im) * scale
+                ptr_re[i6] = (s1d0_re - v6_rot_re) * scale
+                ptr_im[i6] = (s1d0_im - v6_rot_im) * scale
+                var v7_rot_re = (-s1d3_re - s1d3_im) * scale
+                var v7_rot_im = (s1d3_re - s1d3_im) * scale
+                ptr_re[i3] = (s1d1_re + v7_rot_re) * scale
+                ptr_im[i3] = (s1d1_im + v7_rot_im) * scale
+                ptr_re[i7] = (s1d1_re - v7_rot_re) * scale
+                ptr_im[i7] = (s1d1_im - v7_rot_im) * scale
+            else:
+                var s2r0_re = (a0_re + a4_re) * scale
+                var s2r0_im = (a0_im + a4_im) * scale
+                var s2d0_re = (a0_re - a4_re) * scale
+                var s2d0_im = (a0_im - a4_im) * scale
+                var s2r1_re = (a1_re + a5_re) * scale
+                var s2r1_im = (a1_im + a5_im) * scale
+                var s2d1_re = (a1_re - a5_re) * scale
+                var s2d1_im = (a1_im - a5_im) * scale
+                var s2r2_re = (a2_re + a6_re) * scale
+                var s2r2_im = (a2_im + a6_im) * scale
+                var s2d2_re = (a2_re - a6_re) * scale
+                var s2d2_im = (a2_im - a6_im) * scale
+                var s2r3_re = (a3_re + a7_re) * scale
+                var s2r3_im = (a3_im + a7_im) * scale
+                var s2d3_re = (a3_re - a7_re) * scale
+                var s2d3_im = (a3_im - a7_im) * scale
+                var s2d1_rot_re = (s2d1_re + s2d1_im) * scale
+                var s2d1_rot_im = (s2d1_im - s2d1_re) * scale
+                var s2d2_rot_re = s2d2_im
+                var s2d2_rot_im = -s2d2_re
+                var s2d3_rot_re = (s2d3_im - s2d3_re) * scale
+                var s2d3_rot_im = (-s2d3_re - s2d3_im) * scale
+                var s1r0_re = (s2r0_re + s2r2_re) * scale
+                var s1r0_im = (s2r0_im + s2r2_im) * scale
+                var s1d0_re = (s2r0_re - s2r2_re) * scale
+                var s1d0_im = (s2r0_im - s2r2_im) * scale
+                var s1r1_re = (s2r1_re + s2r3_re) * scale
+                var s1r1_im = (s2r1_im + s2r3_im) * scale
+                var s1d1_re = (s2r1_re - s2r3_re) * scale
+                var s1d1_im = (s2r1_im - s2r3_im) * scale
+                var s1r2_re = (s2d0_re + s2d2_rot_re) * scale
+                var s1r2_im = (s2d0_im + s2d2_rot_im) * scale
+                var s1d2_re = (s2d0_re - s2d2_rot_re) * scale
+                var s1d2_im = (s2d0_im - s2d2_rot_im) * scale
+                var s1r3_re = (s2d1_rot_re + s2d3_rot_re) * scale
+                var s1r3_im = (s2d1_rot_im + s2d3_rot_im) * scale
+                var s1d3_re = (s2d1_rot_re - s2d3_rot_re) * scale
+                var s1d3_im = (s2d1_rot_im - s2d3_rot_im) * scale
+                var s1d1_rot_re = s1d1_im
+                var s1d1_rot_im = -s1d1_re
+                var s1d3_rot_re = s1d3_im
+                var s1d3_rot_im = -s1d3_re
+                var res0_re = (s1r0_re + s1r1_re) * scale
+                var res0_im = (s1r0_im + s1r1_im) * scale
+                var res1_re = (s1r0_re - s1r1_re) * scale
+                var res1_im = (s1r0_im - s1r1_im) * scale
+                var res2_re = (s1d0_re + s1d1_rot_re) * scale
+                var res2_im = (s1d0_im + s1d1_rot_im) * scale
+                var res3_re = (s1d0_re - s1d1_rot_re) * scale
+                var res3_im = (s1d0_im - s1d1_rot_im) * scale
+                var res4_re = (s1r2_re + s1r3_re) * scale
+                var res4_im = (s1r2_im + s1r3_im) * scale
+                var res5_re = (s1r2_re - s1r3_re) * scale
+                var res5_im = (s1r2_im - s1r3_im) * scale
+                var res6_re = (s1d2_re + s1d3_rot_re) * scale
+                var res6_im = (s1d2_im + s1d3_rot_im) * scale
+                var res7_re = (s1d2_re - s1d3_rot_re) * scale
+                var res7_im = (s1d2_im - s1d3_rot_im) * scale
+                if do_swap:
+                    ptr_re[i0] = res0_re
+                    ptr_im[i0] = res0_im
+                    ptr_re[i1] = res4_re
+                    ptr_im[i1] = res4_im
+                    ptr_re[i2] = res2_re
+                    ptr_im[i2] = res2_im
+                    ptr_re[i3] = res6_re
+                    ptr_im[i3] = res6_im
+                    ptr_re[i4] = res1_re
+                    ptr_im[i4] = res1_im
+                    ptr_re[i5] = res5_re
+                    ptr_im[i5] = res5_im
+                    ptr_re[i6] = res3_re
+                    ptr_im[i6] = res3_im
+                    ptr_re[i7] = res7_re
+                    ptr_im[i7] = res7_im
+                else:
+                    ptr_re[i0] = res0_re
+                    ptr_im[i0] = res0_im
+                    ptr_re[i1] = res1_re
+                    ptr_im[i1] = res1_im
+                    ptr_re[i2] = res2_re
+                    ptr_im[i2] = res2_im
+                    ptr_re[i3] = res3_re
+                    ptr_im[i3] = res3_im
+                    ptr_re[i4] = res4_re
+                    ptr_im[i4] = res4_im
+                    ptr_re[i5] = res5_re
+                    ptr_im[i5] = res5_im
+                    ptr_re[i6] = res6_re
+                    ptr_im[i6] = res6_im
+                    ptr_re[i7] = res7_re
+                    ptr_im[i7] = res7_im
+            return
+
+        if not inverse:
+            # Forward QFT: Swap(start) then DIT(0..k-1)
+            # 1. Local Swap at START
+            if do_swap:
+                for i in range(span):
+                    var reversed_i = 0
+                    for b_idx in range(k):
+                        if (i >> b_idx) & 1:
+                            reversed_i |= 1 << (k - 1 - b_idx)
+
+                    if i < reversed_i:
+                        var idx_i = offset + i * stride
+                        var idx_r = offset + reversed_i * stride
+                        var tmp_re = ptr_re[idx_i]
+                        var tmp_im = ptr_im[idx_i]
+                        ptr_re[idx_i] = ptr_re[idx_r]
+                        ptr_im[idx_i] = ptr_im[idx_r]
+                        ptr_re[idx_r] = tmp_re
+                        ptr_im[idx_r] = tmp_im
 
 
 fn dagger(u: List[Amplitude], m: Int) -> List[Amplitude]:

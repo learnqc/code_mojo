@@ -6,8 +6,20 @@ from butterfly.core.state import (
     transform_u,
     c_transform_u,
     bit_reverse_state,
+    apply_cft_stage,
+    partial_bit_reverse_state,
 )
-from butterfly.core.types import *
+from butterfly.core.execute_simd_v2_dispatch import (
+    execute_transformations_simd_v2,
+)
+from butterfly.core.types import (
+    Amplitude,
+    Gate,
+    FloatType,
+    pi,
+    # Matrix2x2,
+    # ComplexMatrix,
+)
 from butterfly.core.gates import *
 from butterfly.algos.fused_gates import (
     transform_matrix4,
@@ -919,7 +931,6 @@ struct QuantumCircuit(Copyable):
     that can be applied to the state. Supports quantum registers for organizing qubits.
     """
 
-    var state: QuantumState
     var transformations: List[Transformation]
     var num_qubits: Int
     var registers: List[QuantumRegister]
@@ -929,16 +940,6 @@ struct QuantumCircuit(Copyable):
     fn __init__(out self, num_qubits: Int):
         """Initialize a quantum circuit with n qubits in the |0⟩ state."""
         self.num_qubits = num_qubits
-        self.state = QuantumState(num_qubits)
-        self.transformations = List[Transformation]()
-        self.registers = List[QuantumRegister]()
-        self.fused_transformations = List[FusedTransformation]()
-        self.is_fused = False
-
-    fn __init__(out self, var state: QuantumState, num_qubits: Int):
-        """Initialize a quantum circuit with a given state."""
-        self.num_qubits = num_qubits
-        self.state = state^
         self.transformations = List[Transformation]()
         self.registers = List[QuantumRegister]()
         self.fused_transformations = List[FusedTransformation]()
@@ -946,7 +947,6 @@ struct QuantumCircuit(Copyable):
 
     fn __copyinit__(out self, existing: Self):
         self.num_qubits = existing.num_qubits
-        self.state = existing.state.copy()
         self.transformations = List[Transformation](
             capacity=len(existing.transformations)
         )
@@ -968,7 +968,6 @@ struct QuantumCircuit(Copyable):
 
     fn __moveinit__(out self, deinit existing: Self):
         self.num_qubits = existing.num_qubits
-        self.state = existing.state^
         self.transformations = existing.transformations^
         self.registers = existing.registers^
         self.fused_transformations = existing.fused_transformations^
@@ -1011,70 +1010,47 @@ struct QuantumCircuit(Copyable):
             MultiControlGateTransformation(gate, target, controls, name, arg)
         )
 
-    fn execute(mut self):
-        """Execute all transformations in the circuit on the quantum state."""
-        for i in range(len(self.transformations)):
-            var t = self.transformations[i].copy()
-            if t.isa[GateTransformation]():
-                var g = t[GateTransformation].copy()
-                transform(self.state, g.target, g.gate)
-            elif t.isa[SingleControlGateTransformation]():
-                var g = t[SingleControlGateTransformation].copy()
-                c_transform(self.state, g.control, g.target, g.gate)
-            elif t.isa[MultiControlGateTransformation]():
-                var g = t[MultiControlGateTransformation].copy()
-                mc_transform_interval(self.state, g.controls, g.target, g.gate)
-            elif t.isa[UnitaryTransformation]():
-                var g = t[UnitaryTransformation].copy()
-                transform_u(self.state, g.u, g.target, g.m)
-            elif t.isa[ControlledUnitaryTransformation]():
-                var g = t[ControlledUnitaryTransformation].copy()
-                c_transform_u(self.state, g.u, g.control, g.target, g.m)
-            elif t.isa[BitReversalTransformation]():
-                bit_reverse_state(self.state)
-            elif t.isa[DiagonalTransformation]():
-                var g = t[DiagonalTransformation].copy()
-                var n_shortcut = g.size if g.size > 0 else self.num_qubits
-                var mask = (1 << n_shortcut) - 1
-                for k in range(len(self.state)):
-                    var val = (k >> g.offset) & mask
-                    # Check if val is in items
-                    for p_idx in range(len(g.items)):
-                        if val == g.items[p_idx]:
-                            self.state[k] = Amplitude(
-                                -self.state[k].re, -self.state[k].im
-                            )
-                            break
+    fn execute(mut self) -> QuantumState:
+        """Execute all transformations in the circuit and return the resulting state.
 
-    fn execute_fused(mut self):
-        """Execute pre-computed fused transformations."""
+        Returns:
+            The quantum state after applying all transformations.
+        """
+        var state = QuantumState(self.num_qubits)
+        execute(state, self)
+        return state^
+
+    fn _execute_fused(mut self) -> QuantumState:
+        """Execute pre-computed fused transformations and return the resulting state.
+
+        Returns:
+            The quantum state after applying all fused transformations.
+        """
         if not self.is_fused:
             self.fuse()
+
+        var state = QuantumState(self.num_qubits)
 
         for i in range(len(self.fused_transformations)):
             var ft = self.fused_transformations[i].copy()
             if ft.type == 0:
-                bit_reverse_state(self.state)
+                bit_reverse_state(state)
             elif ft.type == 1:
-                transform_matrix4(self.state, ft.q1, ft.q0, ft.m4)
+                transform_matrix4(state, ft.q1, ft.q0, ft.m4)
             elif ft.type == 2:
-                transform_matrix8(self.state, ft.q2, ft.q1, ft.q0, ft.m8)
+                transform_matrix8(state, ft.q2, ft.q1, ft.q0, ft.m8)
             elif ft.type == 3:
-                transform_matrix16(
-                    self.state, ft.q3, ft.q2, ft.q1, ft.q0, ft.m16
-                )
+                transform_matrix16(state, ft.q3, ft.q2, ft.q1, ft.q0, ft.m16)
+        return state^
 
-    fn execute_simd(mut self):
+    fn execute_simd(mut self) -> QuantumState:
         """
         Execute circuit with SIMD optimizations for common sizes.
         Dispatches to transform_simd[N] for N=20-30, beating Qiskit.
         """
-        var n = self.state.size()
-        var num_qubits = 0
-        var temp = n
-        while temp > 1:
-            temp >>= 1
-            num_qubits += 1
+        var state = QuantumState(self.num_qubits)
+        var n = state.size()
+        var num_qubits = self.num_qubits
 
         # Dispatch to SIMD for common qubit counts
         from butterfly.core.execute_simd_dispatch import (
@@ -1082,104 +1058,60 @@ struct QuantumCircuit(Copyable):
         )
 
         if num_qubits == 25:
-            execute_transformations_simd[1 << 25](
-                self.state, self.transformations
-            )
+            execute_transformations_simd[1 << 25](state, self.transformations)
         elif num_qubits == 24:
-            execute_transformations_simd[1 << 24](
-                self.state, self.transformations
-            )
+            execute_transformations_simd[1 << 24](state, self.transformations)
         elif num_qubits == 26:
-            execute_transformations_simd[1 << 26](
-                self.state, self.transformations
-            )
+            execute_transformations_simd[1 << 26](state, self.transformations)
         elif num_qubits == 23:
-            execute_transformations_simd[1 << 23](
-                self.state, self.transformations
-            )
+            execute_transformations_simd[1 << 23](state, self.transformations)
         elif num_qubits == 27:
-            execute_transformations_simd[1 << 27](
-                self.state, self.transformations
-            )
+            execute_transformations_simd[1 << 27](state, self.transformations)
         elif num_qubits == 28:
-            execute_transformations_simd[1 << 28](
-                self.state, self.transformations
-            )
+            execute_transformations_simd[1 << 28](state, self.transformations)
         elif num_qubits == 29:
-            execute_transformations_simd[1 << 29](
-                self.state, self.transformations
-            )
+            execute_transformations_simd[1 << 29](state, self.transformations)
         elif num_qubits == 30:
-            execute_transformations_simd[1 << 30](
-                self.state, self.transformations
-            )
+            execute_transformations_simd[1 << 30](state, self.transformations)
         elif num_qubits == 22:
-            execute_transformations_simd[1 << 22](
-                self.state, self.transformations
-            )
+            execute_transformations_simd[1 << 22](state, self.transformations)
         elif num_qubits == 21:
-            execute_transformations_simd[1 << 21](
-                self.state, self.transformations
-            )
+            execute_transformations_simd[1 << 21](state, self.transformations)
         elif num_qubits == 20:
-            execute_transformations_simd[1 << 20](
-                self.state, self.transformations
-            )
+            execute_transformations_simd[1 << 20](state, self.transformations)
         elif num_qubits == 19:
-            execute_transformations_simd[1 << 19](
-                self.state, self.transformations
-            )
+            execute_transformations_simd[1 << 19](state, self.transformations)
         elif num_qubits == 18:
-            execute_transformations_simd[1 << 18](
-                self.state, self.transformations
-            )
+            execute_transformations_simd[1 << 18](state, self.transformations)
         elif num_qubits == 17:
-            execute_transformations_simd[1 << 17](
-                self.state, self.transformations
-            )
+            execute_transformations_simd[1 << 17](state, self.transformations)
         elif num_qubits == 16:
-            execute_transformations_simd[1 << 16](
-                self.state, self.transformations
-            )
+            execute_transformations_simd[1 << 16](state, self.transformations)
         elif num_qubits == 15:
-            execute_transformations_simd[1 << 15](
-                self.state, self.transformations
-            )
+            execute_transformations_simd[1 << 15](state, self.transformations)
         elif num_qubits == 14:
-            execute_transformations_simd[1 << 14](
-                self.state, self.transformations
-            )
+            execute_transformations_simd[1 << 14](state, self.transformations)
         elif num_qubits == 13:
-            execute_transformations_simd[1 << 13](
-                self.state, self.transformations
-            )
+            execute_transformations_simd[1 << 13](state, self.transformations)
         elif num_qubits == 12:
-            execute_transformations_simd[1 << 12](
-                self.state, self.transformations
-            )
+            execute_transformations_simd[1 << 12](state, self.transformations)
         elif num_qubits == 11:
-            execute_transformations_simd[1 << 11](
-                self.state, self.transformations
-            )
+            execute_transformations_simd[1 << 11](state, self.transformations)
         elif num_qubits == 10:
-            execute_transformations_simd[1 << 10](
-                self.state, self.transformations
-            )
+            execute_transformations_simd[1 << 10](state, self.transformations)
         else:
             # Fall back to standard execution for other sizes
             self.execute()
+        return state
 
-    fn execute_simd_v2(mut self):
+    fn execute_simd_v2(mut self) -> QuantumState:
         """
         Execute circuit with SIMD optimizations v2.
         Optimized indexing and chunked kernels.
         """
-        var n = self.state.size()
-        var num_qubits = 0
-        var temp = n
-        while temp > 1:
-            temp >>= 1
-            num_qubits += 1
+        var state = QuantumState(self.num_qubits)
+        var n = state.size()
+        var num_qubits = self.num_qubits
 
         # Dispatch to SIMD v2 for common qubit counts
         from butterfly.core.execute_simd_v2_dispatch import (
@@ -1188,99 +1120,102 @@ struct QuantumCircuit(Copyable):
 
         if num_qubits == 25:
             execute_transformations_simd_v2[1 << 25](
-                self.state, self.transformations
+                state, self.transformations
             )
         elif num_qubits == 24:
             execute_transformations_simd_v2[1 << 24](
-                self.state, self.transformations
+                state, self.transformations
             )
         elif num_qubits == 26:
             execute_transformations_simd_v2[1 << 26](
-                self.state, self.transformations
+                state, self.transformations
             )
         elif num_qubits == 23:
             execute_transformations_simd_v2[1 << 23](
-                self.state, self.transformations
+                state, self.transformations
             )
         elif num_qubits == 27:
             execute_transformations_simd_v2[1 << 27](
-                self.state, self.transformations
+                state, self.transformations
             )
         elif num_qubits == 28:
             execute_transformations_simd_v2[1 << 28](
-                self.state, self.transformations
+                state, self.transformations
             )
         elif num_qubits == 29:
             execute_transformations_simd_v2[1 << 29](
-                self.state, self.transformations
+                state, self.transformations
             )
         elif num_qubits == 30:
             execute_transformations_simd_v2[1 << 30](
-                self.state, self.transformations
+                state, self.transformations
             )
         elif num_qubits == 22:
             execute_transformations_simd_v2[1 << 22](
-                self.state, self.transformations
+                state, self.transformations
             )
         elif num_qubits == 21:
             execute_transformations_simd_v2[1 << 21](
-                self.state, self.transformations
+                state, self.transformations
             )
         elif num_qubits == 20:
             execute_transformations_simd_v2[1 << 20](
-                self.state, self.transformations
+                state, self.transformations
             )
         elif num_qubits == 19:
             execute_transformations_simd_v2[1 << 19](
-                self.state, self.transformations
+                state, self.transformations
             )
         elif num_qubits == 18:
             execute_transformations_simd_v2[1 << 18](
-                self.state, self.transformations
+                state, self.transformations
             )
         elif num_qubits == 17:
             execute_transformations_simd_v2[1 << 17](
-                self.state, self.transformations
+                state, self.transformations
             )
         elif num_qubits == 16:
             execute_transformations_simd_v2[1 << 16](
-                self.state, self.transformations
+                state, self.transformations
             )
         elif num_qubits == 15:
             execute_transformations_simd_v2[1 << 15](
-                self.state, self.transformations
+                state, self.transformations
             )
         elif num_qubits == 14:
             execute_transformations_simd_v2[1 << 14](
-                self.state, self.transformations
+                state, self.transformations
             )
         elif num_qubits == 13:
             execute_transformations_simd_v2[1 << 13](
-                self.state, self.transformations
+                state, self.transformations
             )
         elif num_qubits == 12:
             execute_transformations_simd_v2[1 << 12](
-                self.state, self.transformations
+                state, self.transformations
             )
         elif num_qubits == 11:
             execute_transformations_simd_v2[1 << 11](
-                self.state, self.transformations
+                state, self.transformations
             )
         elif num_qubits == 10:
             execute_transformations_simd_v2[1 << 10](
-                self.state, self.transformations
+                state, self.transformations
             )
         else:
             # Fall back to execute_simd() if v2 not available or requested
-            self.execute_simd()
+            state = self.execute_simd()
+        return state
 
-    fn apply_transformation_super_fast(mut self, t: Transformation):
+    fn apply_transformation_super_fast(
+        self, mut state: QuantumState, t: Transformation
+    ):
         """
         Apply transformation with all optimizations enabled.
         Uses specialized SIMD kernels for common gates.
         """
         if t.isa[BitReversalTransformation]():
-            bit_reverse_state(self.state)
+            bit_reverse_state(state)
             return
 
         if t.isa[SingleControlGateTransformation]():
@@ -1289,38 +1224,31 @@ struct QuantumCircuit(Copyable):
             if is_h(g.gate):
                 from butterfly.core.c_transform_fast import c_transform_h_simd
 
-                c_transform_h_simd(self.state, g.control, g.target)
+                c_transform_h_simd(state, g.control, g.target)
             else:
-                c_transform(self.state, g.control, g.target, g.gate)
+                c_transform(state, g.control, g.target, g.gate)
         elif t.isa[MultiControlGateTransformation]():
             var g = t[MultiControlGateTransformation].copy()
-            mc_transform_interval(self.state, g.controls, g.target, g.gate)
+            mc_transform_interval(state, g.controls, g.target, g.gate)
         elif t.isa[GateTransformation]():
             var g = t[GateTransformation].copy()
             if is_h(g.gate):
                 from butterfly.core.state import transform_h_block_style
 
-                transform_h_block_style(self.state, g.target)
+                transform_h_block_style(state, g.target)
             else:
-                transform(self.state, g.target, g.gate)
+                transform(state, g.target, g.gate)
 
-    fn execute_simd_unfused(mut self):
+    fn execute_simd_unfused(mut self) -> QuantumState:
         """
         Execute with optimizations but without fusion.
         Useful for comparing optimization impact vs fusion impact.
         """
+        var state = QuantumState(self.num_qubits)
         for i in range(len(self.transformations)):
             var t = self.transformations[i].copy()
-            self.apply_transformation_super_fast(t)
-
-    fn retrieve_state(mut self) -> QuantumState:
-        """
-        Retrieve the internal state, replacing it with a dummy state.
-        Useful for extracting the result after execution.
-        """
-        var s = self.state^
-        self.state = QuantumState(1)
-        return s^
+            self.apply_transformation_super_fast(state, t)
+        return state
 
     fn fuse(mut self):
         """Perform greedy fusion and pre-compute transformation matrices."""
@@ -1458,11 +1386,11 @@ struct QuantumCircuit(Copyable):
 
         self.is_fused = True
 
-    fn execute_optimized(mut self):
+    fn execute_optimized(mut self) -> QuantumState:
         """Execute transformations with automatic fusion optimization."""
         if not self.is_fused:
             self.fuse()
-        self.execute_fused()
+        return self._execute_fused()
 
     fn clear_transformations(mut self):
         """Clear all transformations from the circuit."""
@@ -1471,18 +1399,6 @@ struct QuantumCircuit(Copyable):
     fn num_transformations(self) -> Int:
         """Return the number of transformations in the circuit."""
         return len(self.transformations)
-
-    fn get_state(self) -> QuantumState:
-        """Return a copy of the current quantum state."""
-        return self.state.copy()
-
-    fn get_amplitude(self, idx: Int) -> Amplitude:
-        """Get the amplitude at a specific basis state index."""
-        return self.state[idx]
-
-    fn set_amplitude(mut self, idx: Int, amp: Amplitude):
-        """Set the amplitude at a specific basis state index."""
-        self.state[idx] = amp
 
     fn inverse(self) -> QuantumCircuit:
         """Return a new QuantumCircuit that is the inverse of this circuit."""
@@ -1639,7 +1555,72 @@ struct QuantumCircuit(Copyable):
 
     fn cp(mut self, target: Int, control: Int, theta: FloatType):
         """Apply controlled phase gate."""
-        self.add_controlled(P(theta), target, control, "p", theta)
+        self.add_controlled(P(theta), target, control)
+
+    fn cft(
+        mut self,
+        targets: List[Int],
+        inverse: Bool = False,
+        do_swap: Bool = True,
+    ):
+        """
+        Classical Fourier Transform (CFT) method.
+        Directly applies FFT butterflies to the amplitudes of the target qubits.
+
+        Args:
+            targets: The list of target qubits.
+            inverse: If True, applies the inverse transform.
+            do_swap: If True, applies bit-reversal swapping to the target qubits.
+        """
+        var k = len(targets)
+        if k == 0:
+            return
+
+        # Sort targets ascending for consistent subspace mapping
+        var sorted_targets = targets.copy()
+        for i in range(k):
+            for j in range(i + 1, k):
+                if sorted_targets[i] > sorted_targets[j]:
+                    var temp = sorted_targets[i]
+                    sorted_targets[i] = sorted_targets[j]
+                    sorted_targets[j] = temp
+
+        # Generate twiddle factors for size 2^k
+        from butterfly.core.classical_fft import generate_factors
+
+        var factors_pair = generate_factors(1 << k, inverse)
+        var ptr_fac_re_addr = factors_pair[0].unsafe_ptr().address
+        var ptr_fac_im_addr = factors_pair[1].unsafe_ptr().address
+
+        # DIF FFT: Process from highest qubit to lowest qubit
+        for i in reversed(range(k)):
+            var target = sorted_targets[i]
+            # Subspace bits are all targets lower than 'target'
+            var subspace_indices = List[Int]()
+            for s_idx in range(i):
+                subspace_indices.append(sorted_targets[s_idx])
+
+            # Twiddle stride in the factors table: 1, 2, 4, ..., 2^(k-1)
+            var tw_stride = 1 << (k - i - 1)
+
+            apply_cft_stage(
+                state,
+                target,
+                subspace_indices,
+                tw_stride,
+                ptr_fac_re_addr,
+                ptr_fac_im_addr,
+                inverse,
+            )
+
+        if do_swap:
+            partial_bit_reverse_state(state, targets)
+
+        # Normalization
+        var scale = 1.0 / sqrt(Float64(1 << k))
+        for i in range(state.size()):
+            state.re[i] *= scale
+            state.im[i] *= scale
 
     fn mcx(mut self, var controls: List[Int], target: Int):
         """Apply multi-controlled X gate."""
@@ -2034,3 +2015,304 @@ fn IQFT(m: Int, reversed: Bool = False, swap: Bool = True) -> QuantumCircuit:
     var reg = qc.add_register("q", m)
     qc.iqft(reg, reversed, swap)
     return qc^
+
+
+# =============================================================================
+# Standalone Executor Functions
+# =============================================================================
+
+
+fn execute(mut state: QuantumState, circuit: QuantumCircuit):
+    """Execute a circuit on a quantum state using generic transforms.
+
+    Args:
+        state: The quantum state to transform (modified in place).
+        circuit: The circuit containing transformations to apply.
+    """
+    # Validate that circuit qubits match state size
+    var expected_size = 1 << circuit.num_qubits
+    if state.size() != expected_size:
+        print(
+            "Error: Circuit has",
+            circuit.num_qubits,
+            "qubits (expects state size",
+            expected_size,
+            ") but state has size",
+            state.size(),
+        )
+        return
+
+    # Use the circuit's execute method for now (will be refactored later)
+    from butterfly.core.state import (
+        transform,
+        c_transform,
+        mc_transform_interval,
+        bit_reverse_state,
+    )
+    from butterfly.core.circuit import (
+        Transformation,
+        GateTransformation,
+        SingleControlGateTransformation,
+        MultiControlGateTransformation,
+        BitReversalTransformation,
+        DiagonalTransformation,
+    )
+
+    for i in range(len(circuit.transformations)):
+        var t = circuit.transformations[i]
+
+        if t.isa[GateTransformation]():
+            var g = t[GateTransformation].copy()
+            transform(state, g.target, g.gate)
+        elif t.isa[SingleControlGateTransformation]():
+            var g = t[SingleControlGateTransformation].copy()
+            c_transform(state, g.control, g.target, g.gate)
+        elif t.isa[MultiControlGateTransformation]():
+            var g = t[MultiControlGateTransformation].copy()
+            mc_transform_interval(state, g.controls, g.target, g.gate)
+        elif t.isa[BitReversalTransformation]():
+            bit_reverse_state(state)
+        elif t.isa[DiagonalTransformation]():
+            var g = t[DiagonalTransformation].copy()
+            var n_shortcut = g.size if g.size > 0 else circuit.num_qubits
+            var mask = (1 << n_shortcut) - 1
+            for k in range(len(state)):
+                var val = (k >> g.offset) & mask
+                # Check if val is in items
+                for p_idx in range(len(g.items)):
+                    if val == g.items[p_idx]:
+                        state[k] = Amplitude(-state[k].re, -state[k].im)
+                        break
+
+
+fn execute_simd[N: Int](mut state: QuantumState, circuit: QuantumCircuit):
+    """Execute a circuit on a quantum state using SIMD-optimized transforms.
+
+    Args:
+        state: The quantum state to transform (modified in place).
+        circuit: The circuit containing transformations to apply.
+
+    Parameters:
+        N: Compile-time state size (must equal 1 << circuit.num_qubits).
+
+    Note:
+        Requires compile-time known size. For runtime sizes, use execute() instead.
+    """
+    # Validate that circuit qubits match state size
+    var expected_size = 1 << circuit.num_qubits
+    if state.size() != expected_size:
+        print(
+            "Error: Circuit has",
+            circuit.num_qubits,
+            "qubits (expects state size",
+            expected_size,
+            ") but state has size",
+            state.size(),
+        )
+        return
+
+    # Use SIMD v2 executor
+    execute_transformations_simd_v2[N](state, circuit.transformations)
+
+
+fn run_circuit[n: Int](circuit: QuantumCircuit) -> QuantumState:
+    """Convenience function: create state and execute with SIMD.
+
+    Args:
+        circuit: The circuit to execute.
+
+    Parameters:
+        n: Number of qubits (compile-time constant).
+
+    Returns:
+        The resulting quantum state after execution.
+
+    Note:
+        Requires compile-time known size. For runtime sizes, use run_circuit_generic() instead.
+    """
+    # Validate circuit size matches parameter
+    if circuit.num_qubits != n:
+        print(
+            "Error: run_circuit[n] expects circuit with",
+            n,
+            "qubits, but got",
+            circuit.num_qubits,
+        )
+        return QuantumState(n)  # Return empty state on error
+
+    var state = QuantumState(n)
+    execute_simd[1 << n](state, circuit)
+    return state^
+
+
+fn run_circuit_fused[n: Int](circuit: QuantumCircuit) -> QuantumState:
+    """Convenience function: create state and execute with fusion.
+
+    Args:
+        circuit: The circuit to execute.
+
+    Parameters:
+        n: Number of qubits (compile-time constant).
+
+    Returns:
+        The resulting quantum state after execution.
+
+    Note:
+        Requires compile-time known size. For runtime sizes, use run_circuit_generic() instead.
+    """
+    # Validate circuit size matches parameter
+    if circuit.num_qubits != n:
+        print(
+            "Error: run_circuit_fused[n] expects circuit with",
+            n,
+            "qubits, but got",
+            circuit.num_qubits,
+        )
+        return QuantumState(n)  # Return empty state on error
+
+    var state = QuantumState(n)
+    from butterfly.core.execute_fused_v3 import execute_fused_v3
+
+    execute_fused_v3[1 << n](state, circuit)
+    return state^
+
+
+fn run_circuit_generic(circuit: QuantumCircuit) -> QuantumState:
+    """Convenience function: create state and execute with generic (non-SIMD) executor.
+
+    Args:
+        circuit: The circuit to execute.
+
+    Returns:
+        The resulting quantum state after execution.
+
+    Note:
+        Works with runtime-determined circuit sizes (no compile-time parameter needed).
+        For better performance with compile-time known sizes, use run_circuit[n]() instead.
+    """
+    var state = QuantumState(circuit.num_qubits)
+    execute(state, circuit)
+    return state^
+
+
+fn execute_fused[N: Int](mut state: QuantumState, circuit: QuantumCircuit):
+    """Execute circuit with basic fusion (Radix-2).
+
+    Args:
+        state: The quantum state to transform (modified in place).
+        circuit: The circuit containing transformations to apply.
+
+    Parameters:
+        N: Compile-time state size (must equal 1 << circuit.num_qubits).
+
+    Note:
+        For now, delegates to execute_fused_v3. Can be optimized separately later.
+    """
+    # Validate that circuit qubits match state size
+    var expected_size = 1 << circuit.num_qubits
+    if state.size() != expected_size:
+        print(
+            "Error: Circuit has",
+            circuit.num_qubits,
+            "qubits (expects state size",
+            expected_size,
+            ") but state has size",
+            state.size(),
+        )
+        return
+
+    # Delegate to fused_v3 for now
+    from butterfly.core.execute_fused_v3 import execute_fused_v3
+
+    execute_fused_v3[N](state, circuit)
+
+
+fn execute_simd_unfused[
+    N: Int
+](mut state: QuantumState, circuit: QuantumCircuit):
+    """Execute circuit with SIMD but no fusion.
+
+    Args:
+        state: The quantum state to transform (modified in place).
+        circuit: The circuit containing transformations to apply.
+
+    Parameters:
+        N: Compile-time state size (must equal 1 << circuit.num_qubits).
+
+    Note:
+        Same as execute_simd - unfused SIMD execution.
+    """
+    # Validate that circuit qubits match state size
+    var expected_size = 1 << circuit.num_qubits
+    if state.size() != expected_size:
+        print(
+            "Error: Circuit has",
+            circuit.num_qubits,
+            "qubits (expects state size",
+            expected_size,
+            ") but state has size",
+            state.size(),
+        )
+        return
+
+    # Use SIMD v2 executor (unfused)
+    execute_transformations_simd_v2[N](state, circuit.transformations)
+
+
+fn execute_optimized[N: Int](mut state: QuantumState, circuit: QuantumCircuit):
+    """Execute circuit with optimization (fusion + matrix multiplication).
+
+    Args:
+        state: The quantum state to transform (modified in place).
+        circuit: The circuit containing transformations to apply.
+
+    Parameters:
+        N: Compile-time state size (must equal 1 << circuit.num_qubits).
+
+    Note:
+        For now, delegates to execute_fused_v3. Can be optimized separately later.
+    """
+    # Validate that circuit qubits match state size
+    var expected_size = 1 << circuit.num_qubits
+    if state.size() != expected_size:
+        print(
+            "Error: Circuit has",
+            circuit.num_qubits,
+            "qubits (expects state size",
+            expected_size,
+            ") but state has size",
+            state.size(),
+        )
+        return
+
+    # Delegate to fused_v3 for now (best available optimizer)
+    from butterfly.core.execute_fused_v3 import execute_fused_v3
+
+    execute_fused_v3[N](state, circuit)
+
+
+fn run_circuit_optimized[n: Int](circuit: QuantumCircuit) -> QuantumState:
+    """Convenience function: create state and execute with optimization.
+
+    Args:
+        circuit: The circuit to execute.
+
+    Parameters:
+        n: Number of qubits (compile-time constant).
+
+    Returns:
+        The resulting quantum state after execution.
+    """
+    # Validate circuit size matches parameter
+    if circuit.num_qubits != n:
+        print(
+            "Error: run_circuit_optimized[n] expects circuit with",
+            n,
+            "qubits, but got",
+            circuit.num_qubits,
+        )
+        return QuantumState(n)
+
+    var state = QuantumState(n)
+    execute_optimized[1 << n](state, circuit)
+    return state^

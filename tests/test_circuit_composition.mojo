@@ -1,5 +1,6 @@
 from butterfly.core.circuit import QuantumCircuit, Register
 from butterfly.core.gates import H, X
+from butterfly.core.circuit import run_circuit
 from testing import assert_almost_equal
 from math import sqrt
 
@@ -24,17 +25,17 @@ fn main() raises:
     main.append_circuit(bell, reg2)
 
     print("Executing...")
-    main.execute()
+    var state = run_circuit[4](main)
 
     # 3. Verify
-    # State should be (|00> + |11>)/sqrt(2) ⊗ (|00> + |11>)/sqrt(2)
-    # Map to 4 qubits: (|0000> + |0011> + |1100> + |1111>) / 2
+    # State should be (|00⟩ + |11⟩)/sqrt(2) ⊗ (|00⟩ + |11⟩)/sqrt(2)
+    # Map to 4 qubits: (|0000⟩ + |0011⟩ + |1100⟩ + |1111⟩) / 2
     # Indices: 0, 3, 12, 15
 
     expected = 0.5
-    assert_almost_equal(main.state[0].re, expected)
-    assert_almost_equal(main.state[3].re, expected)
-    assert_almost_equal(main.state[12].re, expected)
-    assert_almost_equal(main.state[15].re, expected)
+    assert_almost_equal(state[0].re, expected)
+    assert_almost_equal(state[3].re, expected)
+    assert_almost_equal(state[12].re, expected)
+    assert_almost_equal(state[15].re, expected)
 
     print("Success! State matches expected superposition.")

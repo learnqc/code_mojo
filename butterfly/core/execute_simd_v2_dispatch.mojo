@@ -16,6 +16,7 @@ from butterfly.core.circuit import (
     SingleControlGateTransformation,
     MultiControlGateTransformation,
     BitReversalTransformation,
+    DiagonalTransformation,
 )
 from butterfly.core.c_transform_fast_v2 import (
     c_transform_h_simd_v2,
@@ -52,3 +53,22 @@ fn execute_transformations_simd_v2[
         elif t.isa[GateTransformation]():
             var g = t[GateTransformation].copy()
             transform_simd[N](state, g.target, g.gate)
+        elif t.isa[DiagonalTransformation]():
+            # Handle diagonal phase flip transformation
+            from butterfly.core.types import Amplitude
+
+            var g = t[DiagonalTransformation].copy()
+            var n_qubits = 0
+            var temp = N
+            while temp > 1:
+                temp >>= 1
+                n_qubits += 1
+            var n_shortcut = g.size if g.size > 0 else n_qubits
+            var mask = (1 << n_shortcut) - 1
+            for k in range(N):
+                var val = (k >> g.offset) & mask
+                # Check if val is in items
+                for p_idx in range(len(g.items)):
+                    if val == g.items[p_idx]:
+                        state[k] = Amplitude(-state[k].re, -state[k].im)
+                        break

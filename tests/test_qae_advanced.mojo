@@ -60,7 +60,7 @@ fn test_qae_suite() raises:
         var qc = amplitude_estimation_circuit(
             n_prec, prepare, oracle, swap=False
         )
-        qc.execute()
+        var state_qc = qc.execute()
 
         # Calculate marginal probabilities on the 'c' (precision) register.
         var probs = List[Float64](capacity=N_prec)
@@ -70,7 +70,7 @@ fn test_qae_suite() raises:
         for k in range(N_state):
             for j in range(N_prec):
                 var idx = k * N_prec + j
-                var amp = qc.get_amplitude(idx)
+                var amp = state_qc[idx]
                 probs[j] += amp.re**2 + amp.im**2
 
         # Theoretical v

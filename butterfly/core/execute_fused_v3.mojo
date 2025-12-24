@@ -6,6 +6,7 @@ Minimizes memory passes by grouping local gates and using Radix-4 kernels for gl
 from butterfly.core.state import QuantumState, bit_reverse_state, simd_width
 from butterfly.core.types import FloatType, Type, Gate, Amplitude
 from butterfly.core.circuit import (
+    QuantumCircuit,
     Transformation,
     is_permutation,
     is_controlled,
@@ -196,7 +197,7 @@ fn execute_fused_v3[
     N: Int
 ](
     mut state: QuantumState,
-    transformations: List[Transformation],
+    circuit: QuantumCircuit,
     use_radix8: Bool = False,
     fuse_controlled: Bool = False,
     block_log: Int = DEFAULT_BLOCK_LOG,
@@ -205,10 +206,27 @@ fn execute_fused_v3[
 
     Args:
         state: The quantum state to transform.
-        transformations: List of transformations to apply.
+        circuit: The quantum circuit containing transformations to apply.
         use_radix8: If True, use Radix-8 fusion for local gate triplets (default: False).
+        fuse_controlled: If True, allow fusion of controlled gates (default: False).
+        block_log: Log2 of block size for cache blocking (default: 11).
     """
-    var analyzer = CircuitAnalyzer(transformations, use_radix8, fuse_controlled)
+    # Validate that circuit qubits match state size
+    var expected_size = 1 << circuit.num_qubits
+    if state.size() != expected_size:
+        print(
+            "Error: Circuit has",
+            circuit.num_qubits,
+            "qubits (expects state size",
+            expected_size,
+            ") but state has size",
+            state.size(),
+        )
+        return
+
+    var analyzer = CircuitAnalyzer(
+        circuit.transformations, use_radix8, fuse_controlled
+    )
 
     for i in range(len(analyzer.groups)):
         var g_ref = analyzer.groups[i].copy()

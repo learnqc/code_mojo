@@ -16,8 +16,7 @@ fn main() raises:
     c_ref.h(1)
     c_ref.x(11)
     c_ref.p(2, pi / 3)
-    c_ref.execute()
-    var s_ref = c_ref.get_state()
+    var s_ref = c_ref.execute()
 
     # 2. v3 approach
     var c_v3 = QuantumCircuit(n)
@@ -26,8 +25,9 @@ fn main() raises:
     c_v3.x(11)
     c_v3.p(2, pi / 3)
 
-    execute_fused_v3[1 << n](c_v3.state, c_v3.transformations)
-    var s_v3 = c_v3.get_state()
+    var state_v3 = QuantumState(n)
+    execute_fused_v3[1 << n](state_v3, c_v3)
+    var s_v3 = state_v3
 
     # Verify
     var diff = 0.0

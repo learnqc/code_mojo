@@ -1,5 +1,5 @@
-from butterfly.core.circuit import QuantumCircuit, Register
-from butterfly.core.gates import H, X
+from butterfly.core.circuit import QuantumCircuit
+from butterfly.core.circuit import run_circuit
 from butterfly.core.types import Amplitude
 from testing import assert_almost_equal
 from math import sqrt
@@ -18,10 +18,10 @@ fn main() raises:
 
     var qc1 = QuantumCircuit(1)
     qc1.u(u_h^, 0)  # Apply H as unitary
-    qc1.execute()
+    var state1 = run_circuit[1](qc1)
 
-    assert_almost_equal(qc1.state[0].re, inv_sqrt2)
-    assert_almost_equal(qc1.state[1].re, inv_sqrt2)
+    assert_almost_equal(state1[0].re, inv_sqrt2)
+    assert_almost_equal(state1[1].re, inv_sqrt2)
     print("Test 1 (add_unitary H) passed.")
 
     # 2. Controlled Unitary (should behave like CNOT if U=X)
@@ -34,10 +34,10 @@ fn main() raises:
     var qc2 = QuantumCircuit(2)
     qc2.x(1)  # Set control
     qc2.cu(u_x^, 1, 0)  # Apply X controlled by 1 (control=1, target=0)
-    qc2.execute()
+    var state2 = run_circuit[2](qc2)
 
     # State should be |11> (idx 3)
-    assert_almost_equal(qc2.state[3].re, 1.0)
+    assert_almost_equal(state2[3].re, 1.0)
     print("Test 2 (add_controlled_unitary X=CNOT) passed.")
 
     # 3. Append circuit with unitaries
@@ -53,10 +53,10 @@ fn main() raises:
     var qc_main = QuantumCircuit(1)
     var reg = qc_main.add_register("reg", 1)
     qc_main.append_circuit(qc_sub, reg)
-    qc_main.execute()
+    var state3 = run_circuit[1](qc_main)
 
-    assert_almost_equal(qc_main.state[0].re, inv_sqrt2)
-    assert_almost_equal(qc_main.state[1].re, inv_sqrt2)
+    assert_almost_equal(state3[0].re, inv_sqrt2)
+    assert_almost_equal(state3[1].re, inv_sqrt2)
     print("Test 3 (append_circuit with unitaries) passed.")
 
     print("Success! Integrated unitary transformations work correctly.")

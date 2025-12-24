@@ -31,9 +31,9 @@ fn main() raises:
     main_qc.append_circuit(iqft_sub, reg)
 
     # 5. Execute results
-    main_qc.execute()
+    var state = main_qc.execute()
 
     print("\nResulting State Table (Modular Approach):")
-    print_state(main_qc.state)
+    print_state(state)
 
     print("\nSuccess! Modular value encoding via circuit appending verified.")

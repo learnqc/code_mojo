@@ -35,7 +35,7 @@ fn test_qae_rotation() raises:
     var precision = 5  # Number of evaluation qubits
     var qc = amplitude_estimation_circuit(precision, A, O)
 
-    qc.execute()
+    var state = qc.execute()
 
     # 5. Analyze Results
     # We measure the 'c' register (evaluation qubits).
@@ -81,8 +81,8 @@ fn test_qae_rotation() raises:
         var idx0 = y  # q=0
         var idx1 = y + (1 << precision)  # q=1
 
-        var amp0 = qc.get_amplitude(idx0)
-        var amp1 = qc.get_amplitude(idx1)
+        var amp0 = state[idx0]
+        var amp1 = state[idx1]
         prob_y = (amp0.re**2 + amp0.im**2) + (amp1.re**2 + amp1.im**2)
 
         if prob_y > max_prob:

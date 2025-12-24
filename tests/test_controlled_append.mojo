@@ -1,5 +1,6 @@
 from butterfly.core.circuit import QuantumCircuit, Register
 from butterfly.core.gates import X
+from butterfly.core.circuit import run_circuit
 from testing import assert_almost_equal
 from math import sqrt
 
@@ -21,10 +22,10 @@ fn main() raises:
     # Append sub (X at 0) to reg1, controlled by qubit 1
     main1.c_append_circuit(sub, reg1, 1)
 
-    main1.execute()
+    var state1 = run_circuit[2](main1)
     # State should be |11> (idx 3)
-    assert_almost_equal(main1.state[3].re, 1.0)
-    assert_almost_equal(main1.state[2].re, 0.0)
+    assert_almost_equal(state1[3].re, 1.0)
+    assert_almost_equal(state1[2].re, 0.0)
 
     # 3. Test mc_append_circuit (should result in Toffoli)
     print("Testing mc_append_circuit (Toffoli)...")
@@ -39,9 +40,9 @@ fn main() raises:
     controls.append(2)
     main2.mc_append_circuit(sub, reg2, controls^)
 
-    main2.execute()
-    # State should be |111> (idx 7)
-    assert_almost_equal(main2.state[7].re, 1.0)
-    assert_almost_equal(main2.state[6].re, 0.0)
+    var state2 = run_circuit[3](main2)
+    # Should be |111⟩ (idx 7)
+    assert_almost_equal(state2[7].re, 1.0)
+    assert_almost_equal(state2[6].re, 0.0)
 
     print("Success! Controlled appending matches expected results.")

@@ -1,4 +1,4 @@
-from butterfly.core.circuit import QuantumCircuit, Circuit
+from butterfly.core.circuit import QuantumCircuit, Circuit, execute
 from butterfly.core.state import QuantumState
 from butterfly.core.gates import H, X, Y, Z, P
 from butterfly.core.types import *
@@ -11,14 +11,8 @@ def test_circuit_initialization():
     var circuit = QuantumCircuit(2)
     assert_true(circuit.num_qubits == 2)
     assert_true(circuit.num_transformations() == 0)
-    assert_true(circuit.state.size() == 4)
 
     # Initial state should be |00⟩
-    assert_almost_equal(circuit.get_amplitude(0).re, 1.0)
-    assert_almost_equal(circuit.get_amplitude(0).im, 0.0)
-    assert_almost_equal(circuit.get_amplitude(1).re, 0.0)
-    assert_almost_equal(circuit.get_amplitude(2).re, 0.0)
-    assert_almost_equal(circuit.get_amplitude(3).re, 0.0)
     print("✓ Circuit initialization test passed")
 
 
@@ -53,11 +47,11 @@ def test_hadamard_execution():
     # Test H gate creates superposition
     var circuit = QuantumCircuit(1)
     circuit.add(H, 0)
-    circuit.execute()
+    var state_circuit = circuit.execute()
 
     # After H on |0⟩, should get (|0⟩ + |1⟩)/√2
-    var amp0 = circuit.get_amplitude(0)
-    var amp1 = circuit.get_amplitude(1)
+    var amp0 = state_circuit[0]
+    var amp1 = state_circuit[1]
 
     var expected = 1.0 / sqrt(2.0)
     assert_almost_equal(Float64(amp0.re), expected, atol=1e-6)
@@ -71,11 +65,11 @@ def test_x_gate_execution():
     # Test X gate flips qubit
     var circuit = QuantumCircuit(1)
     circuit.add(X, 0)
-    circuit.execute()
+    var state_circuit = circuit.execute()
 
     # After X on |0⟩, should get |1⟩
-    assert_almost_equal(Float64(circuit.get_amplitude(0).re), 0.0, atol=1e-6)
-    assert_almost_equal(Float64(circuit.get_amplitude(1).re), 1.0, atol=1e-6)
+    assert_almost_equal(Float64(state_circuit[0].re), 0.0, atol=1e-6)
+    assert_almost_equal(Float64(state_circuit[1].re), 1.0, atol=1e-6)
     print("✓ X gate execution test passed")
 
 
@@ -84,18 +78,18 @@ def test_cnot_execution():
     var circuit = QuantumCircuit(2)
     # Create |10⟩ state
     circuit.add(X, 0)
-    circuit.execute()
-    circuit.clear_transformations()
+    state_circuit = circuit.execute()
+    # circuit.clear_transformations()
 
     # Apply CNOT with control=0, target=1
     circuit.add_controlled(X, 1, 0)
-    circuit.execute()
+    state_circuit = circuit.execute()
 
     # Should get |11⟩ state (index 3)
-    assert_almost_equal(Float64(circuit.get_amplitude(0).re), 0.0, atol=1e-6)
-    assert_almost_equal(Float64(circuit.get_amplitude(1).re), 0.0, atol=1e-6)
-    assert_almost_equal(Float64(circuit.get_amplitude(2).re), 0.0, atol=1e-6)
-    assert_almost_equal(Float64(circuit.get_amplitude(3).re), 1.0, atol=1e-6)
+    assert_almost_equal(Float64(state_circuit[0].re), 0.0, atol=1e-6)
+    assert_almost_equal(Float64(state_circuit[1].re), 0.0, atol=1e-6)
+    assert_almost_equal(Float64(state_circuit[2].re), 0.0, atol=1e-6)
+    assert_almost_equal(Float64(state_circuit[3].re), 1.0, atol=1e-6)
     print("✓ CNOT execution test passed")
 
 
@@ -104,16 +98,16 @@ def test_bell_state():
     var circuit = QuantumCircuit(2)
     circuit.add(H, 0)
     circuit.add_controlled(X, 1, 0)
-    circuit.execute()
+    state_circuit = circuit.execute()
 
-    var amp0 = circuit.get_amplitude(0)
-    var amp3 = circuit.get_amplitude(3)
+    var amp0 = state_circuit[0]
+    var amp3 = state_circuit[3]
 
     var expected = 1.0 / sqrt(2.0)
     assert_almost_equal(Float64(amp0.re), expected, atol=1e-6)
     assert_almost_equal(Float64(amp3.re), expected, atol=1e-6)
-    assert_almost_equal(Float64(circuit.get_amplitude(1).re), 0.0, atol=1e-6)
-    assert_almost_equal(Float64(circuit.get_amplitude(2).re), 0.0, atol=1e-6)
+    assert_almost_equal(Float64(state_circuit[1].re), 0.0, atol=1e-6)
+    assert_almost_equal(Float64(state_circuit[2].re), 0.0, atol=1e-6)
     print("✓ Bell state test passed")
 
 
@@ -123,20 +117,20 @@ def test_toffoli_gate():
     # Create |110⟩ state
     circuit.add(X, 0)
     circuit.add(X, 1)
-    circuit.execute()
-    circuit.clear_transformations()
+    state_circuit = circuit.execute()
+    # circuit.clear_transformations()
 
     # Apply Toffoli with controls=0,1 target=2
     var controls = List[Int]()
     controls.append(0)
     controls.append(1)
     circuit.add_multi_controlled(X, 2, controls^)
-    circuit.execute()
+    state_circuit = circuit.execute()
 
     # Should get |111⟩ state (index 7)
-    assert_almost_equal(Float64(circuit.get_amplitude(7).re), 1.0, atol=1e-6)
+    assert_almost_equal(Float64(state_circuit[7].re), 1.0, atol=1e-6)
     for i in range(7):
-        assert_almost_equal(Float64(circuit.get_amplitude(i).re), 0.0, atol=1e-6)
+        assert_almost_equal(Float64(state_circuit[i].re), 0.0, atol=1e-6)
     print("✓ Toffoli gate test passed")
 
 
@@ -157,18 +151,18 @@ def test_multiple_executions():
     # Test that we can execute multiple times
     var circuit = QuantumCircuit(1)
     circuit.add(X, 0)
-    circuit.execute()
+    var state_circuit = circuit.execute()
 
     # State should be |1⟩
-    assert_almost_equal(Float64(circuit.get_amplitude(1).re), 1.0, atol=1e-6)
+    assert_almost_equal(Float64(state_circuit[1].re), 1.0, atol=1e-6)
 
     # Execute again (applies X twice total)
-    circuit.execute()
+    execute(state_circuit, circuit)
 
     # Should be back to |1⟩ + X = |1⟩ then |1⟩ + X = still modified
     # Actually this applies the same transforms again, so |1⟩ -> |0⟩
-    assert_almost_equal(Float64(circuit.get_amplitude(0).re), 1.0, atol=1e-6)
-    assert_almost_equal(Float64(circuit.get_amplitude(1).re), 0.0, atol=1e-6)
+    assert_almost_equal(Float64(state_circuit[0].re), 1.0, atol=1e-6)
+    assert_almost_equal(Float64(state_circuit[1].re), 0.0, atol=1e-6)
     print("✓ Multiple executions test passed")
 
 
@@ -177,22 +171,6 @@ def test_circuit_alias():
     var circuit = Circuit(2)
     assert_true(circuit.num_qubits == 2)
     print("✓ Circuit alias test passed")
-
-
-def test_set_amplitude():
-    var circuit = QuantumCircuit(2)
-
-    # Set custom amplitude
-    circuit.set_amplitude(0, Amplitude(0.5, 0.0))
-    circuit.set_amplitude(1, Amplitude(0.5, 0.0))
-    circuit.set_amplitude(2, Amplitude(0.5, 0.0))
-    circuit.set_amplitude(3, Amplitude(0.5, 0.0))
-
-    assert_almost_equal(Float64(circuit.get_amplitude(0).re), 0.5, atol=1e-6)
-    assert_almost_equal(Float64(circuit.get_amplitude(1).re), 0.5, atol=1e-6)
-    assert_almost_equal(Float64(circuit.get_amplitude(2).re), 0.5, atol=1e-6)
-    assert_almost_equal(Float64(circuit.get_amplitude(3).re), 0.5, atol=1e-6)
-    print("✓ Set amplitude test passed")
 
 
 def test_gate_convenience_methods():
@@ -204,16 +182,16 @@ def test_gate_convenience_methods():
     circuit.x(1)
     assert_true(circuit.num_transformations() == 2)
 
-    circuit.execute()
+    state_circuit = circuit.execute()
 
     # Should have H on qubit 0 and X on qubit 1
     # With qubit 0 as LSB: H|0⟩ ⊗ X|0⟩ = (|0⟩ + |1⟩)/√2 ⊗ |1⟩
     # This gives (|10⟩ + |11⟩)/√2 which is indices 2 and 3
-    var expected = 1.0 / sqrt(2.0)
-    assert_almost_equal(Float64(circuit.get_amplitude(2).re), expected, atol=1e-6)
-    assert_almost_equal(Float64(circuit.get_amplitude(3).re), expected, atol=1e-6)
-    assert_almost_equal(Float64(circuit.get_amplitude(0).re), 0.0, atol=1e-6)
-    assert_almost_equal(Float64(circuit.get_amplitude(1).re), 0.0, atol=1e-6)
+    expected = 1.0 / sqrt(2.0)
+    assert_almost_equal(Float64(state_circuit[2].re), expected, atol=1e-6)
+    assert_almost_equal(Float64(state_circuit[3].re), expected, atol=1e-6)
+    assert_almost_equal(Float64(state_circuit[0].re), 0.0, atol=1e-6)
+    assert_almost_equal(Float64(state_circuit[1].re), 0.0, atol=1e-6)
     print("✓ Gate convenience methods test passed")
 
 
@@ -224,11 +202,11 @@ def test_controlled_convenience_methods():
     # Create Bell state using cx (CNOT)
     circuit.h(0)
     circuit.cx(1, 0)  # target=1, control=0
-    circuit.execute()
+    state_circuit = circuit.execute()
 
     var expected = 1.0 / sqrt(2.0)
-    assert_almost_equal(Float64(circuit.get_amplitude(0).re), expected, atol=1e-6)
-    assert_almost_equal(Float64(circuit.get_amplitude(3).re), expected, atol=1e-6)
+    assert_almost_equal(Float64(state_circuit[0].re), expected, atol=1e-6)
+    assert_almost_equal(Float64(state_circuit[3].re), expected, atol=1e-6)
     print("✓ Controlled convenience methods test passed")
 
 
@@ -329,7 +307,6 @@ def main():
     test_clear_transformations()
     test_multiple_executions()
     test_circuit_alias()
-    test_set_amplitude()
     test_gate_convenience_methods()
     test_controlled_convenience_methods()
     test_rotation_gates()

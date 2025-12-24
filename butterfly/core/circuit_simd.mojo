@@ -150,7 +150,7 @@ struct QuantumCircuitSIMD[n: Int](Copyable):
         alias N = 1 << n
         from butterfly.core.execute_fused_v3 import execute_fused_v3
 
-        execute_fused_v3[N](self.state, self.circuit.transformations)
+        execute_fused_v3[N](self.state, self.circuit)
 
     fn run(mut self):
         """
