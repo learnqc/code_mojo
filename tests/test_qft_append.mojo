@@ -1,6 +1,7 @@
 from butterfly.core.circuit import QuantumCircuit, Register, QFT, IQFT
 from butterfly.core.types import pi
 from butterfly.core.circuit import run_circuit
+from butterfly.core.state import iqft
 from butterfly.utils.visualization import print_state
 from testing import assert_almost_equal
 
@@ -20,19 +21,20 @@ fn main() raises:
     for i in range(n):
         main_qc.h(i)
     for j in range(n):
-        main_qc.p(j, 2 * pi * v / (2.0 ** (n - j)))
+        main_qc.p(j, 2 * pi * v / 2 ** (n - j))
 
     # 2. Create a separate IQFT circuit
     print("Step 2: Creating standalone IQFT circuit...")
-    var iqft_sub = IQFT(n)
+    var iqft_sub = IQFT(n, reversed=False, swap=True)
 
     # 3. Append IQFT to the main circuit
     print("Step 3: Appending IQFT circuit to main circuit...")
     main_qc.append_circuit(iqft_sub, reg)
+    # main_qc.iqft(reg)
 
     # 4. Execute
     print("Step 4: Executing combined circuit...")
-    var state = run_circuit[n](main_qc)
+    var state = main_qc.execute()
 
     # 5. Verify results
     print("Resulting State Table (v=2.0 expected at index 2):")

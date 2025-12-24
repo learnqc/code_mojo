@@ -1010,6 +1010,9 @@ struct QuantumCircuit(Copyable):
             MultiControlGateTransformation(gate, target, controls, name, arg)
         )
 
+    fn execute(mut self, mut state: QuantumState):
+        execute(state, self)
+
     fn execute(mut self) -> QuantumState:
         """Execute all transformations in the circuit and return the resulting state.
 
@@ -1658,8 +1661,8 @@ struct QuantumCircuit(Copyable):
         """Apply Quantum Fourier Transform to a register."""
         var targets = List[Int]()
         if reversed:
-            for i in range(register.size - 1, -1, -1):
-                targets.append(register.start + i)
+            for i in range(register.size):
+                targets.append(register.start + register.size - 1 - i)
         else:
             for i in range(register.size):
                 targets.append(register.start + i)
@@ -1674,11 +1677,12 @@ struct QuantumCircuit(Copyable):
         """Apply Inverse Quantum Fourier Transform to a register."""
         var targets = List[Int]()
         if reversed:
-            for i in range(register.size - 1, -1, -1):
-                targets.append(register.start + i)
+            for i in range(register.size):
+                targets.append(register.start + register.size - 1 - i)
         else:
             for i in range(register.size):
                 targets.append(register.start + i)
+
         _iqft(self, targets, swap)
 
     fn bit_reverse(mut self):
@@ -1976,25 +1980,25 @@ alias Register = QuantumRegister
 fn _qft(mut qc: QuantumCircuit, targets: List[Int], swap: Bool = True):
     """Internal helper: Apply Quantum Fourier Transform to the specified target qubits.
     """
-    var n = len(targets)
-    for j in range(n - 1, -1, -1):
-        qc.h(targets[j])
-        for k in range(j - 1, -1, -1):
-            var theta = pi * (2.0 ** (k - j))
-            qc.cp(targets[j], targets[k], theta)
-
     if swap:
         qc.mswap(targets)
+
+    var n = len(targets)
+    for j in range(n):
+        for k in range(j):
+            var theta = pi * (2.0 ** (k - j))
+            qc.cp(targets[k], targets[j], theta)
+        qc.h(targets[j])
 
 
 fn _iqft(mut qc: QuantumCircuit, targets: List[Int], swap: Bool = True):
     """Internal helper: Apply Inverse Quantum Fourier Transform to the specified target qubits.
     """
     var n = len(targets)
-    for j in range(n - 1, -1, -1):
+    for j in reversed(range(n)):
         qc.h(targets[j])
-        for k in range(j - 1, -1, -1):
-            var theta = -pi * (2.0 ** (k - j))
+        for k in reversed(range(j)):
+            var theta = -pi / (2.0 ** (j - k))
             qc.cp(targets[j], targets[k], theta)
 
     if swap:
@@ -2063,6 +2067,7 @@ fn execute(mut state: QuantumState, circuit: QuantumCircuit):
 
         if t.isa[GateTransformation]():
             var g = t[GateTransformation].copy()
+            # print("Applying gate:", g.name, "to qubit", g.target, g.arg)
             transform(state, g.target, g.gate)
         elif t.isa[SingleControlGateTransformation]():
             var g = t[SingleControlGateTransformation].copy()

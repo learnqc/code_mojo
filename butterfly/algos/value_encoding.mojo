@@ -5,10 +5,10 @@ from butterfly.core.fft_numpy_style import fft_numpy_style
 from butterfly.core.classical_fft import (
     fft_dit,
     fft_dif,
-    fft_dif_parallel,
-    fft_dif_parallel_fastdiv,
-    fft_dif_parallel_simd,
-    fft_dif_parallel_simd_ndbuffer,
+    # fft_dif_parallel,
+    # fft_dif_parallel_fastdiv,
+    # fft_dif_parallel_simd,
+    # fft_dif_parallel_simd_ndbuffer,
     fft_dif_parallel_simd_phast,
 )
 
@@ -44,20 +44,21 @@ fn encode_value_interval[n: Int](v: FloatType) -> State:
     state = init_state(n)
 
     for j in range(n):
-        # transform(state, j, H)
+        transform(state, j, H)
         # transform_h(state, j)
-        transform_h_block_style(state, j)
+        # transform_h_block_style(state, j)
 
     for j in range(n):
         transform(state, j, P(2 * pi / 2 ** (n - j) * v))
         # transform(state, j, P(2 * pi / 2 ** (j + 1) * v))
 
+    iqft(state, [j for j in range(n)])
     # iqft_interval(state, [j for j in range(n)], swap=True)
     # fft_dit(state)
     # fft_dif(state)
     # fft_dif_parallel(state)
     # fft_dif_parallel_fastdiv(state)
-    fft_dif_parallel_simd_phast(state)
+    # fft_dif_parallel_simd_phast(state)  # works
     # fft_dif_parallel_simd(state)
     # fft_dif_parallel_simd_ndbuffer(state)
     # fft_fma_opt[1 << n](state)
