@@ -1063,7 +1063,6 @@ struct QuantumCircuit(Copyable):
         Dispatches to execute_simd[num_qubits] for common sizes.
         """
         var state = QuantumState(self.num_qubits)
-        var n = state.size()
         var num_qubits = self.num_qubits
 
         # Dispatch to SIMD for common qubit counts
@@ -1115,7 +1114,7 @@ struct QuantumCircuit(Copyable):
             execute_transformations_simd[1 << 10](state, self.transformations)
         else:
             # Fall back to standard execution for other sizes
-            self.run()
+            self.execute(state)
         return state
 
     fn execute_simd_dynamic(mut self, mut state: QuantumState):
