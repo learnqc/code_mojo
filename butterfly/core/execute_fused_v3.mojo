@@ -93,6 +93,9 @@ struct CircuitAnalyzer:
         self.analyze(transformations)
 
     fn is_local(self, t: Transformation) -> Bool:
+        # Controlled gates are never local - they require global coordination
+        if is_controlled(t):
+            return False
         var involved = get_involved_qubits(t)
         for i in range(len(involved)):
             if involved[i] >= self.block_log:

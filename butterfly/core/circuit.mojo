@@ -12,6 +12,17 @@ from butterfly.core.state import (
 from butterfly.core.execute_simd_v2_dispatch import (
     execute_transformations_simd_v2,
 )
+from butterfly.core.execution_strategy import (
+    ExecutionStrategy,
+    Generic,
+    SIMD,
+    SIMDv2,
+    FusedV3,
+    GENERIC,
+    SIMD_STRATEGY,
+    SIMD_V2,
+    FUSED_V3,
+)
 from butterfly.core.types import (
     Amplitude,
     Gate,
@@ -1013,7 +1024,7 @@ struct QuantumCircuit(Copyable):
     fn execute(mut self, mut state: QuantumState):
         execute(state, self)
 
-    fn execute(mut self) -> QuantumState:
+    fn run(mut self) -> QuantumState:
         """Execute all transformations in the circuit and return the resulting state.
 
         Returns:
@@ -1021,7 +1032,7 @@ struct QuantumCircuit(Copyable):
         """
         var state = QuantumState(self.num_qubits)
         execute(state, self)
-        return state^
+        return state
 
     fn _execute_fused(mut self) -> QuantumState:
         """Execute pre-computed fused transformations and return the resulting state.
@@ -1046,10 +1057,10 @@ struct QuantumCircuit(Copyable):
                 transform_matrix16(state, ft.q3, ft.q2, ft.q1, ft.q0, ft.m16)
         return state^
 
-    fn execute_simd(mut self) -> QuantumState:
+    fn run_simd_dynamic(mut self) -> QuantumState:
         """
-        Execute circuit with SIMD optimizations for common sizes.
-        Dispatches to transform_simd[N] for N=20-30, beating Qiskit.
+        Execute circuit with SIMD optimizations (runtime dispatch).
+        Dispatches to execute_simd[num_qubits] for common sizes.
         """
         var state = QuantumState(self.num_qubits)
         var n = state.size()
@@ -1104,16 +1115,20 @@ struct QuantumCircuit(Copyable):
             execute_transformations_simd[1 << 10](state, self.transformations)
         else:
             # Fall back to standard execution for other sizes
-            self.execute()
+            self.run()
         return state
 
-    fn execute_simd_v2(mut self) -> QuantumState:
+    fn execute_simd_dynamic(mut self, mut state: QuantumState):
+        """Execute circuit with SIMD optimizations on provided state (runtime dispatch).
         """
-        Execute circuit with SIMD optimizations v2.
+        execute_simd[self.num_qubits](state, self)
+
+    fn run_simd_v2_dynamic(mut self) -> QuantumState:
+        """
+        Execute circuit with SIMD v2 optimizations (runtime dispatch).
         Optimized indexing and chunked kernels.
         """
         var state = QuantumState(self.num_qubits)
-        var n = state.size()
         var num_qubits = self.num_qubits
 
         # Dispatch to SIMD v2 for common qubit counts
@@ -1207,8 +1222,13 @@ struct QuantumCircuit(Copyable):
             )
         else:
             # Fall back to execute_simd() if v2 not available or requested
-            state = self.execute_simd()
+            state = self.run_simd_dynamic()
         return state
+
+    fn execute_simd_v2_dynamic(mut self, mut state: QuantumState):
+        """Execute circuit with SIMD v2 optimizations on provided state (runtime dispatch).
+        """
+        execute_simd_v2[self.num_qubits](state, self)
 
     fn apply_transformation_super_fast(
         self, mut state: QuantumState, t: Transformation
@@ -1242,9 +1262,9 @@ struct QuantumCircuit(Copyable):
             else:
                 transform(state, g.target, g.gate)
 
-    fn execute_simd_unfused(mut self) -> QuantumState:
+    fn run_simd_unfused_dynamic(mut self) -> QuantumState:
         """
-        Execute with optimizations but without fusion.
+        Execute with SIMD optimizations but without fusion (runtime dispatch).
         Useful for comparing optimization impact vs fusion impact.
         """
         var state = QuantumState(self.num_qubits)
@@ -1252,6 +1272,11 @@ struct QuantumCircuit(Copyable):
             var t = self.transformations[i].copy()
             self.apply_transformation_super_fast(state, t)
         return state
+
+    fn execute_simd_unfused_dynamic(mut self, mut state: QuantumState):
+        """Execute with SIMD optimizations but without fusion on provided state (runtime dispatch).
+        """
+        execute_simd_unfused[self.num_qubits](state, self)
 
     fn fuse(mut self):
         """Perform greedy fusion and pre-compute transformation matrices."""
@@ -1389,11 +1414,111 @@ struct QuantumCircuit(Copyable):
 
         self.is_fused = True
 
-    fn execute_optimized(mut self) -> QuantumState:
-        """Execute transformations with automatic fusion optimization."""
+    fn run_fused_v3_dynamic(mut self) -> QuantumState:
+        """Execute transformations with fused_v3 optimization (runtime dispatch).
+        """
         if not self.is_fused:
             self.fuse()
         return self._execute_fused()
+
+    fn execute_fused_v3_dynamic(mut self, mut state: QuantumState):
+        """Execute transformations with fused_v3 optimization on provided state (runtime dispatch).
+        """
+        execute_fused_v3[self.num_qubits](state, self)
+
+    fn run_with_strategy(mut self, strategy: ExecutionStrategy) -> QuantumState:
+        """Execute circuit with specified strategy and return new state.
+
+        Args:
+            strategy: Execution strategy to use.
+
+        Returns:
+            The quantum state after applying all transformations.
+        """
+        if strategy.isa[Generic]():
+            return self.run()
+        elif strategy.isa[SIMD]():
+            return self.run_simd_dynamic()
+        elif strategy.isa[SIMDv2]():
+            return self.run_simd_v2_dynamic()
+        elif strategy.isa[FusedV3]():
+            return self.run_fused_v3_dynamic()
+        else:
+            return self.run()  # fallback to generic
+
+    fn execute_with_strategy[
+        n: Int, strategy: ExecutionStrategy
+    ](mut self, mut state: QuantumState):
+        """Execute circuit with specified strategy (fully compile-time specialized).
+
+        Args:
+            state: The quantum state to transform (modified in place).
+
+        Parameters:
+            n: Number of qubits (compile-time constant).
+            strategy: Execution strategy to use (compile-time constant).
+
+        Note:
+            Zero-overhead abstraction - both n and strategy known at compile time.
+            For runtime strategy selection, use the overload with strategy as an argument.
+        """
+        execute_with_strategy[n, strategy](state, self)
+
+    fn execute_with_strategy[
+        n: Int
+    ](mut self, mut state: QuantumState, strategy: ExecutionStrategy):
+        """Execute circuit with specified strategy (compile-time specialized).
+
+        Args:
+            state: The quantum state to transform (modified in place).
+            strategy: Execution strategy to use.
+
+        Parameters:
+            n: Number of qubits (compile-time constant).
+
+        Note:
+            This is the compile-time specialized version. For dynamic dispatch,
+            use execute_with_strategy_dynamic().
+        """
+        execute_with_strategy[n](state, self, strategy)
+
+    fn execute_with_strategy_dynamic(
+        mut self, mut state: QuantumState, strategy: ExecutionStrategy
+    ):
+        """Execute circuit with specified strategy on provided state (dynamic dispatch).
+
+        Args:
+            state: The quantum state to transform (modified in place).
+            strategy: Execution strategy to use.
+        """
+        if strategy.isa[Generic]():
+            self.execute(state)
+        elif strategy.isa[SIMD]():
+            self.execute_simd_dynamic(state)
+        elif strategy.isa[SIMDv2]():
+            self.execute_simd_v2_dynamic(state)
+        elif strategy.isa[FusedV3]():
+            self.execute_fused_v3_dynamic(state)
+        else:
+            self.execute(state)  # fallback to generic
+
+    fn run_adaptive(mut self) -> QuantumState:
+        """Execute circuit with automatically selected optimal strategy.
+
+        Selects the best executor based on circuit size:
+        - n ≤ 9: execute_simd (fastest for small circuits)
+        - n = 10-12: execute (generic, fastest for medium circuits)
+        - n ≥ 13: execute_simd_v2 (fastest for large circuits)
+
+        Returns:
+            The resulting quantum state after execution.
+        """
+        from butterfly.core.adaptive_strategy import get_optimal_strategy
+
+        var state = QuantumState(self.num_qubits)
+        var strategy = get_optimal_strategy(self.num_qubits)
+        self.execute_with_strategy_dynamic(state, strategy)
+        return state^
 
     fn clear_transformations(mut self):
         """Clear all transformations from the circuit."""
@@ -1971,6 +2096,28 @@ struct QuantumCircuit(Copyable):
                 ControlledUnitaryTransformation(u^, target, controls[0], m)
             )
 
+    fn execute_fused_v3[n: Int](self, mut state: QuantumState):
+        """Execute a circuit on a quantum state using fused transforms.
+
+        Args:
+            state: The quantum state to transform (modified in place).
+        """
+        # Validate that circuit qubits match state size
+        var expected_size = 1 << self.num_qubits
+        if state.size() != expected_size:
+            print(
+                "Error: Circuit has",
+                self.num_qubits,
+                "qubits (expects state size",
+                expected_size,
+                ") but state has size",
+                state.size(),
+            )
+            return
+
+        # Use fused executor
+        execute_fused_v3[1 << n](state, self)
+
 
 alias Circuit = QuantumCircuit
 alias Register = QuantumRegister
@@ -2090,7 +2237,9 @@ fn execute(mut state: QuantumState, circuit: QuantumCircuit):
                         break
 
 
-fn execute_simd[N: Int](mut state: QuantumState, circuit: QuantumCircuit):
+fn execute_simd[
+    num_qubits: Int
+](mut state: QuantumState, circuit: QuantumCircuit):
     """Execute a circuit on a quantum state using SIMD-optimized transforms.
 
     Args:
@@ -2098,21 +2247,20 @@ fn execute_simd[N: Int](mut state: QuantumState, circuit: QuantumCircuit):
         circuit: The circuit containing transformations to apply.
 
     Parameters:
-        N: Compile-time state size (must equal 1 << circuit.num_qubits).
+        num_qubits: Number of qubits (compile-time constant).
 
     Note:
         Requires compile-time known size. For runtime sizes, use execute() instead.
     """
-    # Validate that circuit qubits match state size
-    var expected_size = 1 << circuit.num_qubits
-    if state.size() != expected_size:
+    alias N = 1 << num_qubits
+
+    # Validate that circuit qubits match parameter
+    if circuit.num_qubits != num_qubits:
         print(
             "Error: Circuit has",
             circuit.num_qubits,
-            "qubits (expects state size",
-            expected_size,
-            ") but state has size",
-            state.size(),
+            "qubits but execute_simd[num_qubits] called with",
+            num_qubits,
         )
         return
 
@@ -2232,6 +2380,37 @@ fn execute_fused[N: Int](mut state: QuantumState, circuit: QuantumCircuit):
     execute_fused_v3[N](state, circuit)
 
 
+fn execute_simd_v2[
+    num_qubits: Int
+](mut state: QuantumState, circuit: QuantumCircuit):
+    """Execute circuit with SIMD v2 optimizations (optimized indexing + chunked kernels).
+
+    Args:
+        state: The quantum state to transform (modified in place).
+        circuit: The circuit containing transformations to apply.
+
+    Parameters:
+        num_qubits: Number of qubits (compile-time constant).
+
+    Note:
+        Requires compile-time known size. For runtime sizes, use execute() instead.
+    """
+    alias N = 1 << num_qubits
+
+    # Validate that circuit qubits match parameter
+    if circuit.num_qubits != num_qubits:
+        print(
+            "Error: Circuit has",
+            circuit.num_qubits,
+            "qubits but execute_simd_v2[num_qubits] called with",
+            num_qubits,
+        )
+        return
+
+    # Use SIMD v2 executor (unfused)
+    execute_transformations_simd_v2[N](state, circuit.transformations)
+
+
 fn execute_simd_unfused[
     N: Int
 ](mut state: QuantumState, circuit: QuantumCircuit):
@@ -2264,29 +2443,30 @@ fn execute_simd_unfused[
     execute_transformations_simd_v2[N](state, circuit.transformations)
 
 
-fn execute_optimized[N: Int](mut state: QuantumState, circuit: QuantumCircuit):
-    """Execute circuit with optimization (fusion + matrix multiplication).
+fn execute_fused_v3[
+    num_qubits: Int
+](mut state: QuantumState, circuit: QuantumCircuit):
+    """Execute circuit with fused_v3 optimization (fusion + matrix multiplication).
 
     Args:
         state: The quantum state to transform (modified in place).
         circuit: The circuit containing transformations to apply.
 
     Parameters:
-        N: Compile-time state size (must equal 1 << circuit.num_qubits).
+        num_qubits: Number of qubits (compile-time constant).
 
     Note:
-        For now, delegates to execute_fused_v3. Can be optimized separately later.
+        Delegates to execute_fused_v3 implementation for best performance.
     """
-    # Validate that circuit qubits match state size
-    var expected_size = 1 << circuit.num_qubits
-    if state.size() != expected_size:
+    alias N = 1 << num_qubits
+
+    # Validate that circuit qubits match parameter
+    if circuit.num_qubits != num_qubits:
         print(
             "Error: Circuit has",
             circuit.num_qubits,
-            "qubits (expects state size",
-            expected_size,
-            ") but state has size",
-            state.size(),
+            "qubits but execute_fused_v3[num_qubits] called with",
+            num_qubits,
         )
         return
 
@@ -2319,5 +2499,94 @@ fn run_circuit_optimized[n: Int](circuit: QuantumCircuit) -> QuantumState:
         return QuantumState(n)
 
     var state = QuantumState(n)
-    execute_optimized[1 << n](state, circuit)
+    execute_fused_v3[1 << n](state, circuit)
     return state^
+
+
+fn execute_with_strategy[
+    n: Int, strategy: ExecutionStrategy
+](mut state: QuantumState, circuit: QuantumCircuit):
+    """Execute circuit with specified strategy (fully compile-time specialized).
+
+    Args:
+        state: The quantum state to transform (modified in place).
+        circuit: The circuit containing transformations to apply.
+
+    Parameters:
+        n: Number of qubits (compile-time constant).
+        strategy: Execution strategy to use (compile-time constant).
+
+    Note:
+        This is the fully compile-time specialized version with zero runtime overhead.
+        Both n and strategy are known at compile time, allowing maximum optimization.
+        For runtime strategy selection, use the overload with strategy as an argument.
+    """
+    # Validate circuit size matches parameter
+    if circuit.num_qubits != n:
+        print(
+            "Error: execute_with_strategy[n, strategy] expects circuit with",
+            n,
+            "qubits, but got",
+            circuit.num_qubits,
+        )
+        return
+
+    # Compile-time dispatch - no runtime branching!
+    @parameter
+    if strategy.isa[Generic]():
+        execute_simd[n](state, circuit)
+    elif strategy.isa[SIMD]():
+        execute_simd[n](state, circuit)
+    elif strategy.isa[SIMDv2]():
+        execute_simd_v2[n](state, circuit)
+    elif strategy.isa[FusedV3]():
+        execute_fused_v3[n](state, circuit)
+    else:
+        execute_simd[n](state, circuit)
+
+
+fn execute_with_strategy[
+    n: Int
+](
+    mut state: QuantumState,
+    circuit: QuantumCircuit,
+    strategy: ExecutionStrategy,
+):
+    """Execute circuit with specified strategy (compile-time specialized).
+
+    Args:
+        state: The quantum state to transform (modified in place).
+        circuit: The circuit containing transformations to apply.
+        strategy: Execution strategy to use.
+
+    Parameters:
+        n: Number of qubits (compile-time constant).
+
+    Note:
+        This is the compile-time specialized version that dispatches to the
+        appropriate executor based on the strategy. For dynamic dispatch, use
+        execute_with_strategy_dynamic().
+    """
+    alias N = 1 << n
+
+    # Validate circuit size matches parameter
+    if circuit.num_qubits != n:
+        print(
+            "Error: execute_with_strategy[n] expects circuit with",
+            n,
+            "qubits, but got",
+            circuit.num_qubits,
+        )
+        return
+
+    # Dispatch to appropriate executor based on strategy
+    if strategy.isa[Generic]():
+        execute_simd[n](state, circuit)  # Generic uses SIMD implementation
+    elif strategy.isa[SIMD]():
+        execute_simd[n](state, circuit)
+    elif strategy.isa[SIMDv2]():
+        execute_simd_v2[n](state, circuit)
+    elif strategy.isa[FusedV3]():
+        execute_fused_v3[n](state, circuit)
+    else:
+        execute_simd[n](state, circuit)  # fallback to SIMD
