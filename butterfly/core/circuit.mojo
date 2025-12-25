@@ -935,7 +935,7 @@ struct QuantumRegister(Copyable, Movable):
         return result^
 
 
-struct QuantumCircuit(Copyable):
+struct QuantumCircuit(Copyable, Movable):
     """A quantum circuit that manages quantum state and transformation operations.
 
     The circuit maintains a quantum state and a sequence of transformations (gates)
@@ -1030,7 +1030,7 @@ struct QuantumCircuit(Copyable):
         Returns:
             The quantum state after applying all transformations.
         """
-        var state = QuantumState(self.num_qubits)
+        var state = QuantumState(self.num_qubits)^
         execute(state, self)
         return state
 
@@ -1227,7 +1227,100 @@ struct QuantumCircuit(Copyable):
     fn execute_simd_v2_dynamic(mut self, mut state: QuantumState):
         """Execute circuit with SIMD v2 optimizations on provided state (runtime dispatch).
         """
-        execute_simd_v2[self.num_qubits](state, self)
+        var num_qubits = self.num_qubits
+
+        # Dispatch to SIMD v2 for common qubit counts
+        from butterfly.core.execute_simd_v2_dispatch import (
+            execute_transformations_simd_v2,
+        )
+
+        if num_qubits == 25:
+            execute_transformations_simd_v2[1 << 25](
+                state, self.transformations
+            )
+        elif num_qubits == 24:
+            execute_transformations_simd_v2[1 << 24](
+                state, self.transformations
+            )
+        elif num_qubits == 26:
+            execute_transformations_simd_v2[1 << 26](
+                state, self.transformations
+            )
+        elif num_qubits == 23:
+            execute_transformations_simd_v2[1 << 23](
+                state, self.transformations
+            )
+        elif num_qubits == 27:
+            execute_transformations_simd_v2[1 << 27](
+                state, self.transformations
+            )
+        elif num_qubits == 28:
+            execute_transformations_simd_v2[1 << 28](
+                state, self.transformations
+            )
+        elif num_qubits == 29:
+            execute_transformations_simd_v2[1 << 29](
+                state, self.transformations
+            )
+        elif num_qubits == 30:
+            execute_transformations_simd_v2[1 << 30](
+                state, self.transformations
+            )
+        elif num_qubits == 22:
+            execute_transformations_simd_v2[1 << 22](
+                state, self.transformations
+            )
+        elif num_qubits == 21:
+            execute_transformations_simd_v2[1 << 21](
+                state, self.transformations
+            )
+        elif num_qubits == 20:
+            execute_transformations_simd_v2[1 << 20](
+                state, self.transformations
+            )
+        elif num_qubits == 19:
+            execute_transformations_simd_v2[1 << 19](
+                state, self.transformations
+            )
+        elif num_qubits == 18:
+            execute_transformations_simd_v2[1 << 18](
+                state, self.transformations
+            )
+        elif num_qubits == 17:
+            execute_transformations_simd_v2[1 << 17](
+                state, self.transformations
+            )
+        elif num_qubits == 16:
+            execute_transformations_simd_v2[1 << 16](
+                state, self.transformations
+            )
+        elif num_qubits == 15:
+            execute_transformations_simd_v2[1 << 15](
+                state, self.transformations
+            )
+        elif num_qubits == 14:
+            execute_transformations_simd_v2[1 << 14](
+                state, self.transformations
+            )
+        elif num_qubits == 13:
+            execute_transformations_simd_v2[1 << 13](
+                state, self.transformations
+            )
+        elif num_qubits == 12:
+            execute_transformations_simd_v2[1 << 12](
+                state, self.transformations
+            )
+        elif num_qubits == 11:
+            execute_transformations_simd_v2[1 << 11](
+                state, self.transformations
+            )
+        elif num_qubits == 10:
+            execute_transformations_simd_v2[1 << 10](
+                state, self.transformations
+            )
+        else:
+            # Fall back to generic execution
+            self.execute(state)
 
     fn apply_transformation_super_fast(
         self, mut state: QuantumState, t: Transformation
@@ -1423,7 +1516,56 @@ struct QuantumCircuit(Copyable):
     fn execute_fused_v3_dynamic(mut self, mut state: QuantumState):
         """Execute transformations with fused_v3 optimization on provided state (runtime dispatch).
         """
-        execute_fused_v3[self.num_qubits](state, self)
+        var num_qubits = self.num_qubits
+
+        # Dispatch to fused_v3 for common qubit counts
+        from butterfly.core.execute_fused_v3 import execute_fused_v3
+
+        if num_qubits == 25:
+            execute_fused_v3[1 << 25](state, self)
+        elif num_qubits == 24:
+            execute_fused_v3[1 << 24](state, self)
+        elif num_qubits == 26:
+            execute_fused_v3[1 << 26](state, self)
+        elif num_qubits == 23:
+            execute_fused_v3[1 << 23](state, self)
+        elif num_qubits == 27:
+            execute_fused_v3[1 << 27](state, self)
+        elif num_qubits == 28:
+            execute_fused_v3[1 << 28](state, self)
+        elif num_qubits == 29:
+            execute_fused_v3[1 << 29](state, self)
+        elif num_qubits == 30:
+            execute_fused_v3[1 << 30](state, self)
+        elif num_qubits == 22:
+            execute_fused_v3[1 << 22](state, self)
+        elif num_qubits == 21:
+            execute_fused_v3[1 << 21](state, self)
+        elif num_qubits == 20:
+            execute_fused_v3[1 << 20](state, self)
+        elif num_qubits == 19:
+            execute_fused_v3[1 << 19](state, self)
+        elif num_qubits == 18:
+            execute_fused_v3[1 << 18](state, self)
+        elif num_qubits == 17:
+            execute_fused_v3[1 << 17](state, self)
+        elif num_qubits == 16:
+            execute_fused_v3[1 << 16](state, self)
+        elif num_qubits == 15:
+            execute_fused_v3[1 << 15](state, self)
+        elif num_qubits == 14:
+            execute_fused_v3[1 << 14](state, self)
+        elif num_qubits == 13:
+            execute_fused_v3[1 << 13](state, self)
+        elif num_qubits == 12:
+            execute_fused_v3[1 << 12](state, self)
+        elif num_qubits == 11:
+            execute_fused_v3[1 << 11](state, self)
+        elif num_qubits == 10:
+            execute_fused_v3[1 << 10](state, self)
+        else:
+            # Fall back to generic execution
+            self.execute(state)
 
     fn run_with_strategy(mut self, strategy: ExecutionStrategy) -> QuantumState:
         """Execute circuit with specified strategy and return new state.
@@ -1682,7 +1824,7 @@ struct QuantumCircuit(Copyable):
 
     fn cp(mut self, target: Int, control: Int, theta: FloatType):
         """Apply controlled phase gate."""
-        self.add_controlled(P(theta), target, control)
+        self.add_controlled(P(theta), control, target)
 
     fn cft(
         mut self,
@@ -2127,28 +2269,38 @@ fn _qft(mut qc: QuantumCircuit, targets: List[Int], swap: Bool = True):
     """Internal helper: Apply Quantum Fourier Transform to the specified target qubits.
     """
     if swap:
-        qc.mswap(targets)
+        if len(targets) == qc.num_qubits:
+            qc.bit_reverse()
+        else:
+            # Partial swap
+            var n = len(targets)
+            for i in range(n // 2):
+                qc.swap(targets[i], targets[n - 1 - i])
 
-    var n = len(targets)
-    for j in range(n):
+    for j in range(len(targets)):
         for k in range(j):
-            var theta = pi * (2.0 ** (k - j))
-            qc.cp(targets[k], targets[j], theta)
+            # cp signature: (control, target, theta)
+            qc.cp(targets[j], targets[k], pi / (2 ** (j - k)))
         qc.h(targets[j])
 
 
 fn _iqft(mut qc: QuantumCircuit, targets: List[Int], swap: Bool = True):
     """Internal helper: Apply Inverse Quantum Fourier Transform to the specified target qubits.
     """
-    var n = len(targets)
-    for j in reversed(range(n)):
+    for j in reversed(range(len(targets))):
         qc.h(targets[j])
         for k in reversed(range(j)):
-            var theta = -pi / (2.0 ** (j - k))
-            qc.cp(targets[j], targets[k], theta)
+            # cp signature: (control, target, theta)
+            qc.cp(targets[k], targets[j], -pi / (2 ** (j - k)))
 
     if swap:
-        qc.mswap(targets)
+        if len(targets) == qc.num_qubits:
+            qc.bit_reverse()
+        else:
+            # Partial swap
+            var n = len(targets)
+            for i in range(n // 2):
+                qc.swap(targets[i], targets[n - 1 - i])
 
 
 fn QFT(m: Int, reversed: Bool = False, swap: Bool = True) -> QuantumCircuit:
@@ -2216,6 +2368,7 @@ fn execute(mut state: QuantumState, circuit: QuantumCircuit):
             # print("Applying gate:", g.name, "to qubit", g.target, g.arg)
             transform(state, g.target, g.gate)
         elif t.isa[SingleControlGateTransformation]():
+            # print("Applying single control gate")
             var g = t[SingleControlGateTransformation].copy()
             c_transform(state, g.control, g.target, g.gate)
         elif t.isa[MultiControlGateTransformation]():
