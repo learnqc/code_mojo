@@ -90,9 +90,7 @@ fn bench_n[
 
 
 fn main() raises:
-    var runner = BenchmarkRunner(
-        "GridQuantumState Comprehensive (n=3-27, v=4.7)"
-    )
+    var runner = BenchmarkRunner("Grid vs All Strategies (n=3-27)")
 
     var param_cols = List[String]()
     param_cols.append("n")
@@ -129,8 +127,8 @@ fn main() raises:
 
     runner.print_table(show_winner=True)
 
-    var folder_name = "2025_12_25"
-    var output_path = "benches/results/" + folder_name + "/grid_comprehensive"
+    # Save results - date folder added automatically by BenchmarkRunner
+    var output_path = "benches/results/grid_comprehensive"
     runner.save_csv(output_path)
 
     print("\nStrategies:")
@@ -140,17 +138,3 @@ fn main() raises:
     print("  grid_4row_ms  = GridQuantumState with 4 rows")
     print("  grid_8row_ms  = GridQuantumState with 8 rows")
     print("\nResults saved with timestamp:", String(runner.timestamp))
-
-    # Generate markdown report automatically
-    # print("\nGenerating report...")
-    # Python.add_to_path(".")
-    # var report_gen = Python.import_module("generate_report")
-    var csv_path = output_path + "_" + String(runner.timestamp) + ".csv"
-    var report_path = "../reports/grid_comprehensive_v4.7"
-    # _ = report_gen.generate_report([csv_path], report_path + ".md")
-    # print("Report saved to:", report_path + ".md")
-    print(
-        "\npython benches/generate_report.py {} -o {}.md".format(
-            csv_path, report_path
-        )
-    )

@@ -202,10 +202,13 @@ struct BenchmarkRunner:
         return get_timestamp_string()
 
     fn save_csv(self, filepath: String) raises:
-        """Save results to CSV with timestamp.
+        """Save results to CSV with timestamp in date-organized folder.
 
-        Note: Timestamps are nanoseconds for uniqueness. Use Python report
-        generator for human-readable dates.
+        Automatically organizes results into date folders (YYYY_MM_DD).
+
+        Example:
+            runner.save_csv("benches/results/my_benchmark")
+            # Saves to: benches/results/2025_12_25/my_benchmark_TIMESTAMP.csv
         """
         # Extract directory and filename from filepath
         var last_slash = filepath.rfind("/")
@@ -218,14 +221,18 @@ struct BenchmarkRunner:
             filename_with_ext[:last_dot] if last_dot >= 0 else filename_with_ext
         )
 
+        # Add date folder to organize results
+        var date_str = self._get_date_string()
+        var results_dir = base_dir + "/" + date_str
+
         # Create directory if it doesn't exist
         from os import makedirs
 
-        makedirs(base_dir, exist_ok=True)
+        makedirs(results_dir, exist_ok=True)
 
-        # Build final path with timestamp
+        # Build final path with date folder and timestamp
         var final_path = (
-            base_dir + "/" + filename + "_" + self.timestamp + ".csv"
+            results_dir + "/" + filename + "_" + self.timestamp + ".csv"
         )
 
         # Write CSV
@@ -265,24 +272,44 @@ struct BenchmarkRunner:
 
         print("Results saved to:", final_path)
 
+        # Automatically generate markdown report
+        self._generate_report_auto(final_path, filename)
+
+    fn _generate_report_auto(self, csv_path: String, report_base_name: String):
+        """Automatically generate markdown report from CSV.
+
+        Silently fails if Python import doesn't work (optional feature).
+        """
+        try:
+            from python import Python
+
+            # Setup Python path
+            var sys = Python.import_module("sys")
+            sys.path.append(".")
+            sys.path.append("benches")
+
+            # Generate report
+            print("\nGenerating report...")
+            var report_gen = Python.import_module("benches.generate_report")
+            var report_path = "benches/reports/" + report_base_name
+            _ = report_gen.generate_report([csv_path], report_path + ".md")
+            print("Report saved to:", report_path + ".md")
+        except:
+            # Report generation is optional - don't fail if it doesn't work
+            print("(Report generation skipped - Python import not available)")
+
     fn _get_date_string(self) -> String:
-        """Get current date as YYYY_MM_DD string."""
-        # Convert timestamp (nanoseconds) to date
-        var seconds = self.timestamp // 1_000_000_000
+        """Get current date as YYYY_MM_DD string using Python datetime."""
+        try:
+            from python import Python
 
-        # Simple date calculation (Unix epoch)
-        var days_since_epoch = seconds // 86400
+            var datetime = Python.import_module("datetime")
+            var now = datetime.datetime.now()
+            var year = String(now.year)
+            var month = String(now.month).rjust(2, "0")
+            var day = String(now.day).rjust(2, "0")
 
-        # Approximate year/month/day (simplified)
-        var year = 1970 + (days_since_epoch // 365)
-        var day_of_year = days_since_epoch % 365
-        var month = (day_of_year // 30) + 1
-        var day = (day_of_year % 30) + 1
-
-        return (
-            String(year)
-            + "_"
-            + String(month).rjust(2, "0")
-            + "_"
-            + String(day).rjust(2, "0")
-        )
+            return year + "_" + month + "_" + day
+        except:
+            # Fallback: Python datetime should always work, but just in case
+            return "2025_12_25"
