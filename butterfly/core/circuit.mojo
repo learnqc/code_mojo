@@ -1718,7 +1718,7 @@ struct QuantumCircuit(Copyable, Movable):
                 elif g.name == "rz":
                     res.crz(g.target, g.control, -g.arg)
                 elif g.name == "p":
-                    res.cp(g.target, g.control, -g.arg)
+                    res.cp(g.control, g.target, -g.arg)
                 else:
                     res.c_unitary(dagger(g.gate), g.control, g.target)
             elif t.isa[MultiControlGateTransformation]():
@@ -1822,7 +1822,7 @@ struct QuantumCircuit(Copyable, Movable):
         """Apply controlled RZ rotation gate."""
         self.add_controlled(RZ(theta), target, control, "rz", theta)
 
-    fn cp(mut self, target: Int, control: Int, theta: FloatType):
+    fn cp(mut self, control: Int, target: Int, theta: FloatType):
         """Apply controlled phase gate."""
         self.add_controlled(P(theta), control, target)
 
@@ -2291,7 +2291,7 @@ fn _iqft(mut qc: QuantumCircuit, targets: List[Int], swap: Bool = True):
         qc.h(targets[j])
         for k in reversed(range(j)):
             # cp signature: (control, target, theta)
-            qc.cp(targets[k], targets[j], -pi / (2 ** (j - k)))
+            qc.cp(targets[j], targets[k], -pi / (2 ** (j - k)))
 
     if swap:
         if len(targets) == qc.num_qubits:
