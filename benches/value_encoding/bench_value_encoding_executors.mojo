@@ -149,9 +149,5 @@ fn main() raises:
     print("  qiskit_ms        = Qiskit with transpilation")
     print("\nResults saved with timestamp:", String(runner.timestamp))
 
-    # Generate markdown report automatically
-    print("\nGenerating report...")
-    var report_gen = Python.import_module("benches.generate_report")
-    var csv_path = output_path + "_" + String(runner.timestamp) + ".csv"
-    var report_path = "benches/reports/value_encoding_v4.7"
-    _ = report_gen.generate_report([csv_path], report_path + ".md")
+    # Save to CSV - automated by run_benchmark_suite.py
+    runner.save_csv("value_encoding_executors")

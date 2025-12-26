@@ -52,6 +52,10 @@ struct BenchmarkRunner:
         self.param_columns = List[String]()
         self.bench_columns = List[String]()
 
+    fn log_progress(self, message: String):
+        """Print a progress message with the runner's prefix."""
+        print("[" + self.suite_name + "] " + message)
+
     fn set_param_columns(mut self, var columns: List[String]):
         """Set the parameter column names."""
         self.param_columns = columns^
@@ -202,13 +206,11 @@ struct BenchmarkRunner:
         return get_timestamp_string()
 
     fn save_csv(self, filepath: String) raises:
-        """Save results to CSV with timestamp in date-organized folder.
-
-        Automatically organizes results into date folders (YYYY_MM_DD).
+        """Save results to CSV with timestamp.
 
         Example:
             runner.save_csv("benches/results/my_benchmark")
-            # Saves to: benches/results/2025_12_25/my_benchmark_TIMESTAMP.csv
+            # Saves to: benches/results/my_benchmark_TIMESTAMP.csv
         """
         # Extract directory and filename from filepath
         var last_slash = filepath.rfind("/")
@@ -221,16 +223,17 @@ struct BenchmarkRunner:
             filename_with_ext[:last_dot] if last_dot >= 0 else filename_with_ext
         )
 
-        # Add date folder to organize results
-        var date_str = self._get_date_string()
-        var results_dir = base_dir + "/" + date_str
+        # Check for results directory override from environment
+        from os import getenv
+
+        var results_dir = getenv("MOJO_BENCH_RESULTS_DIR", base_dir)
 
         # Create directory if it doesn't exist
         from os import makedirs
 
         makedirs(results_dir, exist_ok=True)
 
-        # Build final path with date folder and timestamp
+        # Build final path with timestamp
         var final_path = (
             results_dir + "/" + filename + "_" + self.timestamp + ".csv"
         )
@@ -271,45 +274,3 @@ struct BenchmarkRunner:
                 f.write(row)
 
         print("Results saved to:", final_path)
-
-        # Automatically generate markdown report
-        self._generate_report_auto(final_path, filename)
-
-    fn _generate_report_auto(self, csv_path: String, report_base_name: String):
-        """Automatically generate markdown report from CSV.
-
-        Silently fails if Python import doesn't work (optional feature).
-        """
-        try:
-            from python import Python
-
-            # Setup Python path
-            var sys = Python.import_module("sys")
-            sys.path.append(".")
-            sys.path.append("benches")
-
-            # Generate report
-            print("\nGenerating report...")
-            var report_gen = Python.import_module("benches.generate_report")
-            var report_path = "benches/reports/" + report_base_name
-            _ = report_gen.generate_report([csv_path], report_path + ".md")
-            print("Report saved to:", report_path + ".md")
-        except:
-            # Report generation is optional - don't fail if it doesn't work
-            print("(Report generation skipped - Python import not available)")
-
-    fn _get_date_string(self) -> String:
-        """Get current date as YYYY_MM_DD string using Python datetime."""
-        try:
-            from python import Python
-
-            var datetime = Python.import_module("datetime")
-            var now = datetime.datetime.now()
-            var year = String(now.year)
-            var month = String(now.month).rjust(2, "0")
-            var day = String(now.day).rjust(2, "0")
-
-            return year + "_" + month + "_" + day
-        except:
-            # Fallback: Python datetime should always work, but just in case
-            return "2025_12_25"

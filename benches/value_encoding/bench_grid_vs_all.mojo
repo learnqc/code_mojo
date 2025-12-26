@@ -19,7 +19,6 @@ from butterfly.algos.value_encoding_circuit import encode_value_circuits_runtime
 from collections import Dict
 from time import perf_counter_ns
 from benchmark import keep
-from python import Python
 
 
 fn bench_n[
@@ -30,12 +29,13 @@ fn bench_n[
     params["n"] = String(n)
     params["value"] = String(value)
 
-    print("n=" + String(n) + ", value=" + String(value))
+    runner.log_progress("n=" + String(n) + ", value=" + String(value))
 
     # Create circuit
     var circuits = encode_value_circuits_runtime(n, value)
 
     # Benchmark Generic
+    runner.log_progress("  [1/5] Running Generic...")
     var t0 = Int(perf_counter_ns())
     for _ in range(iters):
         var s = QuantumState(n)
@@ -46,6 +46,7 @@ fn bench_n[
     runner.add_result(params, "generic_ms", time_generic)
 
     # Benchmark SIMD v2
+    runner.log_progress("  [2/5] Running SIMD v2...")
     t0 = Int(perf_counter_ns())
     for _ in range(iters):
         var s = QuantumState(n)
@@ -56,6 +57,7 @@ fn bench_n[
     runner.add_result(params, "simd_v2_ms", time_v2)
 
     # Benchmark Grid 2 rows
+    runner.log_progress("  [3/5] Running Grid Quantum State (2 rows)...")
     alias row_size_2 = 1 << (n - 1)
     t0 = Int(perf_counter_ns())
     for _ in range(iters):
@@ -67,6 +69,7 @@ fn bench_n[
     runner.add_result(params, "grid_2row_ms", time_grid2)
 
     # Benchmark Grid 4 rows
+    runner.log_progress("  [4/5] Running Grid Quantum State (4 rows)...")
     alias row_size_4 = 1 << (n - 2)
     t0 = Int(perf_counter_ns())
     for _ in range(iters):
@@ -78,6 +81,7 @@ fn bench_n[
     runner.add_result(params, "grid_4row_ms", time_grid4)
 
     # Benchmark Grid 8 rows
+    runner.log_progress("  [5/5] Running Grid Quantum State (8 rows)...")
     alias row_size_8 = 1 << (n - 3)
     t0 = Int(perf_counter_ns())
     for _ in range(iters):
@@ -127,9 +131,8 @@ fn main() raises:
 
     runner.print_table(show_winner=True)
 
-    # Save results - date folder added automatically by BenchmarkRunner
-    var output_path = "benches/results/grid_comprehensive"
-    runner.save_csv(output_path)
+    # Save results - automated by run_benchmark_suite.py
+    runner.save_csv("grid_comprehensive")
 
     print("\nStrategies:")
     print("  generic_ms    = Standard execute()")

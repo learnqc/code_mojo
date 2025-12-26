@@ -269,18 +269,8 @@ fn main() raises:
     # Print results
     runner.print_table(show_winner=True)
 
-    # Save to CSV
-    var output_path = "benches/results/2025_12_24/v3_vs_v2"
-    runner.save_csv(output_path)
-
-    # Generate markdown report automatically
-    print("\nGenerating report...")
-    from python import Python
-
-    var report_gen = Python.import_module("benches.generate_report")
-    var csv_path = output_path + "_" + String(runner.timestamp) + ".csv"
-    var report_path = "benches/reports/v3_vs_v2"
-    _ = report_gen.generate_report([csv_path], report_path + ".md")
+    # Save to CSV - automated by run_benchmark_suite.py
+    runner.save_csv("v3_vs_v2")
 
     print("\nLegend:")
     print("  v2_ms = execute_simd_v2 (baseline)")
