@@ -45,7 +45,7 @@ struct BenchmarkRunner:
     var param_columns: List[String]
     var bench_columns: List[String]
 
-    fn __init__(out self, suite_name: String):
+    fn __init__(out self, suite_name: String) raises:
         self.suite_name = suite_name
         self.timestamp = get_timestamp_string()
         self.results = List[BenchmarkResult]()
@@ -130,7 +130,6 @@ struct BenchmarkRunner:
                         bench_widths[bench] = val_len
 
         print("\n" + self.suite_name + " Results")
-        print("=" * 120)
 
         # Build and print header
         var header = ""
@@ -143,7 +142,9 @@ struct BenchmarkRunner:
             var width = bench_widths[bench] + 2
             header += bench.ljust(width) + "| "
         if show_winner:
-            header += "Winner"
+            header += "Winner".ljust(20)
+
+        print("=" * len(header))
         print(header)
         print("-" * len(header))
 

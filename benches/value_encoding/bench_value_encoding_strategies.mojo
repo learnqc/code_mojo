@@ -1,175 +1,146 @@
 """
-Benchmark value encoding using strategy-based execution.
+Benchmark value encoding using the new create_benchmark utility.
 
-Demonstrates the new ExecutionStrategy variant system by looping
-over all strategies instead of calling each method individually.
+This demonstrates the simplified approach where you just define functions
+and test cases, then call create_benchmark() to handle everything.
 """
 
-from butterfly.utils.benchmark_runner import BenchmarkRunner
-from butterfly.utils.benchmark_verify import verify_states_equal
+from butterfly.utils.benchmark_quantum_circuit_execution import (
+    create_quantum_circuit_execution_benchmark,
+)
+from butterfly.utils.benchmark_utils import parse_benchmark_args
 from butterfly.core.circuit import QuantumCircuit
+from butterfly.core.state import QuantumState
+from butterfly.algos.value_encoding_circuit import encode_value_circuit
 from butterfly.core.execution_strategy import (
-    ExecutionStrategy,
-    Generic,
-    SIMD,
-    SIMDv2,
-    FusedV3,
+    EXECUTION_STRATEGIES,
     GENERIC,
     SIMD_STRATEGY,
     SIMD_V2,
     FUSED_V3,
+    get_strategy_name,
+    get_strategy_description,
 )
-from butterfly.core.gates import H, P
+from butterfly.core.grid_state import GridQuantumState
+from butterfly.core.grid_state_hybrid import HybridGrid
 from butterfly.core.types import FloatType
-from math import pi
-from collections import Dict, List
-from time import perf_counter_ns
-from benchmark import keep
+from collections import List
 
 
-fn build_value_encoding_circuit(n: Int, value: FloatType) -> QuantumCircuit:
-    """Build value encoding circuit."""
+# Define execution functions for each strategy
+fn execute_with_generic(circuit: QuantumCircuit) -> QuantumState:
+    var c = circuit.copy()
+    return c.run_with_strategy(GENERIC)
+
+
+fn execute_with_simd(circuit: QuantumCircuit) -> QuantumState:
+    var c = circuit.copy()
+    return c.run_with_strategy(SIMD_STRATEGY)
+
+
+fn execute_with_simd_v2(circuit: QuantumCircuit) -> QuantumState:
+    var c = circuit.copy()
+    return c.run_with_strategy(SIMD_V2)
+
+
+fn execute_with_fused_v3(circuit: QuantumCircuit) -> QuantumState:
+    var c = circuit.copy()
+    return c.run_with_strategy(FUSED_V3)
+
+
+# Grid execution functions
+fn execute_with_grid(circuit: QuantumCircuit) -> QuantumState:
+    alias row_bits = 1  # 2 rows
+    var grid = GridQuantumState(circuit.num_qubits, row_bits)
+    try:
+        grid.execute[1 << row_bits](circuit)
+    except:
+        pass  # Should not happen
+    # Convert to QuantumState for compatibility
+    var row_re = List[FloatType]()
+    var row_im = List[FloatType]()
+    for r in range(grid.num_rows):
+        for c in range(grid.row_size):
+            row_re.append(grid.re[grid.get_row_offset(r) + c])
+            row_im.append(grid.im[grid.get_row_offset(r) + c])
+    return QuantumState(row_re^, row_im^)
+
+
+fn execute_with_hybrid(circuit: QuantumCircuit) -> QuantumState:
+    alias row_bits = 1  # 2 rows
+    var hybrid = HybridGrid(circuit.num_qubits, row_bits)
+    try:
+        hybrid.execute[True](circuit)
+    except:
+        pass  # Should not happen
+    # Convert to QuantumState for compatibility
+    var row_re = List[FloatType]()
+    var row_im = List[FloatType]()
+    for r in range(hybrid.num_rows):
+        for c in range(hybrid.row_size):
+            row_re.append(hybrid.re[r * hybrid.row_size + c])
+            row_im.append(hybrid.im[r * hybrid.row_size + c])
+    return QuantumState(row_re^, row_im^)
+
+
+# Circuit builder function
+fn build_value_encoding_circuit(n: Int, value: Float64) -> QuantumCircuit:
     var circuit = QuantumCircuit(n)
-
-    # Normalize value
-    var max_val = FloatType(1 << n)
-    var normalized = value
-    while normalized < 0:
-        normalized += max_val
-    while normalized >= max_val:
-        normalized -= max_val
-
-    # Hadamard on all qubits
-    for q in range(n):
-        circuit.add(H, q)
-
-    # Phase rotations
-    for q in range(n):
-        var angle = (
-            2.0 * pi * normalized * FloatType(1 << (n - 1 - q)) / max_val
-        )
-        circuit.add(P(angle), q)
-
-    # Inverse QFT
-    for j_inv in range(n - 1, -1, -1):
-        var q_target = n - 1 - j_inv
-        circuit.add(H, q_target)
-
-        if j_inv > 0:
-            for m in range(j_inv):
-                var q_control = n - 1 - m
-                var theta = -pi / (1 << (j_inv - m))
-                circuit.add_controlled(P(theta), q_target, q_control)
-
+    encode_value_circuit(n, circuit, value)
     return circuit^
 
 
-fn get_strategy_name(strategy: ExecutionStrategy) -> String:
-    """Get human-readable name for strategy."""
-    if strategy.isa[Generic]():
-        return "execute"
-    elif strategy.isa[SIMD]():
-        return "execute_simd"
-    elif strategy.isa[SIMDv2]():
-        return "execute_simd_v2"
-    elif strategy.isa[FusedV3]():
-        return "execute_fused_v3"
-    else:
-        return "unknown"
-
-
 fn main() raises:
-    var runner = BenchmarkRunner("Value Encoding - Strategy-Based")
+    # Parse command-line arguments (allows runner to override from JSON)
+    var (benchmark_id, display_name) = parse_benchmark_args(
+        "value_encoding_strategies",
+        "Value Encoding Strategies",
+    )
 
-    # Define all strategies to test
-    var strategies = List[ExecutionStrategy]()
-    strategies.append(GENERIC)
-    strategies.append(SIMD_STRATEGY)
-    strategies.append(SIMD_V2)
-    strategies.append(FUSED_V3)
+    # Create function list
+    var functions = List[fn (QuantumCircuit) -> QuantumState]()
+    functions.append(execute_with_generic)
+    functions.append(execute_with_simd)
+    functions.append(execute_with_simd_v2)
+    functions.append(execute_with_fused_v3)
+    functions.append(execute_with_grid)
+    functions.append(execute_with_hybrid)
 
-    # Configure columns
-    var param_cols = List[String]()
-    param_cols.append("n")
-    param_cols.append("value")
-    runner.set_param_columns(param_cols^)
-
-    var bench_cols = List[String]()
+    # Create name list
+    var names = List[String]()
+    var strategies = materialize[EXECUTION_STRATEGIES]()
     for i in range(len(strategies)):
-        bench_cols.append(get_strategy_name(strategies[i]))
-    runner.set_bench_columns(bench_cols^)
+        names.append(get_strategy_name(strategies[i]))
+    names.append("execute_grid")
+    names.append("execute_hybrid")
 
-    print("Benchmarking value encoding with strategy-based execution")
-    print("=" * 80)
-    print()
+    # Create description list
+    var descriptions = List[String]()
+    for i in range(len(strategies)):
+        descriptions.append(get_strategy_description(strategies[i]))
+    descriptions.append("Grid state (2 rows)")
+    descriptions.append("Hybrid grid (2 rows)")
 
-    # Test cases
-    var test_cases = List[Tuple[Int, FloatType]]()
+    # Define test cases
+    var test_cases = List[Tuple[Int, Float64]]()
     test_cases.append((10, 42.0))
     test_cases.append((12, 123.0))
     test_cases.append((15, 456.0))
     test_cases.append((18, 789.0))
 
-    for i in range(len(test_cases)):
-        var n = test_cases[i][0]
-        var value = test_cases[i][1]
-
-        print("n=" + String(n) + ", value=" + String(value))
-
-        # Create parameter dict
-        var params = Dict[String, String]()
-        params["n"] = String(n)
-        params["value"] = String(value)
-
-        # Build circuit once
-        var circuit_template = build_value_encoding_circuit(n, value)
-
-        # VERIFICATION - ensure all strategies produce same result
-        print("  Verifying strategies...", end="")
-        var ref_circuit = circuit_template.copy()
-        var reference_state = ref_circuit.run_with_strategy(GENERIC)
-
-        for j in range(1, len(strategies)):
-            var test_circuit = circuit_template.copy()
-            var test_state = test_circuit.run_with_strategy(strategies[j])
-            var strategy_name = get_strategy_name(strategies[j])
-            _ = verify_states_equal(
-                reference_state,
-                test_state,
-                name1="execute",
-                name2=strategy_name,
-            )
-        print(" ✓")
-
-        var iters = 5
-
-        # Benchmark each strategy
-        for j in range(len(strategies)):
-            var strategy = strategies[j]
-            var strategy_name = get_strategy_name(strategy)
-
-            var t0 = Int(perf_counter_ns())
-            for _ in range(iters):
-                var c = circuit_template.copy()
-                var s = c.run_with_strategy(strategy)
-                keep(s.re.unsafe_ptr())
-            var t1 = Int(perf_counter_ns())
-            var time_ms = Float64(t1 - t0) / 1_000_000.0 / iters
-            runner.add_result(params, strategy_name, time_ms)
-
-    # Print results table with winner
-    runner.print_table(show_winner=True)
-
-    # Save to CSV with folder organization
-    var folder_name = "2025_12_24"
-    var output_path = (
-        "benches/results/" + folder_name + "/value_encoding_strategies"
+    # One function call does everything!
+    # - Automatic date-based path organization
+    # - Verification
+    # - Benchmarking
+    # - Table printing
+    # - CSV export
+    # - Description display
+    create_quantum_circuit_execution_benchmark(
+        functions,
+        names,
+        descriptions,
+        build_value_encoding_circuit,
+        test_cases,
+        benchmark_id,  # From parse_benchmark_args (can be overridden by runner)
+        display_name,  # From parse_benchmark_args (can be overridden by runner)
     )
-    runner.save_csv(output_path)
-
-    print("\nStrategies:")
-    print("  execute          = Generic (debuggable)")
-    print("  execute_simd     = SIMD optimized (runtime dispatch)")
-    print("  execute_simd_v2  = SIMD v2 with dispatch")
-    print("  execute_fused_v3 = Fusion optimization")
-    print("\nResults saved with timestamp:", String(runner.timestamp))

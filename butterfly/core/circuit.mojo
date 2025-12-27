@@ -1030,7 +1030,7 @@ struct QuantumCircuit(Copyable, Movable):
         Returns:
             The quantum state after applying all transformations.
         """
-        var state = QuantumState(self.num_qubits)^
+        var state = QuantumState(self.num_qubits)
         execute(state, self)
         return state
 

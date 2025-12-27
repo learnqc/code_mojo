@@ -16,7 +16,7 @@ from butterfly.core.execution_strategy import (
     SIMD_V2,
     FUSED_V3,
 )
-from butterfly.algos.value_encoding import encode_value_circuit
+from butterfly.algos.value_encoding import value_encoding_circuit
 from butterfly.core.state import QuantumState
 from butterfly.core.types import FloatType
 from collections import Dict
@@ -28,7 +28,7 @@ from benchmark import keep
 fn build_value_encoding_circuit(n: Int, value: FloatType) -> QuantumCircuit:
     """Build value encoding circuit using gold standard implementation."""
     var circuit = QuantumCircuit(n)
-    encode_value_circuit(circuit, n, value)
+    value_encoding_circuit(circuit, n, value)
     return circuit^
 
 

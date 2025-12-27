@@ -1,0 +1,8 @@
+{
+  "value_encoding_strategies": {
+    "name": "Value Encoding - All Strategies",
+    "path": "benches/value_encoding/bench_value_encoding_strategies.mojo",
+    "description": "Quick test with grid and hybrid execution",
+    "estimated_time": "~2 min"
+  }
+}

@@ -6,6 +6,8 @@ serving as both validation and warmup.
 """
 
 from butterfly.core.state import QuantumState
+from butterfly.core.circuit import QuantumCircuit
+from collections import List
 
 
 fn verify_states_equal(

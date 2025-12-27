@@ -180,11 +180,11 @@ def generate_report(csv_files: List[str], output_file: str = None):
     if output_file:
         # Add timestamp to filename if not already present
         output_path = Path(output_file)
-        if '_' not in output_path.stem or not output_path.stem.split('_')[-1].isdigit():
-            # Human-readable format: YYYY_MM_DD_HHMMSS
-            timestamp = time.strftime('%Y_%m_%d_%H%M%S')
-            new_name = f"{output_path.stem}_{timestamp}{output_path.suffix}"
-            output_path = output_path.parent / new_name
+        # if '_' not in output_path.stem or not output_path.stem.split('_')[-1].isdigit():
+        #     # Human-readable format: YYYY_MM_DD_HHMMSS
+        #     timestamp = time.strftime('%Y_%m_%d_%H%M%S')
+        #     new_name = f"{output_path.stem}_{timestamp}{output_path.suffix}"
+        #     output_path = output_path.parent / new_name
         
         output_path.write_text(report)
         print(f"Report saved to: {output_path}")
