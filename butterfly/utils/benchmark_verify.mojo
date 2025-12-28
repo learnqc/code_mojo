@@ -7,6 +7,7 @@ serving as both validation and warmup.
 
 from butterfly.core.state import QuantumState
 from butterfly.core.circuit import QuantumCircuit
+from butterfly.utils.visualization import print_state
 from collections import List
 
 
@@ -48,6 +49,8 @@ fn verify_states_equal(
         diff_sum += diff_re * diff_re + diff_im * diff_im
 
     if diff_sum > tolerance:
+        print_state(state1)
+        print_state(state2)
         raise Error(
             "States differ! "
             + name1

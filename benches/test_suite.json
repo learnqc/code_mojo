@@ -4,5 +4,17 @@
     "path": "benches/value_encoding/bench_value_encoding_strategies.mojo",
     "description": "Quick test with grid and hybrid execution",
     "estimated_time": "~2 min"
+  },
+  "split_execution": {
+    "name": "Split Execution Strategies",
+    "path": "benches/split_execution/bench_split_execution.mojo",
+    "description": "Compare fused_v3 vs sequential vs batched parallel split execution",
+    "estimated_time": "~3 min"
+  },
+  "four_quarter_value_encoding": {
+    "name": "Four-Quarter Value Encoding",
+    "path": "benches/split_execution/bench_four_quarter_value_encoding.mojo",
+    "description": "Compare four-quarter split vs fused_v3 for value encoding",
+    "estimated_time": "~3 min"
   }
 }
