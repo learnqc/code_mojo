@@ -87,4 +87,4 @@ fn main() raises:
     bench_n[27, 2](runner, val, 1)
 
     runner.print_table(show_winner=True)
-    runner.save_csv("proof_config_match")
+    # runner.save_csv("proof_config_match")

@@ -202,9 +202,84 @@ struct BenchmarkRunner:
             print("* = fastest for this parameter combination")
             print()
 
-    fn _get_timestamp_string(self) -> String:
+    fn _get_timestamp_string(self) raises -> String:
         """Get timestamp string in format YYYY_MM_DD_HHMMSS."""
         return get_timestamp_string()
+
+    fn load_csv(mut self, filepath: String) raises:
+        """Load results from a CSV file and merge with existing results.
+
+        The CSV must have columns matching the runner's param_columns.
+        Any other columns (except 'timestamp') are treated as benchmark results.
+        """
+        with open(filepath, "r") as f:
+            var content = f.read()
+            var lines = content.split("\n")
+            if len(lines) < 2:
+                return
+
+            var header = lines[0].split(",")
+
+            # Map column names to indices
+            var param_indices = List[Int]()
+            var param_names = List[String]()
+            var bench_indices = List[Int]()
+            var bench_names = List[String]()
+
+            for i in range(len(header)):
+                var col_name = String(header[i].strip())
+                if col_name == "timestamp" or col_name == "":
+                    continue
+
+                # Check if it's a known parameter column
+                var is_param = False
+                for j in range(len(self.param_columns)):
+                    if self.param_columns[j] == col_name:
+                        is_param = True
+                        break
+
+                if is_param:
+                    param_indices.append(i)
+                    param_names.append(col_name)
+                else:
+                    bench_indices.append(i)
+                    bench_names.append(col_name)
+                    # Also add to our bench_columns if not already there
+                    var found = False
+                    for j in range(len(self.bench_columns)):
+                        if self.bench_columns[j] == col_name:
+                            found = True
+                            break
+                    if not found:
+                        self.bench_columns.append(col_name)
+
+            # Parse data rows
+            for i in range(1, len(lines)):
+                var line = lines[i].strip()
+                if line == "":
+                    continue
+
+                var row = line.split(",")
+                if len(row) < len(header):
+                    continue
+
+                var params = Dict[String, String]()
+                for j in range(len(param_indices)):
+                    params[param_names[j]] = String(
+                        row[param_indices[j]].strip()
+                    )
+
+                for j in range(len(bench_indices)):
+                    var bench_name = bench_names[j]
+                    var val_str = row[bench_indices[j]].strip()
+                    if len(val_str) > 0:
+                        try:
+                            # Simple float parsing
+                            var val = Float64(String(val_str))
+                            self.add_result(params, bench_name, val)
+                        except:
+                            # Skip if not a valid number
+                            pass
 
     fn save_csv(self, filepath: String) raises:
         """Save results to CSV with timestamp.

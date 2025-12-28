@@ -10,44 +10,22 @@ from butterfly.core.execution_strategy import (
 from collections import List
 
 
-fn get_timestamp_string() raises -> String:
+fn get_timestamp_string() -> String:
     """Get timestamp string in human-readable format.
 
-    Returns:
-        Timestamp string in format like "2025_12_26_185615" (YYYY_MM_DD_HHMMSS).
-
-    Example:
-        var timestamp = get_timestamp_string()
-        print("Timestamp:", timestamp)
+    Using Unix timestamp as a zero-dependency, crash-safe alternative
+    to Python's datetime.
     """
-    from python import Python
+    from sys import external_call
 
-    # Use Python's datetime module
-    var datetime = Python.import_module("datetime")
-    var now = datetime.datetime.now()
-    var timestamp_str = now.strftime("%Y_%m_%d_%H%M%S")
-
-    return String(timestamp_str)
+    return String(external_call["time", Int64](0))
 
 
-fn get_date_string() raises -> String:
-    """Get current date in YYYY_MM_DD format using Python datetime.
+fn get_date_string() -> String:
+    """Get current date (Unix timestamp) as a zero-dependency alternative."""
+    from sys import external_call
 
-    Returns:
-        Date string in format like "2025_12_26".
-
-    Example:
-        var date = get_date_string()
-        print("Today is:", date)
-    """
-    from python import Python
-
-    # Use Python's datetime module
-    var datetime = Python.import_module("datetime")
-    var now = datetime.datetime.now()
-    var date_str = now.strftime("%Y_%m_%d")
-
-    return String(date_str)
+    return String(external_call["time", Int64](0))
 
 
 fn parse_benchmark_args(
