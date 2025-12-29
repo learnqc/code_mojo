@@ -10,14 +10,14 @@ from collections import Dict, List
 # --- QuantumState Test Functions ---
 
 
-fn get_state_v1(n: Int) -> QuantumState:
+fn get_state_v1(n: Int) raises -> QuantumState:
     var state = QuantumState(n)
     # Simulate some work
     sleep(0.05)
     return state^
 
 
-fn get_state_v2(n: Int) -> QuantumState:
+fn get_state_v2(n: Int) raises -> QuantumState:
     var state = QuantumState(n)
     # Simulate different work but same result
     sleep(0.07)

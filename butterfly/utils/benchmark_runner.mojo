@@ -21,7 +21,10 @@ fn format_float(value: Float64, decimals: Int = 2) -> String:
 fn perf_function_call_ms[
     Input: AnyType & Copyable & Movable, Return: AnyType
 ](
-    f: fn (Input) -> Return, input: Input, iters: Int = 5, decimals: Int = 3
+    f: fn (Input) raises -> Return,
+    input: Input,
+    iters: Int = 5,
+    decimals: Int = 3,
 ) raises -> Float64:
     var t0 = Int(perf_counter_ns())
     for _ in range(iters):
@@ -33,11 +36,17 @@ fn perf_function_call_ms[
 fn bench_function_call_ms[
     Input: AnyType, Return: AnyType
 ](
-    f: fn (Input) -> Return, input: Input, iters: Int = 5, decimals: Int = 3
+    f: fn (Input) raises -> Return,
+    input: Input,
+    iters: Int = 5,
+    decimals: Int = 3,
 ) raises -> Float64:
     @parameter
     fn bench():
-        _ = f(input)
+        try:
+            _ = f(input)
+        except e:
+            pass
 
     var t = run[bench](2, iters).mean(Unit.ms)
     return round(t, decimals)
@@ -138,7 +147,7 @@ struct BenchmarkRunner(Movable):
         mut self,
         params: Dict[String, String],
         name: String,
-        func: fn (Input) -> Return,
+        func: fn (Input) raises -> Return,
         input: Input,
         iters: Int = 5,
         decimals: Int = 3,
@@ -152,7 +161,7 @@ struct BenchmarkRunner(Movable):
         mut self,
         params: Dict[String, String],
         name: String,
-        func: fn (Input) -> Return,
+        func: fn (Input) raises -> Return,
         input: Input,
         iters: Int = 5,
         decimals: Int = 3,
@@ -167,8 +176,8 @@ struct BenchmarkRunner(Movable):
     ](
         mut self,
         input: Input,
-        f1: fn (Input) -> Return,
-        f2: fn (Input) -> Return,
+        f1: fn (Input) raises -> Return,
+        f2: fn (Input) raises -> Return,
         compare: fn (Return, Return, Float64) raises,
         name1: String = "func1",
         name2: String = "func2",
@@ -188,8 +197,8 @@ struct BenchmarkRunner(Movable):
     ](
         mut self,
         input: Input,
-        f1: fn (Input) -> Int,
-        f2: fn (Input) -> Int,
+        f1: fn (Input) raises -> Int,
+        f2: fn (Input) raises -> Int,
         name1: String = "func1",
         name2: String = "func2",
         tolerance: Float64 = 1e-5,
@@ -209,8 +218,8 @@ struct BenchmarkRunner(Movable):
     ](
         mut self,
         input: Input,
-        f1: fn (Input) -> Float64,
-        f2: fn (Input) -> Float64,
+        f1: fn (Input) raises -> Float64,
+        f2: fn (Input) raises -> Float64,
         name1: String = "func1",
         name2: String = "func2",
         tolerance: Float64 = 1e-5,
@@ -230,8 +239,8 @@ struct BenchmarkRunner(Movable):
     ](
         mut self,
         input: Input,
-        f1: fn (Input) -> String,
-        f2: fn (Input) -> String,
+        f1: fn (Input) raises -> String,
+        f2: fn (Input) raises -> String,
         name1: String = "func1",
         name2: String = "func2",
         tolerance: Float64 = 1e-5,
