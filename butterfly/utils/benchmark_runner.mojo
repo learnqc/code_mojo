@@ -160,6 +160,90 @@ struct BenchmarkRunner(Movable):
         var t = bench_function_call_ms(func, input, iters, decimals)
         self.add_result(params, name, t)
 
+    # --- AGNOSTIC VERIFICATION (Hook Pattern) ---
+
+    fn verify[
+        Input: AnyType & Copyable & Movable, Return: AnyType
+    ](
+        mut self,
+        input: Input,
+        f1: fn (Input) -> Return,
+        f2: fn (Input) -> Return,
+        compare: fn (Return, Return, Float64) raises,
+        name1: String = "func1",
+        name2: String = "func2",
+        tolerance: Float64 = 1e-5,
+    ) raises:
+        """Verify two functions using a user-provided comparison hook."""
+        self.log_progress("Verifying " + name1 + " vs " + name2 + "...")
+        var val1 = f1(input)
+        var val2 = f2(input)
+        compare(val1, val2, tolerance)
+        self.log_progress("✓ Verification successful")
+
+    # --- Built-in Primitives Overloads ---
+
+    fn verify[
+        Input: AnyType & Copyable & Movable
+    ](
+        mut self,
+        input: Input,
+        f1: fn (Input) -> Int,
+        f2: fn (Input) -> Int,
+        name1: String = "func1",
+        name2: String = "func2",
+        tolerance: Float64 = 1e-5,
+    ) raises:
+        """Agnostic verification for Int."""
+        self.log_progress("Verifying " + name1 + " vs " + name2 + "...")
+        var v1 = f1(input)
+        var v2 = f2(input)
+        if v1 != v2:
+            raise Error(
+                "Verification failed: " + String(v1) + " != " + String(v2)
+            )
+        self.log_progress("✓ Verification successful")
+
+    fn verify[
+        Input: AnyType & Copyable & Movable
+    ](
+        mut self,
+        input: Input,
+        f1: fn (Input) -> Float64,
+        f2: fn (Input) -> Float64,
+        name1: String = "func1",
+        name2: String = "func2",
+        tolerance: Float64 = 1e-5,
+    ) raises:
+        """Agnostic verification for Float64."""
+        self.log_progress("Verifying " + name1 + " vs " + name2 + "...")
+        var v1 = f1(input)
+        var v2 = f2(input)
+        if abs(v1 - v2) > tolerance:
+            raise Error(
+                "Verification failed: " + String(v1) + " != " + String(v2)
+            )
+        self.log_progress("✓ Verification successful")
+
+    fn verify[
+        Input: AnyType & Copyable & Movable
+    ](
+        mut self,
+        input: Input,
+        f1: fn (Input) -> String,
+        f2: fn (Input) -> String,
+        name1: String = "func1",
+        name2: String = "func2",
+        tolerance: Float64 = 1e-5,
+    ) raises:
+        """Agnostic verification for String."""
+        self.log_progress("Verifying " + name1 + " vs " + name2 + "...")
+        var v1 = f1(input)
+        var v2 = f2(input)
+        if v1 != v2:
+            raise Error("Verification failed: '" + v1 + "' != '" + v2 + "'")
+        self.log_progress("✓ Verification successful")
+
     fn print_table(self, show_winner: Bool = True) raises:
         """Print results as a formatted table with dynamic column widths."""
         if len(self.results) == 0:
