@@ -1,0 +1,9 @@
+{
+  "function_calling": {
+    "name": "Function Calling",
+    "path": "butterfly/utils/benchmark_prototype.mojo",
+    "description": "Quick test of function calling performance",
+    "estimated_time": "~5 seconds"
+  }
+}
+

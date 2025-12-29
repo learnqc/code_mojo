@@ -8,6 +8,7 @@ from time import perf_counter_ns
 from collections import Dict, List
 from pathlib import Path
 from butterfly.utils.benchmark_utils import get_timestamp_string
+from benchmark import run, Unit
 
 
 fn format_float(value: Float64, decimals: Int = 2) -> String:
@@ -15,6 +16,43 @@ fn format_float(value: Float64, decimals: Int = 2) -> String:
     var multiplier = Float64(10**decimals)
     var rounded = Int(value * multiplier + 0.5) / multiplier
     return String(rounded)
+
+
+fn perf_function_call_ms[
+    Input: AnyType & Copyable & Movable, Return: AnyType
+](
+    f: fn (Input) -> Return, input: Input, iters: Int = 5, decimals: Int = 3
+) raises -> Float64:
+    var t0 = Int(perf_counter_ns())
+    for _ in range(iters):
+        _ = f(input)
+    var t1 = Int(perf_counter_ns())
+    return Float64(t1 - t0) / 1_000_000.0 / iters
+
+
+fn bench_function_call_ms[
+    Input: AnyType, Return: AnyType
+](
+    f: fn (Input) -> Return, input: Input, iters: Int = 5, decimals: Int = 3
+) raises -> Float64:
+    @parameter
+    fn bench():
+        _ = f(input)
+
+    var t = run[bench](2, iters).mean(Unit.ms)
+    return round(t, decimals)
+
+
+fn create_runner(
+    name: String,
+    description: String,
+    mut param_cols: List[String],
+    mut bench_cols: List[String],
+) raises -> BenchmarkRunner:
+    var runner = BenchmarkRunner(description)
+    runner.set_param_columns(param_cols.copy())
+    runner.set_bench_columns(bench_cols.copy())
+    return runner^
 
 
 struct BenchmarkResult(ImplicitlyCopyable, Movable):
@@ -36,7 +74,7 @@ struct BenchmarkResult(ImplicitlyCopyable, Movable):
         self.benchmarks = existing.benchmarks^
 
 
-struct BenchmarkRunner:
+struct BenchmarkRunner(Movable):
     """Flexible benchmark runner with configurable parameters and benchmarks."""
 
     var suite_name: String
@@ -93,6 +131,34 @@ struct BenchmarkRunner:
 
         # Add benchmark result
         self.results[row_idx].benchmarks[bench_name] = time_ms
+
+    fn add_perf_result[
+        Input: AnyType & Copyable & Movable, Return: AnyType
+    ](
+        mut self,
+        params: Dict[String, String],
+        name: String,
+        func: fn (Input) -> Return,
+        input: Input,
+        iters: Int = 5,
+        decimals: Int = 3,
+    ) raises:
+        var t = perf_function_call_ms(func, input, iters, decimals)
+        self.add_result(params, name, t)
+
+    fn add_bench_result[
+        Input: AnyType & Copyable & Movable, Return: AnyType
+    ](
+        mut self,
+        params: Dict[String, String],
+        name: String,
+        func: fn (Input) -> Return,
+        input: Input,
+        iters: Int = 5,
+        decimals: Int = 3,
+    ) raises:
+        var t = bench_function_call_ms(func, input, iters, decimals)
+        self.add_result(params, name, t)
 
     fn print_table(self, show_winner: Bool = True) raises:
         """Print results as a formatted table with dynamic column widths."""
