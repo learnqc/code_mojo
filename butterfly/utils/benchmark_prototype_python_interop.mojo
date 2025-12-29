@@ -1,5 +1,5 @@
 from butterfly.core.state import QuantumState
-from butterfly.core.quantum_interop import get_qiskit_state
+from butterfly.utils.quantum_interop import get_qiskit_state
 from butterfly.utils.benchmark_runner import create_runner
 from collections import Dict, List
 

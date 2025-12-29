@@ -16,7 +16,7 @@ from butterfly.core.execution_strategy import (
     SIMD_V2,
     FUSED_V3,
 )
-from butterfly.algos.value_encoding import value_encoding_circuit
+from butterfly.algos.value_encoding import encode_value_circuit
 from butterfly.core.state import QuantumState
 from butterfly.core.types import FloatType
 from collections import Dict
@@ -28,7 +28,7 @@ from benchmark import keep
 fn build_value_encoding_circuit(n: Int, value: FloatType) -> QuantumCircuit:
     """Build value encoding circuit using gold standard implementation."""
     var circuit = QuantumCircuit(n)
-    value_encoding_circuit(circuit, n, value)
+    encode_value_circuit(circuit, n, value)
     return circuit^
 
 
@@ -123,7 +123,9 @@ fn main() raises:
         runner.add_result(params, "execute_fused_v3", time_opt)
 
         # Benchmark Qiskit (using string conversion workaround)
-        var py_benchmarks = Python.import_module("external_benchmarks")
+        var py_benchmarks = Python.import_module(
+            "butterfly.utils.external_benchmarks"
+        )
         var qiskit_time_str = py_benchmarks.benchmark_qiskit_value_encoding_str(
             n, value, iters
         )

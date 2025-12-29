@@ -123,10 +123,14 @@ fn main() raises:
 
     # Define test cases
     var test_cases = List[Tuple[Int, Float64]]()
-    test_cases.append((10, 42.0))
-    test_cases.append((12, 123.0))
-    test_cases.append((15, 456.0))
-    test_cases.append((18, 789.0))
+    test_cases.append((11, 4.7))
+    test_cases.append((13, 4.7))
+    test_cases.append((15, 4.7))
+    test_cases.append((17, 4.7))
+    test_cases.append((19, 4.7))
+    test_cases.append((21, 4.7))
+    test_cases.append((23, 4.7))
+    test_cases.append((25, 4.7))
 
     # One function call does everything!
     # - Automatic date-based path organization
