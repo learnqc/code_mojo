@@ -13,7 +13,113 @@ from butterfly.core.circuit import (
 
 
 from butterfly.core.gates import is_h, is_x, is_z, is_p, get_phase_angle
-from math import cos, sin
+from math import cos, sin, iota
+
+
+@always_inline
+fn insert_bit(i: Int, p: Int) -> Int:
+    """Insert a '1' at bit position 'p'."""
+    var lower_mask = (1 << p) - 1
+    var lower = i & lower_mask
+    var upper = (i & ~lower_mask) << 1
+    return upper | (1 << p) | lower
+
+
+@always_inline
+@always_inline
+fn c_transform_row_h_simd[
+    simd_width: Int = 8
+](mut state: QuantumState, row: Int, row_size: Int, control: Int, target: Int):
+    """Controlled Hadamard where both bits are within the row index."""
+    var offset = row * row_size
+    var re_ptr = state.re.unsafe_ptr() + offset
+    var im_ptr = state.im.unsafe_ptr() + offset
+    var c_stride = 1 << control
+    var t_stride = 1 << target
+    alias sq_half = 0.7071067811865476
+
+    # Match SIMD v2 logic: iterate over blocks where control=1
+    if target < control:
+        # target < control: control bit divides into larger blocks
+        var segments_per_block = c_stride // (2 * t_stride)
+        for k in range(row_size // (2 * c_stride)):
+            for j in range(segments_per_block):
+                var sub_start = k * 2 * c_stride + c_stride + j * 2 * t_stride
+                for m in range(t_stride):
+                    var idx = sub_start + m
+                    var r0 = re_ptr[idx]
+                    var i0 = im_ptr[idx]
+                    var r1 = re_ptr[idx + t_stride]
+                    var i1 = im_ptr[idx + t_stride]
+                    re_ptr[idx] = (r0 + r1) * sq_half
+                    im_ptr[idx] = (i0 + i1) * sq_half
+                    re_ptr[idx + t_stride] = (r0 - r1) * sq_half
+                    im_ptr[idx + t_stride] = (i0 - i1) * sq_half
+    else:
+        # target > control: target bit divides into larger blocks
+        var segments_per_block = t_stride // (2 * c_stride)
+        for k in range(row_size // (2 * t_stride)):
+            for p in range(segments_per_block):
+                var p_start = k * 2 * t_stride + p * 2 * c_stride + c_stride
+                for m in range(c_stride):
+                    var idx = p_start + m
+                    var r0 = re_ptr[idx]
+                    var i0 = im_ptr[idx]
+                    var r1 = re_ptr[idx + t_stride]
+                    var i1 = im_ptr[idx + t_stride]
+                    re_ptr[idx] = (r0 + r1) * sq_half
+                    im_ptr[idx] = (i0 + i1) * sq_half
+                    re_ptr[idx + t_stride] = (r0 - r1) * sq_half
+                    im_ptr[idx + t_stride] = (i0 - i1) * sq_half
+
+
+@always_inline
+fn c_transform_row_p_simd[
+    simd_width: Int = 8
+](
+    mut state: QuantumState,
+    row: Int,
+    row_size: Int,
+    control: Int,
+    target: Int,
+    theta: Float64,
+):
+    """Controlled Phase where both bits are within the row index."""
+    var offset = row * row_size
+    var re_ptr = state.re.unsafe_ptr() + offset
+    var im_ptr = state.im.unsafe_ptr() + offset
+    var stride = 1 << target
+    var c_stride = 1 << control
+    var cos_t = cos(theta)
+    var sin_t = sin(theta)
+
+    # Match SIMD v2 logic: iterate over blocks where control=1
+    if target < control:
+        # target < control: control bit divides into larger blocks
+        var segments_per_block = c_stride // (2 * stride)
+        for k in range(row_size // (2 * c_stride)):
+            for j in range(segments_per_block):
+                var sub_start = k * 2 * c_stride + c_stride + j * 2 * stride
+                for m in range(stride):
+                    var idx = (
+                        sub_start + m + stride
+                    )  # Only target=1 is affected
+                    var r1 = re_ptr[idx]
+                    var i1 = im_ptr[idx]
+                    re_ptr[idx] = r1 * cos_t - i1 * sin_t
+                    im_ptr[idx] = r1 * sin_t + i1 * cos_t
+    else:
+        # target > control: target bit divides into larger blocks
+        var segments_per_block = stride // (2 * c_stride)
+        for k in range(row_size // (2 * stride)):
+            for p in range(segments_per_block):
+                var p_start = k * 2 * stride + p * 2 * c_stride + c_stride
+                for m in range(c_stride):
+                    var idx = p_start + m + stride  # Only target=1 is affected
+                    var r1 = re_ptr[idx]
+                    var i1 = im_ptr[idx]
+                    re_ptr[idx] = r1 * cos_t - i1 * sin_t
+                    im_ptr[idx] = r1 * sin_t + i1 * cos_t
 
 
 @always_inline
@@ -502,9 +608,25 @@ fn execute_as_grid[
                     parallelize[process_column](row_size)
 
         elif t.isa[SingleControlGateTransformation]():
-            # For now, fallback to standard or simply skip if only transform is requested
-            # The USER request said "just the transform, not c_transform"
-            pass
+            var sct = t[SingleControlGateTransformation].copy()
+            var control = sct.control
+            var target = sct.target
+            var gate = sct.gate
+
+            # Use global SIMD v2 kernels for all controlled gates
+            # This ensures correctness; row-based optimization deferred to future work
+            from butterfly.core.c_transform_fast_v2 import (
+                c_transform_h_simd_v2,
+                c_transform_p_simd_v2,
+            )
+
+            if is_h(gate):
+                c_transform_h_simd_v2(state, control, target)
+            elif is_p(gate):
+                c_transform_p_simd_v2(
+                    state, control, target, get_phase_angle(gate)
+                )
+            # TODO: Implement row-based controlled kernels for better cache locality
         elif t.isa[BitReversalTransformation]():
             from butterfly.core.state import bit_reverse_state
 
