@@ -253,8 +253,10 @@ fn execute_local_group(
     var actual_block_size = size if size < BLOCK_SIZE else BLOCK_SIZE
     var num_blocks = size // actual_block_size
 
-    var ptr_re = UnsafePointer[FloatType](state.re.unsafe_ptr().address)
-    var ptr_im = UnsafePointer[FloatType](state.im.unsafe_ptr().address)
+    # BUGFIX: Use state pointers directly instead of creating new UnsafePointer from address
+    # This ensures NDBuffer can correctly wrap the pointers later
+    var ptr_re = state.re.unsafe_ptr()
+    var ptr_im = state.im.unsafe_ptr()
 
     @parameter
     fn block_worker(block_idx: Int):
