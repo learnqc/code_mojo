@@ -613,20 +613,39 @@ fn execute_as_grid[
             var target = sct.target
             var gate = sct.gate
 
-            # Use global SIMD v2 kernels for all controlled gates
-            # This ensures correctness; row-based optimization deferred to future work
-            from butterfly.core.c_transform_fast_v2 import (
-                c_transform_h_simd_v2,
-                c_transform_p_simd_v2,
-            )
+            # Check if both control and target are within rows (local)
+            if control < col_bits and target < col_bits:
+                # Row-local: use parallel row kernels for better cache locality
+                @parameter
+                fn process_controlled_row(row: Int):
+                    if is_h(gate):
+                        c_transform_row_h_simd(
+                            state, row, row_size, control, target
+                        )
+                    elif is_p(gate):
+                        c_transform_row_p_simd(
+                            state,
+                            row,
+                            row_size,
+                            control,
+                            target,
+                            get_phase_angle(gate),
+                        )
 
-            if is_h(gate):
-                c_transform_h_simd_v2(state, control, target)
-            elif is_p(gate):
-                c_transform_p_simd_v2(
-                    state, control, target, get_phase_angle(gate)
+                parallelize[process_controlled_row](num_rows)
+            else:
+                # Global: fall back to SIMD v2 for cross-row gates
+                from butterfly.core.c_transform_fast_v2 import (
+                    c_transform_h_simd_v2,
+                    c_transform_p_simd_v2,
                 )
-            # TODO: Implement row-based controlled kernels for better cache locality
+
+                if is_h(gate):
+                    c_transform_h_simd_v2(state, control, target)
+                elif is_p(gate):
+                    c_transform_p_simd_v2(
+                        state, control, target, get_phase_angle(gate)
+                    )
         elif t.isa[BitReversalTransformation]():
             from butterfly.core.state import bit_reverse_state
 
