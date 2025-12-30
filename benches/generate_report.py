@@ -214,7 +214,11 @@ def main():
         print(f"No files found matching: {args.csv_files}")
         return
     
-    print(f"Processing {len(csv_files)} file(s)...")
+    
+    print(f"Generating reports from {len(csv_files)} file(s):")
+    for csv_file in csv_files:
+        print(f"  - {csv_file}")
+    print()
     generate_report(csv_files, args.output)
 
 

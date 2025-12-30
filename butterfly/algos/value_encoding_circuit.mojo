@@ -55,7 +55,7 @@ fn encode_value_circuits[
     """
     # Build the full circuit first
     var full_circuit = QuantumCircuit(n)
-    encode_value_circuit[n](full_circuit, v, swap)
+    encode_value_circuit(n, full_circuit, v, swap)
 
     # Count transformations: n H gates + n P gates = 2n gates before IQFT
     var prep_end = 2 * n
@@ -115,12 +115,14 @@ fn encode_value_circuits_runtime(
     targets = [n - 1 - j for j in range(n)]
     if swap:
         targets = [j for j in range(n)]
-    iqft_circuit.iqft(QuantumRegister("", targets[0], len(targets)), swap=swap)
-    # iqft(circuit=iqft_circuit, targets=targets, do_swap=swap)
+    # iqft_circuit.iqft(QuantumRegister("", 0, n), reversed=not swap, swap=False)
+    iqft(circuit=iqft_circuit, targets=targets, do_swap=False)
     circuits.append(iqft_circuit^)
 
     # Circuit 3: Bit reversal (empty - bit reversal is handled by IQFT swap parameter)
     var bit_rev = QuantumCircuit(n)
+    if swap:
+        bit_rev.bit_reverse()
     circuits.append(bit_rev^)
 
     return circuits^

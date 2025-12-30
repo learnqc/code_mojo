@@ -47,7 +47,7 @@ fn compare_quantum_states(
 
 
 fn main() raises:
-    alias NAME = "quantum_prototype"
+    alias NAME = "benchmark_prototype"
     alias DESCRIPTION = "Agnostic Benchmark Verification Prototype"
 
     # Define columns
@@ -80,8 +80,12 @@ fn main() raises:
 
     runner.print_table()
 
-    # optionally save to csv
-    # runner.save_csv(NAME)
+    # Save CSV only if --autosave flag is present
+    from butterfly.utils.benchmark_runner import should_autosave
 
-    # run with the bencmark runner
-    # python benches/run_benchmark_suite.py --suite butterfly/utils/benhmark_suite_prototype.json --all
+    runner.save_csv(NAME, autosave=should_autosave())
+
+    # Usage:
+    # Development (no CSV): pixi run mojo run -I . butterfly/utils/benchmark_prototype.mojo
+    # Production (with CSV): pixi run mojo run -I . butterfly/utils/benchmark_prototype.mojo --autosave
+    # Via suite runner: python benches/run_benchmark_suite.py --suite butterfly/utils/benhmark_suite_prototype.json --all

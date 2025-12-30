@@ -23,7 +23,7 @@ fn perf_function_call_ms[
 ](
     f: fn (Input) raises -> Return,
     input: Input,
-    iters: Int = 5,
+    iters: Int = 3,
     decimals: Int = 3,
 ) raises -> Float64:
     var t0 = Int(perf_counter_ns())
@@ -31,6 +31,20 @@ fn perf_function_call_ms[
         _ = f(input)
     var t1 = Int(perf_counter_ns())
     return Float64(t1 - t0) / 1_000_000.0 / iters
+
+
+fn should_autosave() -> Bool:
+    """Check if --autosave flag is present in command-line arguments.
+
+    Returns True if --autosave is present, False otherwise.
+    Default is False (don't save during development).
+    """
+    from sys import argv
+
+    for i in range(len(argv())):
+        if argv()[i] == "--autosave":
+            return True
+    return False
 
 
 fn bench_function_call_ms[
@@ -94,7 +108,12 @@ struct BenchmarkRunner(Movable):
 
     fn __init__(out self, suite_name: String) raises:
         self.suite_name = suite_name
-        self.timestamp = get_timestamp_string()
+
+        # Use human-readable timestamp with fallback to Unix timestamp
+        from butterfly.utils.benchmark_utils import get_human_readable_timestamp
+
+        self.timestamp = get_human_readable_timestamp()
+
         self.results = List[BenchmarkResult]()
         self.param_columns = List[String]()
         self.bench_columns = List[String]()
@@ -440,13 +459,24 @@ struct BenchmarkRunner(Movable):
                             # Skip if not a valid number
                             pass
 
-    fn save_csv(self, filepath: String) raises:
+    fn save_csv(self, filepath: String, autosave: Bool = True) raises:
         """Save results to CSV with timestamp.
+
+        Args:
+            filepath: Base path for CSV file.
+            autosave: If False, skip saving (useful for development).
 
         Example:
             runner.save_csv("benches/results/my_benchmark")
-            # Saves to: benches/results/my_benchmark_TIMESTAMP.csv
+            # Saves to: benches/results/my_benchmark_<timestamp>.csv
+
+            runner.save_csv("benches/results/my_benchmark", autosave=False)
+            # Skips saving
         """
+        # Skip CSV saving if disabled (for development)
+        if not autosave:
+            return
+
         # Extract directory and filename from filepath
         var last_slash = filepath.rfind("/")
         var base_dir = filepath[:last_slash] if last_slash >= 0 else "."
@@ -468,7 +498,7 @@ struct BenchmarkRunner(Movable):
 
         makedirs(results_dir, exist_ok=True)
 
-        # Build final path with timestamp
+        # Always add timestamp (now human-readable instead of Unix)
         var final_path = (
             results_dir + "/" + filename + "_" + self.timestamp + ".csv"
         )

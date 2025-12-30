@@ -84,7 +84,7 @@ def run_benchmark(key: str, verbose: bool = True):
     
     # Run the benchmark
     print(f"  [Execution] Starting Mojo benchmark: {bench['path']}")
-    cmd = ["pixi", "run", "mojo", "run", "-I", ".", bench['path']]
+    cmd = ["pixi", "run", "mojo", "run", "-I", ".", bench['path'], "--autosave"]
     
     try:
         # Track files before run
@@ -98,6 +98,11 @@ def run_benchmark(key: str, verbose: bool = True):
         new_files = after_files - before_files
         
         if new_files:
+            print(f"  [Parsing] Found {len(new_files)} new CSV file(s):")
+            for csv_file in sorted(new_files):
+                print(f"    - {csv_file.name}")
+            print()
+            
             csv_path = sorted(list(new_files))[-1]  # Get latest
             
             # Generate markdown report
@@ -108,9 +113,14 @@ def run_benchmark(key: str, verbose: bool = True):
             report_dir.mkdir(parents=True, exist_ok=True)
             report_path = report_dir / f"{report_name}.md"
             
+            
             print(f"  [Reporting] Generating report from {csv_path.name}...")
             report_cmd = [sys.executable, "benches/generate_report.py", str(csv_path), "-o", str(report_path)]
             subprocess.run(report_cmd, check=True)
+            print(f"  [Results] CSV: {csv_path}")
+            print(f"  [Results] Report: {report_path}")
+            print()
+
 
         if verbose:
             print()

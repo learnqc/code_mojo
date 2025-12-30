@@ -21,6 +21,27 @@ fn get_timestamp_string() -> String:
     return String(external_call["time", Int64](0))
 
 
+fn get_human_readable_timestamp() -> String:
+    """Get human-readable timestamp (YYYY_MM_DD_HHMMSS).
+
+    Attempts to use Python datetime for formatting.
+    Falls back to Unix timestamp if Python unavailable or fails.
+
+    Returns:
+        Timestamp string like "2025_12_29_173200" or Unix timestamp on failure.
+    """
+    try:
+        from python import Python
+
+        var datetime = Python.import_module("datetime")
+        var now = datetime.datetime.now()
+        var formatted = now.strftime("%Y_%m_%d_%H%M%S")
+        return String(formatted)
+    except:
+        # Fallback to Unix timestamp if Python fails
+        return get_timestamp_string()
+
+
 fn get_date_string() -> String:
     """Get current date (Unix timestamp) as a zero-dependency alternative."""
     from sys import external_call

@@ -11,7 +11,7 @@ Compares:
 # pixi run mojo run -I . benches/value_encoding/bench_grid_vs_all.mojo
 
 from butterfly.utils.benchmark_runner import BenchmarkRunner
-from butterfly.core.grid_state import GridQuantumState
+from butterfly.core.grid_state_old import GridQuantumState
 from butterfly.core.state import QuantumState
 from butterfly.core.circuit import QuantumCircuit
 from butterfly.core.types import FloatType
