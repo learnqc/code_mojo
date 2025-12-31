@@ -1,6 +1,15 @@
 from math import log2, log10, sqrt, atan2, floor
 from butterfly.core.types import *
 from butterfly.core.state import QuantumState, ArrayState, GridState
+from butterfly.core.circuit import QuantumCircuit, Transformation
+from butterfly.core.circuit import (
+    GateTransformation,
+    SingleControlGateTransformation,
+    MultiControlGateTransformation,
+    BitReversalTransformation,
+    UnitaryTransformation,
+    ControlledUnitaryTransformation,
+)
 from collections import InlineArray
 
 # https://github.com/holoviz/colorcet/blob/main/assets/colorcet.m
@@ -1210,3 +1219,95 @@ def print_grid_state_colored_cells(
         grid.append(row^)
 
     print_grid_state_colored_cells(grid, use_log, origin_bottom, signed_y)
+
+
+def print_circuit(qc: QuantumCircuit):
+    """Prints a simple ASCII representation of the quantum circuit."""
+
+    var n = qc.num_qubits
+    var num_transforms = qc.num_transformations()
+
+    if num_transforms == 0:
+        print("Empty Circuit")
+        return
+
+    var rows = List[String]()
+    var name_width = len(String(n - 1)) + 2
+    for q in range(n):
+        rows.append("q" + String(q).rjust(name_width - 2, "0") + ": ──")
+
+    # Initial vertical line with qubit names
+
+    for i in range(num_transforms):
+        var t = qc.transformations[i].copy()
+        var targets = List[Int]()
+        var controls = List[Int]()
+        var label: String
+
+        if t.isa[GateTransformation]():
+            var gt = t[GateTransformation].copy()
+            targets.append(gt.target)
+            if gt.name in List[String]("rx", "ry", "rz", "p"):
+                label = gt.name.upper() + "(" + String(gt.arg)[:4] + ")"
+            else:
+                label = gt.name.upper()
+        elif t.isa[SingleControlGateTransformation]():
+            var sct = t[SingleControlGateTransformation].copy()
+            targets.append(sct.target)
+            controls.append(sct.control)
+            if sct.name in List[String]("rx", "ry", "rz", "p"):
+                label = sct.name.upper() + "(" + String(sct.arg)[:4] + ")"
+            else:
+                label = sct.name.upper()
+        elif t.isa[MultiControlGateTransformation]():
+            var mct = t[MultiControlGateTransformation].copy()
+            targets.append(mct.target)
+            for j in range(len(mct.controls)):
+                controls.append(mct.controls[j])
+            if mct.name in List[String]("rx", "ry", "rz", "p"):
+                label = mct.name.upper() + "(" + String(mct.arg)[:4] + ")"
+            else:
+                label = mct.name.upper()
+        elif t.isa[BitReversalTransformation]():
+            label = "REV"
+            for j in range(n):
+                targets.append(j)
+        elif t.isa[UnitaryTransformation]():
+            var ut = t[UnitaryTransformation].copy()
+            label = ut.name.upper()
+            for j in range(ut.m):
+                targets.append(ut.target + j)
+        elif t.isa[ControlledUnitaryTransformation]():
+            var cut = t[ControlledUnitaryTransformation].copy()
+            label = cut.name.upper()
+            controls.append(cut.control)
+            for j in range(cut.m):
+                targets.append(cut.target + j)
+        else:
+            label = "???"
+
+        var field_width = len(label) + 2
+
+        for q in range(n):
+            var is_target = False
+            for j in range(len(targets)):
+                if targets[j] == q:
+                    is_target = True
+                    break
+            var is_control = False
+            for j in range(len(controls)):
+                if controls[j] == q:
+                    is_control = True
+                    break
+
+            if is_target:
+                rows[q] += "[" + label + "]──"
+            elif is_control:
+                var pad_l = field_width // 2
+                var pad_r = field_width - pad_l - 1
+                rows[q] += ("─" * pad_l) + "●" + ("─" * pad_r) + "──"
+            else:
+                rows[q] += "─" * (field_width + 2)
+
+    for q in range(n):
+        print(rows[q])

@@ -17,36 +17,82 @@ import numpy as np
 # Qiskit Helpers
 # ============================================================================
 
-def benchmark_qiskit_circuit(circuit_builder, *args, iters: int = 5) -> float:
+def benchmark_qiskit_circuit(circuit_builder, *args, iters: int = 5, transpile_mode: str = "cached") -> float:
     """Generic Qiskit circuit benchmark.
     
     Args:
         circuit_builder: Function that builds a Qiskit QuantumCircuit
         *args: Arguments to pass to circuit_builder
         iters: Number of iterations to average
+        transpile_mode: "none" (raw execution), "cached" (transpile once), "in_loop" (include in timing), "slow" (Python Statevector)
         
     Returns:
         Average execution time in milliseconds
     """
     from qiskit_aer import Aer
     from qiskit import transpile
+    from qiskit.quantum_info import Statevector
     
-    # Build and transpile circuit once
-    qc = circuit_builder(*args)
     backend = Aer.get_backend('statevector_simulator')
-    qc_transpiled = transpile(qc, backend)
+    qc = circuit_builder(*args)
     
-    # Warmup
-    _ = backend.run(qc_transpiled).result()
-    
-    # Benchmark execution
-    times = []
-    for _ in range(iters):
-        t0 = time.perf_counter()
-        job = backend.run(qc_transpiled)
-        result = job.result()
-        t1 = time.perf_counter()
-        times.append((t1 - t0) * 1000)
+    if transpile_mode == "slow":
+        # Use Python Statevector simulator (the 68s baseline)
+        # We must transpile/decompose for it to work if it has high-level gates,
+        # but the simulation itself is slow.
+        qc_t = transpile(qc, optimization_level=0)
+        
+        # Warmup
+        _ = Statevector.from_instruction(qc_t).data
+        
+        times = []
+        for _ in range(iters):
+            t0 = time.perf_counter()
+            sv = Statevector.from_instruction(qc_t)
+            _ = sv.data # Force evaluation
+            t1 = time.perf_counter()
+            times.append((t1 - t0) * 1000)
+            
+    elif transpile_mode == "none":
+        # Raw execution - no transpile() call at all
+        _ = backend.run(qc).result()  # Warmup
+        
+        times = []
+        for _ in range(iters):
+            t0 = time.perf_counter()
+            job = backend.run(qc)
+            result = job.result()
+            t1 = time.perf_counter()
+            times.append((t1 - t0) * 1000)
+            
+    elif transpile_mode == "cached":
+        # Transpile once outside the loop
+        qc_transpiled = transpile(qc, backend, optimization_level=3)
+        _ = backend.run(qc_transpiled).result()  # Warmup
+        
+        times = []
+        for _ in range(iters):
+            t0 = time.perf_counter()
+            job = backend.run(qc_transpiled)
+            result = job.result()
+            t1 = time.perf_counter()
+            times.append((t1 - t0) * 1000)
+            
+    elif transpile_mode == "in_loop":
+        # Warmup (including transpile)
+        qc_warm = transpile(qc, backend, optimization_level=3)
+        _ = backend.run(qc_warm).result()
+        
+        times = []
+        for _ in range(iters):
+            t0 = time.perf_counter()
+            qc_t = transpile(qc, backend, optimization_level=3)
+            job = backend.run(qc_t)
+            result = job.result()
+            t1 = time.perf_counter()
+            times.append((t1 - t0) * 1000)
+    else:
+        raise ValueError(f"Unknown transpile_mode: {transpile_mode}")
     
     return sum(times) / len(times)
 
@@ -99,14 +145,14 @@ def build_qiskit_prep(n: int, value: float):
     return qc
 
 
-def benchmark_qiskit_prep(n: int, value: float, iters: int = 5) -> float:
+def benchmark_qiskit_prep(n: int, value: float, iters: int = 5, mode: str = "cached") -> float:
     """Benchmark Qiskit prep stage."""
-    return benchmark_qiskit_circuit(build_qiskit_prep, n, value, iters=iters)
+    return benchmark_qiskit_circuit(build_qiskit_prep, n, value, iters=iters, transpile_mode=mode)
 
 
-def benchmark_qiskit_value_encoding(n: int, value: float, iters: int = 5) -> float:
+def benchmark_qiskit_value_encoding(n: int, value: float, iters: int = 5, mode: str = "cached") -> float:
     """Benchmark Qiskit value encoding."""
-    return benchmark_qiskit_circuit(build_qiskit_value_encoding, n, value, iters=iters)
+    return benchmark_qiskit_circuit(build_qiskit_value_encoding, n, value, iters=iters, transpile_mode=mode)
 
 
 def benchmark_qiskit_value_encoding_str(n: int, value: float, iters: int = 5) -> str:
