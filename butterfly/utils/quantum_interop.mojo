@@ -28,6 +28,35 @@ fn get_qiskit_state(n: Int, value: Float64) raises -> QuantumState:
     from butterfly.utils.python_interop import python_call
 
     var raw_data = python_call(
-        "butterfly.utils.external_benchmarks", "get_qiskit_statevector_data", n, value
+        "butterfly.utils.external_benchmarks",
+        "get_qiskit_statevector_data",
+        n,
+        value,
+    )
+    return state_from_python(raw_data, n)
+
+
+fn get_qiskit_prep_state(n: Int, value: Float64) raises -> QuantumState:
+    """High-level domain helper to fetch a Qiskit prepped state."""
+    from butterfly.utils.python_interop import python_call
+
+    var raw_data = python_call(
+        "benches.value_encoding.qiskit_circuits",
+        "get_qiskit_prep_state",
+        n,
+        value,
+    )
+    return state_from_python(raw_data, n)
+
+
+fn get_qiskit_full_state(n: Int, value: Float64) raises -> QuantumState:
+    """High-level domain helper to fetch a Qiskit full encoding state."""
+    from butterfly.utils.python_interop import python_call
+
+    var raw_data = python_call(
+        "benches.value_encoding.qiskit_circuits",
+        "get_qiskit_full_state",
+        n,
+        value,
     )
     return state_from_python(raw_data, n)

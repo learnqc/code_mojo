@@ -82,6 +82,28 @@ def build_qiskit_value_encoding(n: int, value: float):
     return qc
 
 
+def build_qiskit_prep(n: int, value: float):
+    """Build only the preparation stage in Qiskit."""
+    from qiskit import QuantumCircuit
+    
+    qc = QuantumCircuit(n)
+    
+    # Hadamard on all qubits
+    for i in range(n):
+        qc.h(i)
+    
+    # Phase rotations
+    for j in range(n):
+        qc.p(2 * np.pi / 2 ** (j + 1) * value, j)
+        
+    return qc
+
+
+def benchmark_qiskit_prep(n: int, value: float, iters: int = 5) -> float:
+    """Benchmark Qiskit prep stage."""
+    return benchmark_qiskit_circuit(build_qiskit_prep, n, value, iters=iters)
+
+
 def benchmark_qiskit_value_encoding(n: int, value: float, iters: int = 5) -> float:
     """Benchmark Qiskit value encoding."""
     return benchmark_qiskit_circuit(build_qiskit_value_encoding, n, value, iters=iters)
