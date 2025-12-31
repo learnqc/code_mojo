@@ -13,9 +13,10 @@ from benchmark import run, Unit
 
 fn format_float(value: Float64, decimals: Int = 2) -> String:
     """Format a float to a fixed number of decimal places."""
-    var multiplier = Float64(10**decimals)
-    var rounded = Int(value * multiplier + 0.5) / multiplier
-    return String(rounded)
+    # var multiplier = Float64(10**decimals)
+    # var rounded = Int(value * multiplier + 0.5) / multiplier
+    rounded_str = String(round(value, decimals))
+    return rounded_str
 
 
 fn perf_function_call_ms[
@@ -71,10 +72,14 @@ fn create_runner(
     description: String,
     mut param_cols: List[String],
     mut bench_cols: List[String],
+    reference_idx: Int = 0,
 ) raises -> BenchmarkRunner:
     var runner = BenchmarkRunner(description)
     runner.set_param_columns(param_cols.copy())
     runner.set_bench_columns(bench_cols.copy())
+    runner.set_reference_idx(reference_idx)
+    print(description)
+    print("=" * 80)
     return runner^
 
 
@@ -105,6 +110,7 @@ struct BenchmarkRunner(Movable):
     var results: List[BenchmarkResult]
     var param_columns: List[String]
     var bench_columns: List[String]
+    var reference_idx: Int
 
     fn __init__(out self, suite_name: String) raises:
         self.suite_name = suite_name
@@ -117,6 +123,7 @@ struct BenchmarkRunner(Movable):
         self.results = List[BenchmarkResult]()
         self.param_columns = List[String]()
         self.bench_columns = List[String]()
+        self.reference_idx = 0
 
     fn log_progress(self, message: String):
         """Print a progress message with the runner's prefix."""
@@ -130,6 +137,10 @@ struct BenchmarkRunner(Movable):
     fn set_bench_columns(mut self, var columns: List[String]):
         """Set the benchmark column names."""
         self.bench_columns = columns^
+
+    fn set_reference_idx(mut self, idx: Int):
+        """Set the reference column index."""
+        self.reference_idx = idx
 
     fn add_result(
         mut self,
@@ -163,7 +174,7 @@ struct BenchmarkRunner(Movable):
         var param_str = ""
         for k in params.keys():
             param_str += String(k) + "=" + String(params[k]) + ", "
-        print(param_str, bench_name, "->", round(time_ms, 2))
+        print(param_str, bench_name.ljust(15), "->", round(time_ms, 2))
 
     fn add_perf_result[
         Input: AnyType & Copyable & Movable, Return: AnyType
@@ -333,7 +344,8 @@ struct BenchmarkRunner(Movable):
             var width = bench_widths[bench] + 2
             header += bench.ljust(width) + "| "
         if show_winner:
-            header += "Winner".ljust(20)
+            var bench_ref_name = self.bench_columns[self.reference_idx]
+            header += "Winner (over " + bench_ref_name + ")"
 
         print("=" * len(header))
         print(header)
@@ -379,11 +391,16 @@ struct BenchmarkRunner(Movable):
 
             # Winner column
             if show_winner and min_time > 0:
+                var bench_ref_time = result.benchmarks[
+                    self.bench_columns[self.reference_idx]
+                ]
                 var winner_text = winner
                 if max_time > min_time:
-                    var speedup = max_time / min_time
+                    var speedup = bench_ref_time / min_time
                     var speedup_str = format_float(speedup)
-                    winner_text = winner + " (" + speedup_str + "x)"
+                    winner_text = (
+                        winner.ljust(8) + " x " + speedup_str.rjust(6) + ""
+                    )
                 row += winner_text
 
             print(row)
@@ -486,9 +503,6 @@ struct BenchmarkRunner(Movable):
             runner.save_csv("benches/results/my_benchmark", autosave=False)
             # Skips saving
         """
-        # Skip CSV saving if disabled (for development)
-        if not autosave:
-            return
 
         # Extract directory and filename from filepath
         var last_slash = filepath.rfind("/")
@@ -510,10 +524,13 @@ struct BenchmarkRunner(Movable):
         from os import makedirs
 
         makedirs(results_dir, exist_ok=True)
-
-        # Always add timestamp (now human-readable instead of Unix)
+        # Add timestamp (now human-readable instead of Unix)
         var final_path = (
-            results_dir + "/" + filename + "_" + self.timestamp + ".csv"
+            results_dir
+            + "/"
+            + filename
+            + ("_" + self.timestamp if autosave else "")
+            + ".csv"
         )
 
         # Write CSV
