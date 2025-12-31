@@ -4,6 +4,7 @@ Optimized version of common controlled operations with chunked parallelization.
 """
 
 from butterfly.core.state import QuantumState, simd_width
+from butterfly.utils.config import get_workers
 from algorithm import vectorize, parallelize
 from math import cos, sin
 
@@ -19,8 +20,10 @@ fn c_transform_h_simd_v2(mut state: QuantumState, control: Int, target: Int):
     var ptr_re = state.re.unsafe_ptr()
     var ptr_im = state.im.unsafe_ptr()
 
-    # Use chunked parallelization
-    alias num_work_items = 16
+    # Use chunked parallelization (configurable via butterfly.config)
+    var num_work_items = get_workers("quantum_simd_v2_chunks")
+    if num_work_items == 0:
+        num_work_items = 16  # Default if not configured
 
     if target < control:
         var num_c_blocks = size // (2 * c_stride)
@@ -139,7 +142,9 @@ fn c_transform_x_simd_v2(mut state: QuantumState, control: Int, target: Int):
     var ptr_re = state.re.unsafe_ptr()
     var ptr_im = state.im.unsafe_ptr()
 
-    alias num_work_items = 16
+    var num_work_items = get_workers("quantum_simd_v2_chunks")
+    if num_work_items == 0:
+        num_work_items = 16  # Default if not configured
 
     if target < control:
         var total_work = (size // (2 * c_stride)) * (c_stride // (2 * t_stride))
@@ -243,7 +248,9 @@ fn c_transform_p_simd_v2(
     var cos_t = cos(theta)
     var sin_t = sin(theta)
 
-    alias num_work_items = 16
+    var num_work_items = get_workers("quantum_simd_v2_chunks")
+    if num_work_items == 0:
+        num_work_items = 16  # Default if not configured
 
     if target < control:
         var total_work = (size // (2 * c_stride)) * (c_stride // (2 * t_stride))
