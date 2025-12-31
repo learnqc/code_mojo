@@ -399,7 +399,7 @@ struct BenchmarkRunner(Movable):
                     var speedup = bench_ref_time / min_time
                     var speedup_str = format_float(speedup)
                     winner_text = (
-                        winner.ljust(8) + " x " + speedup_str.rjust(6) + ""
+                        winner.ljust(12) + " x " + speedup_str.rjust(6) + ""
                     )
                 row += winner_text
 
