@@ -120,7 +120,8 @@ struct BenchmarkRunner(Movable):
 
     fn log_progress(self, message: String):
         """Print a progress message with the runner's prefix."""
-        print("[" + self.suite_name + "] " + message)
+        # print("[" + self.suite_name + "] " + message)
+        print(message)
 
     fn set_param_columns(mut self, var columns: List[String]):
         """Set the parameter column names."""
@@ -159,6 +160,10 @@ struct BenchmarkRunner(Movable):
 
         # Add benchmark result
         self.results[row_idx].benchmarks[bench_name] = time_ms
+        var param_str = ""
+        for k in params.keys():
+            param_str += String(k) + "=" + String(params[k]) + ", "
+        print(param_str, bench_name, "->", round(time_ms, 2))
 
     fn add_perf_result[
         Input: AnyType & Copyable & Movable, Return: AnyType
@@ -203,11 +208,13 @@ struct BenchmarkRunner(Movable):
         tolerance: Float64 = 1e-5,
     ) raises:
         """Verify two functions using a user-provided comparison hook."""
-        self.log_progress("Verifying " + name1 + " vs " + name2 + "...")
+        # self.log_progress("Verifying " + name1 + " vs " + name2 + "...")
         var val1 = f1(input)
         var val2 = f2(input)
         compare(val1, val2, tolerance)
-        self.log_progress("✓ Verification successful")
+        self.log_progress(
+            "✓ Verification of " + name1 + " vs " + name2 + " successful"
+        )
 
     # --- Built-in Primitives Overloads ---
 
@@ -223,14 +230,16 @@ struct BenchmarkRunner(Movable):
         tolerance: Float64 = 1e-5,
     ) raises:
         """Agnostic verification for Int."""
-        self.log_progress("Verifying " + name1 + " vs " + name2 + "...")
+        # self.log_progress("Verifying " + name1 + " vs " + name2 + " ...")
         var v1 = f1(input)
         var v2 = f2(input)
         if v1 != v2:
             raise Error(
                 "Verification failed: " + String(v1) + " != " + String(v2)
             )
-        self.log_progress("✓ Verification successful")
+        self.log_progress(
+            "✓ Verification of " + name1 + " vs " + name2 + " successful"
+        )
 
     fn verify[
         Input: AnyType & Copyable & Movable
@@ -244,14 +253,16 @@ struct BenchmarkRunner(Movable):
         tolerance: Float64 = 1e-5,
     ) raises:
         """Agnostic verification for Float64."""
-        self.log_progress("Verifying " + name1 + " vs " + name2 + "...")
+        # self.log_progress("Verifying " + name1 + " vs " + name2 + "...")
         var v1 = f1(input)
         var v2 = f2(input)
         if abs(v1 - v2) > tolerance:
             raise Error(
                 "Verification failed: " + String(v1) + " != " + String(v2)
             )
-        self.log_progress("✓ Verification successful")
+        self.log_progress(
+            "✓ Verification of " + name1 + " vs " + name2 + " successful"
+        )
 
     fn verify[
         Input: AnyType & Copyable & Movable
@@ -265,12 +276,14 @@ struct BenchmarkRunner(Movable):
         tolerance: Float64 = 1e-5,
     ) raises:
         """Agnostic verification for String."""
-        self.log_progress("Verifying " + name1 + " vs " + name2 + "...")
+        # self.log_progress("Verifying " + name1 + " vs " + name2 + "...")
         var v1 = f1(input)
         var v2 = f2(input)
         if v1 != v2:
             raise Error("Verification failed: '" + v1 + "' != '" + v2 + "'")
-        self.log_progress("✓ Verification successful")
+        self.log_progress(
+            "✓ Verification of " + name1 + " vs " + name2 + " successful"
+        )
 
     fn print_table(self, show_winner: Bool = True) raises:
         """Print results as a formatted table with dynamic column widths."""

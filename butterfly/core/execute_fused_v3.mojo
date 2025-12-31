@@ -258,21 +258,38 @@ fn execute_local_group(
     var ptr_re = state.re.unsafe_ptr()
     var ptr_im = state.im.unsafe_ptr()
 
-    @parameter
-    fn block_worker(block_idx: Int):
-        var start = block_idx * actual_block_size
-        for i in range(len(transformations)):
-            var t_copy = transformations[i]
-            apply_local_transform(
-                ptr_re,
-                ptr_im,
-                start,
-                get_target(t_copy),
-                get_gate(t_copy),
-                actual_block_size,
-            )
+    from butterfly.utils.config import get_workers, load_config
 
-    parallelize[block_worker](num_blocks)
+    var grain = load_config().parallel_fused_v3_local_grain
+
+    @parameter
+    fn block_worker(work_idx: Int):
+        # Original: 1 block per work item
+        # Now configurable via parallel_fused_v3_local_grain (loaded outside before worker def)
+        var start_block = work_idx * grain
+        var end_block = min(start_block + grain, num_blocks)
+
+        for block_idx in range(start_block, end_block):
+            var start = block_idx * actual_block_size
+            for i in range(len(transformations)):
+                var t_copy = transformations[i]
+                apply_local_transform(
+                    ptr_re,
+                    ptr_im,
+                    start,
+                    get_target(t_copy),
+                    get_gate(t_copy),
+                    actual_block_size,
+                )
+
+    var num_work_items = (num_blocks + grain - 1) // grain
+    var workers = get_workers("fused_v3_local_blocks")
+
+    # 0 = unlimited (original behavior), >0 = explicit worker limit
+    if workers > 0:
+        parallelize[block_worker](num_work_items, workers)
+    else:
+        parallelize[block_worker](num_work_items)
 
 
 fn apply_local_transform(
@@ -556,8 +573,24 @@ fn generic_radix4_kernel[
         p_re.store(idx3, z_re3)
         p_im.store(idx3, z_im3)
 
-    @parameter
-    fn global_worker(idx: Int):
-        v_radix4[1](idx)
+    from butterfly.utils.config import get_workers, load_config
 
-    parallelize[global_worker](count)
+    var grain = load_config().parallel_fused_v3_radix4_grain
+
+    @parameter
+    fn global_worker(work_idx: Int):
+        # Original: 1 butterfly per work item
+        # Now configurable via parallel_fused_v3_radix4_grain (loaded above)
+        var start_idx = work_idx * grain
+        var end_idx = min(start_idx + grain, count)
+        for idx in range(start_idx, end_idx):
+            v_radix4[1](idx)
+
+    var num_work_items = (count + grain - 1) // grain
+    var workers = get_workers("fused_v3_radix4_chunks")
+
+    # 0 = unlimited (original behavior), >0 = explicit worker limit
+    if workers > 0:
+        parallelize[global_worker](num_work_items, workers)
+    else:
+        parallelize[global_worker](num_work_items)

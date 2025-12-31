@@ -11,13 +11,10 @@ from sys.info import num_physical_cores
 fn detect_physical_cores() -> Int:
     """Detect number of physical CPU cores, fallback to 16 if detection fails.
     """
-    try:
-        var cores = num_physical_cores()
-        if cores > 0:
-            return cores
-    except:
-        pass
-    return 16  # Fallback
+    var cores = num_physical_cores()
+    if cores > 0:
+        return cores
+    return 8  # Fallback
 
 
 struct ButterflyConfig(Copyable):
@@ -28,6 +25,10 @@ struct ButterflyConfig(Copyable):
     var parallel_quantum: Int
     var parallel_quantum_four_quarters: Int
     var parallel_quantum_simd_v2_chunks: Int  # Worker chunks for SIMD v2 kernels
+    var parallel_fused_v3_local_blocks: Int  # Cache block workers for fused_v3
+    var parallel_fused_v3_radix4_chunks: Int  # Radix-4 workers for fused_v3
+    var parallel_fused_v3_local_grain: Int  # Blocks per work item (original: 1)
+    var parallel_fused_v3_radix4_grain: Int  # Butterflies per work item (original: 1)
     var parallel_fft: Int
     var parallel_fft_global: Int
     var parallel_fft_local: Int
@@ -63,6 +64,14 @@ struct ButterflyConfig(Copyable):
         self.parallel_quantum_four_quarters = 4
         self.parallel_quantum_simd_v2_chunks = (
             0  # 0 = auto-detect physical cores
+        )
+        self.parallel_fused_v3_local_blocks = 0  # 0 = auto-detect
+        self.parallel_fused_v3_radix4_chunks = 0  # 0 = auto-detect
+        self.parallel_fused_v3_local_grain = (
+            1  # Original: 1 block per work item
+        )
+        self.parallel_fused_v3_radix4_grain = (
+            1  # Original: 1 butterfly per work item
         )
         self.parallel_fft = 0
         self.parallel_fft_global = 0
@@ -100,6 +109,18 @@ struct ButterflyConfig(Copyable):
         )
         self.parallel_quantum_simd_v2_chunks = (
             existing.parallel_quantum_simd_v2_chunks
+        )
+        self.parallel_fused_v3_local_blocks = (
+            existing.parallel_fused_v3_local_blocks
+        )
+        self.parallel_fused_v3_radix4_chunks = (
+            existing.parallel_fused_v3_radix4_chunks
+        )
+        self.parallel_fused_v3_local_grain = (
+            existing.parallel_fused_v3_local_grain
+        )
+        self.parallel_fused_v3_radix4_grain = (
+            existing.parallel_fused_v3_radix4_grain
         )
         self.parallel_fft = existing.parallel_fft
         self.parallel_fft_global = existing.parallel_fft_global
@@ -139,6 +160,12 @@ struct ButterflyConfig(Copyable):
             else:
                 # Auto-detect physical cores
                 return detect_physical_cores()
+        elif operation_type == "fused_v3_local_blocks":
+            # 0 = unlimited (don't pass workers param), >0 = explicit limit
+            return self.parallel_fused_v3_local_blocks
+        elif operation_type == "fused_v3_radix4_chunks":
+            # 0 = unlimited (don't pass workers param), >0 = explicit limit
+            return self.parallel_fused_v3_radix4_chunks
         elif operation_type == "fft":
             return (
                 self.parallel_fft if self.parallel_fft
@@ -190,6 +217,14 @@ struct ButterflyConfig(Copyable):
                     config.parallel_quantum_four_quarters = atol(value)
                 elif key == "parallelization.quantum_simd_v2_chunks":
                     config.parallel_quantum_simd_v2_chunks = atol(value)
+                elif key == "parallelization.fused_v3_local_blocks":
+                    config.parallel_fused_v3_local_blocks = atol(value)
+                elif key == "parallelization.fused_v3_radix4_chunks":
+                    config.parallel_fused_v3_radix4_chunks = atol(value)
+                elif key == "parallelization.fused_v3_local_grain":
+                    config.parallel_fused_v3_local_grain = atol(value)
+                elif key == "parallelization.fused_v3_radix4_grain":
+                    config.parallel_fused_v3_radix4_grain = atol(value)
                 elif key == "parallelization.fft_workers":
                     config.parallel_fft = atol(value)
                 elif key == "parallelization.fft_global_stage":
