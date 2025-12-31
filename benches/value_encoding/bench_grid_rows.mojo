@@ -33,21 +33,8 @@ fn execute_v_grid_circuit_rows(
     var n = circuit.num_qubits
     var state = QuantumState(n)
 
-    var col_bits = n - 3  # Typical heuristic
-    execute_as_grid(state, circuit, col_bits)
-
-    return state^
-
-
-fn execute_v_grid_fused_circuit_8rows(
-    circuit: QuantumCircuit,
-) raises -> QuantumState:
-    """Execute using Virtual Grid + Fusion."""
-    var n = circuit.num_qubits
-    var state = QuantumState(n)
-
-    var col_bits = n - 3
-    execute_v_grid_fused(state, circuit, col_bits)
+    var col_bits = n - 5  # Typical heuristic
+    execute_as_grid[1 << 10](state, circuit, col_bits)
 
     return state^
 
@@ -87,7 +74,7 @@ fn main() raises:
     var runner = create_runner(NAME, DESCRIPTION, p_cols, b_cols, 6)
 
     var n_values = List[Int]()
-    for n in range(10, 25):
+    for n in range(10, 24):
         n_values.append(n)
     var circuits = List[String]("prep", "prep+iqft")
 
@@ -127,12 +114,6 @@ fn main() raises:
             )
             runner.add_perf_result(
                 params, "v_grid_rows", execute_v_grid_circuit_rows, input
-            )
-            runner.add_perf_result(
-                params,
-                "v_grid_fused_8rows",
-                execute_v_grid_fused_circuit_8rows,
-                input,
             )
 
     runner.print_table()

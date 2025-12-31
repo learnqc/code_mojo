@@ -204,6 +204,54 @@ struct BenchmarkRunner(Movable):
         var t = bench_function_call_ms(func, input, iters, decimals)
         self.add_result(params, name, t)
 
+    fn add_perf_result_with_threads[
+        Input: AnyType & Copyable & Movable, Return: AnyType
+    ](
+        mut self,
+        params: Dict[String, String],
+        name: String,
+        func: fn (Input) raises -> Return,
+        input: Input,
+        iters: Int = 5,
+        decimals: Int = 3,
+        thread_samples: Int = 3,
+    ) raises:
+        """Add performance result with thread count monitoring.
+
+        Args:
+            params: Parameter dictionary.
+            name: Benchmark name.
+            func: Function to benchmark.
+            input: Input to the function.
+            iters: Number of iterations.
+            decimals: Decimal places for timing.
+            thread_samples: Number of thread samples to take during execution.
+        """
+        from butterfly.utils.thread_monitor import (
+            sample_current_threads,
+            format_thread_stats,
+        )
+
+        # Sample threads before
+        var stats_before = sample_current_threads(
+            num_samples=thread_samples, interval_ms=10
+        )
+
+        # Run the benchmark
+        var t = perf_function_call_ms(func, input, iters, decimals)
+
+        # Sample threads after
+        var stats_after = sample_current_threads(
+            num_samples=thread_samples, interval_ms=10
+        )
+
+        # Log the result with thread info
+        self.add_result(params, name, t)
+        var thread_info = (
+            "  [threads: " + format_thread_stats(stats_after) + "]"
+        )
+        print("  " + thread_info)
+
     # --- AGNOSTIC VERIFICATION (Hook Pattern) ---
 
     fn verify[

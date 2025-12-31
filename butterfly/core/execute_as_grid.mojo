@@ -13,6 +13,7 @@ from butterfly.core.circuit import (
 
 
 from butterfly.core.gates import is_h, is_x, is_z, is_p, get_phase_angle
+from butterfly.utils.config import get_workers
 from math import cos, sin, iota
 
 
@@ -373,11 +374,13 @@ fn transform_row_simd[
 
 
 fn execute_as_grid[
-    with_simd: Bool = True
+    simd_width: Int = 8
 ](mut state: QuantumState, circuit: QuantumCircuit, col_bits: Int) raises:
     """Execute a circuit by virtually treating the state as a grid."""
 
     from math import log2
+
+    var with_simd = simd_width > 0
 
     var n = Int(log2(Float64(len(state))))
     var num_rows = 1 << (n - col_bits)
@@ -396,29 +399,29 @@ fn execute_as_grid[
                 @parameter
                 fn process_row(row: Int):
                     var stride = 1 << target
-                    if with_simd and row_size >= 8:
+                    if with_simd and row_size >= simd_width:
                         if is_h(gate):
-                            transform_row_h_simd[8](
+                            transform_row_h_simd[simd_width](
                                 state, row, row_size, target
                             )
                         elif is_x(gate):
-                            transform_row_x_simd[8](
+                            transform_row_x_simd[simd_width](
                                 state, row, row_size, target
                             )
                         elif is_z(gate):
-                            transform_row_z_simd[8](
+                            transform_row_z_simd[simd_width](
                                 state, row, row_size, target
                             )
                         elif is_p(gate):
-                            transform_row_p_simd[8](
+                            transform_row_p_simd[simd_width](
                                 state,
                                 row,
                                 row_size,
                                 target,
                                 get_phase_angle(gate),
                             )
-                        elif stride >= 8:
-                            transform_row_simd[8](
+                        elif stride >= simd_width:
+                            transform_row_simd[simd_width](
                                 state, row, row_size, target, gate
                             )
                         else:
@@ -426,12 +429,16 @@ fn execute_as_grid[
                     else:
                         transform_row(state, row, row_size, target, gate)
 
-                parallelize[process_row](num_rows)
+                var row_workers = get_workers("v_grid_rows")
+                if row_workers > 0:
+                    parallelize[process_row](num_rows, row_workers)
+                else:
+                    parallelize[process_row](num_rows)
             else:
                 # Operation across rows - parallelize by column
                 var t_row = target - col_bits
                 var stride = 1 << t_row
-                alias chunk_size = 8
+                alias chunk_size = simd_width //TODO right?
 
                 if with_simd and row_size >= chunk_size:
 
@@ -557,7 +564,13 @@ fn execute_as_grid[
                                         + g11_im * r1,
                                     )
 
-                    parallelize[process_column_simd](row_size // chunk_size)
+                    var col_workers = get_workers("v_grid_columns")
+                    if col_workers > 0:
+                        parallelize[process_column_simd](
+                            row_size // chunk_size, col_workers
+                        )
+                    else:
+                        parallelize[process_column_simd](row_size // chunk_size)
                 else:
 
                     @parameter
@@ -605,7 +618,11 @@ fn execute_as_grid[
                                     + g11_im * r1
                                 )
 
-                    parallelize[process_column](row_size)
+                    var col_workers = get_workers("v_grid_columns")
+                    if col_workers > 0:
+                        parallelize[process_column](row_size, col_workers)
+                    else:
+                        parallelize[process_column](row_size)
 
         elif t.isa[SingleControlGateTransformation]():
             var sct = t[SingleControlGateTransformation].copy()
@@ -619,11 +636,11 @@ fn execute_as_grid[
                 @parameter
                 fn process_controlled_row(row: Int):
                     if is_h(gate):
-                        c_transform_row_h_simd(
+                        c_transform_row_h_simd[simd_width](
                             state, row, row_size, control, target
                         )
                     elif is_p(gate):
-                        c_transform_row_p_simd(
+                        c_transform_row_p_simd[simd_width](
                             state,
                             row,
                             row_size,
@@ -632,7 +649,11 @@ fn execute_as_grid[
                             get_phase_angle(gate),
                         )
 
-                parallelize[process_controlled_row](num_rows)
+                var row_workers = get_workers("v_grid_rows")
+                if row_workers > 0:
+                    parallelize[process_controlled_row](num_rows, row_workers)
+                else:
+                    parallelize[process_controlled_row](num_rows)
             else:
                 # Global: fall back to SIMD v2 for cross-row gates
                 from butterfly.core.c_transform_fast_v2 import (
