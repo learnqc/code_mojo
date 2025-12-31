@@ -53,29 +53,29 @@ fn execute_fused_v3_circuit(params: Tuple[Int, Int]) raises -> QuantumState:
 
     # Compile-time dispatch for N
     if n == 15:
-        execute_fused_v3[15](state, circuits[circuit_idx])
+        execute_fused_v3[1 << 15](state, circuits[circuit_idx])
     elif n == 16:
-        execute_fused_v3[16](state, circuits[circuit_idx])
+        execute_fused_v3[1 << 16](state, circuits[circuit_idx])
     elif n == 17:
-        execute_fused_v3[17](state, circuits[circuit_idx])
+        execute_fused_v3[1 << 17](state, circuits[circuit_idx])
     elif n == 18:
-        execute_fused_v3[18](state, circuits[circuit_idx])
+        execute_fused_v3[1 << 18](state, circuits[circuit_idx])
     elif n == 19:
-        execute_fused_v3[19](state, circuits[circuit_idx])
+        execute_fused_v3[1 << 19](state, circuits[circuit_idx])
     elif n == 20:
-        execute_fused_v3[20](state, circuits[circuit_idx])
+        execute_fused_v3[1 << 20](state, circuits[circuit_idx])
     elif n == 21:
-        execute_fused_v3[21](state, circuits[circuit_idx])
+        execute_fused_v3[1 << 21](state, circuits[circuit_idx])
     elif n == 22:
-        execute_fused_v3[22](state, circuits[circuit_idx])
+        execute_fused_v3[1 << 22](state, circuits[circuit_idx])
     elif n == 23:
-        execute_fused_v3[23](state, circuits[circuit_idx])
+        execute_fused_v3[1 << 23](state, circuits[circuit_idx])
     elif n == 24:
-        execute_fused_v3[24](state, circuits[circuit_idx])
+        execute_fused_v3[1 << 24](state, circuits[circuit_idx])
     elif n == 25:
-        execute_fused_v3[25](state, circuits[circuit_idx])
+        execute_fused_v3[1 << 25](state, circuits[circuit_idx])
     elif n == 26:
-        execute_fused_v3[26](state, circuits[circuit_idx])
+        execute_fused_v3[1 << 26](state, circuits[circuit_idx])
 
     return state^
 
