@@ -18,6 +18,8 @@ from butterfly.core.circuit import (
     BitReversalTransformation,
     get_involved_qubits,
     get_target,
+    get_gate,
+    is_controlled,
 )
 from butterfly.core.execute_simd_v2_dispatch import (
     execute_transformations_simd_v2,
@@ -33,15 +35,12 @@ from butterfly.core.execute_as_grid import (
     c_transform_row_p_simd,
 )
 from butterfly.algos.fused_gates import compute_kron_product
-from butterfly.algos.unitary_kernels import matmul_matrix4x4, Matrix4x4
-from butterfly.core.c_transform_fast_v2 import (
-    c_transform_h_simd_v2,
-    c_transform_p_simd_v2,
-)
+from butterfly.algos.unitary_kernels import Matrix4x4
 from butterfly.core.types import Amplitude, Gate
 from butterfly.core.gates import is_h, is_x, is_z, is_p, get_phase_angle
 from algorithm import parallelize
 from butterfly.utils.config import get_workers
+from butterfly.utils.bit_utils import insert_zero_bit
 from math import log2
 
 
@@ -59,8 +58,9 @@ struct PreparedTransformation(Copyable, Movable):
     var is_x_gate: Bool
     var is_z_gate: Bool
     var is_p_gate: Bool
+    var row_control_bit: Int  # Qubit index if >= col_bits, else -1
 
-    fn __init__(out self, t: Transformation):
+    fn __init__(out self, t: Transformation, col_bits: Int):
         self.is_gate = False
         self.is_controlled = False
         self.target = -1
@@ -71,6 +71,7 @@ struct PreparedTransformation(Copyable, Movable):
         self.is_x_gate = False
         self.is_z_gate = False
         self.is_p_gate = False
+        self.row_control_bit = -1
 
         if t.isa[GateTransformation]():
             var gt = t[GateTransformation].copy()
@@ -94,6 +95,10 @@ struct PreparedTransformation(Copyable, Movable):
             if self.is_p_gate:
                 self.theta = get_phase_angle(sct.gate)
 
+            # If control is in row index, record it for skipping
+            if self.control >= col_bits:
+                self.row_control_bit = self.control
+
     fn __copyinit__(out self, existing: Self):
         self.is_gate = existing.is_gate
         self.is_controlled = existing.is_controlled
@@ -105,6 +110,7 @@ struct PreparedTransformation(Copyable, Movable):
         self.is_x_gate = existing.is_x_gate
         self.is_z_gate = existing.is_z_gate
         self.is_p_gate = existing.is_p_gate
+        self.row_control_bit = existing.row_control_bit
 
     fn __moveinit__(out self, deinit existing: Self):
         self.is_gate = existing.is_gate
@@ -117,6 +123,7 @@ struct PreparedTransformation(Copyable, Movable):
         self.is_x_gate = existing.is_x_gate
         self.is_z_gate = existing.is_z_gate
         self.is_p_gate = existing.is_p_gate
+        self.row_control_bit = existing.row_control_bit
 
 
 struct GridFusionGroup(Copyable, Movable):
@@ -124,33 +131,49 @@ struct GridFusionGroup(Copyable, Movable):
 
     var transformations: List[Transformation]
     var is_row_local: Bool  # All targets < col_bits
-    var is_radix4: Bool  # 2 gates to fuse
+    var is_fused: Bool
+    var fusion_matrices: List[Matrix4x4]
 
-    fn __init__(out self, is_row_local: Bool = False, is_radix4: Bool = False):
+    fn __init__(
+        out self,
+        is_row_local: Bool = False,
+        is_fused: Bool = False,
+    ):
         self.transformations = List[Transformation]()
         self.is_row_local = is_row_local
-        self.is_radix4 = is_radix4
+        self.is_fused = is_fused
+        self.fusion_matrices = List[Matrix4x4]()
 
     fn __copyinit__(out self, existing: Self):
         self.transformations = List[Transformation]()
         for i in range(len(existing.transformations)):
             self.transformations.append(existing.transformations[i])
         self.is_row_local = existing.is_row_local
-        self.is_radix4 = existing.is_radix4
+        self.is_fused = existing.is_fused
+        self.fusion_matrices = List[Matrix4x4]()
+        for i in range(len(existing.fusion_matrices)):
+            self.fusion_matrices.append(existing.fusion_matrices[i])
 
     fn __moveinit__(out self, deinit existing: Self):
         self.transformations = existing.transformations^
         self.is_row_local = existing.is_row_local
-        self.is_radix4 = existing.is_radix4
+        self.is_fused = existing.is_fused
+        self.fusion_matrices = existing.fusion_matrices^
 
 
 fn is_row_local_gate(t: Transformation, col_bits: Int) -> Bool:
-    """Check if gate is row-local (all qubits < col_bits)."""
+    """Check if gate is row-local (target < col_bits).
+    Controlled gates are considered local if the target is in the row and the
+    control is either in the row OR in the global row-index bits (which allows skipping).
+    """
     if t.isa[GateTransformation]():
         return t[GateTransformation].target < col_bits
     elif t.isa[SingleControlGateTransformation]():
         var sct = t[SingleControlGateTransformation].copy()
-        return sct.control < col_bits and sct.target < col_bits
+        # If target is local, it acts within a row.
+        # If control is also local (< col_bits), it's a normal local controlled gate.
+        # If control is global (>= col_bits), it's a "row-controlled skip" gate.
+        return sct.target < col_bits
     return False
 
 
@@ -166,9 +189,9 @@ fn analyze_for_grid_fusion(
     while i < n:
         var t = transformations[i]
 
-        # Bit reversals get their own group
+        # Bit reversals get their own group (marked as non-local)
         if t.isa[BitReversalTransformation]():
-            var g = GridFusionGroup()
+            var g = GridFusionGroup(is_row_local=False)
             g.transformations.append(t)
             groups.append(g^)
             i += 1
@@ -176,7 +199,7 @@ fn analyze_for_grid_fusion(
 
         if is_row_local_gate(t, col_bits):
             # Row-local group
-            var g = GridFusionGroup(is_row_local=True)
+            var g = GridFusionGroup(is_row_local=True, is_fused=False)
             g.transformations.append(t)
             i += 1
 
@@ -186,36 +209,60 @@ fn analyze_for_grid_fusion(
                     break
                 var t2 = transformations[i]
                 g.transformations.append(t2)
+                # If we have 2 or more uncontrolled gates, we can fuse
+                if not g.is_fused and not is_controlled(t2):
+                    # Search if any previous gate in group was uncontrolled
+                    for j in range(len(g.transformations) - 1):
+                        if not is_controlled(g.transformations[j]):
+                            g.is_fused = True
+                            break
                 i += 1
+
+            # Precompute all possible fusion matrices for this group
+            # For a group of size N, we store Matrix(i, j) at index i * N + j
+            var num_g = len(g.transformations)
+            if num_g > 1:
+                # Pre-unpack gates for precomputation
+                var preps = List[PreparedTransformation]()
+                for k in range(num_g):
+                    preps.append(
+                        PreparedTransformation(g.transformations[k], col_bits)
+                    )
+                var preps_ptr = preps.unsafe_ptr()
+
+                # Initialize with placeholders
+                for _ in range(num_g * num_g):
+                    g.fusion_matrices.append(Matrix4x4(uninitialized=True))
+
+                # Compute all pairs
+                for k1 in range(num_g):
+                    for k2 in range(num_g):
+                        if k1 < k2:
+                            var p1 = preps_ptr + k1
+                            var p2 = preps_ptr + k2
+                            # Only precompute if they have different targets
+                            if p1[].target != p2[].target:
+                                var mat = compute_kron_product(
+                                    p1[].gate, p2[].gate
+                                )
+                                if p1[].target < p2[].target:
+                                    mat = compute_kron_product(
+                                        p2[].gate, p1[].gate
+                                    )
+                                g.fusion_matrices[k1 * num_g + k2] = mat
 
             groups.append(g^)
         else:
-            # Cross-row: try radix-4
-            if i + 1 < n:
-                var next_t = transformations[i + 1]
-
-                if (
-                    t.isa[GateTransformation]()
-                    and next_t.isa[GateTransformation]()
-                ):
-                    var gt1 = t[GateTransformation].copy()
-                    var gt2 = next_t[GateTransformation].copy()
-
-                    if gt1.target != gt2.target:
-                        var g = GridFusionGroup(
-                            is_row_local=False, is_radix4=True
-                        )
-                        g.transformations.append(t)
-                        g.transformations.append(next_t)
-                        groups.append(g^)
-                        i += 2
-                        continue
-
-            # Single cross-row gate
-            var g = GridFusionGroup(is_row_local=False, is_radix4=False)
+            # Cross-row gates - group them for better dispatch
+            var g = GridFusionGroup(is_row_local=False)
             g.transformations.append(t)
-            groups.append(g^)
             i += 1
+            while i < n and not is_row_local_gate(transformations[i], col_bits):
+                if transformations[i].isa[BitReversalTransformation]():
+                    break
+                g.transformations.append(transformations[i])
+                i += 1
+            groups.append(g^)
 
     return groups^
 
@@ -242,47 +289,183 @@ fn execute_grid_fused[
         var g_ref = groups_ptr + i
         if g_ref[].is_row_local:
             execute_row_local_group[SIMD_WIDTH](
-                state, g_ref[].transformations, num_rows, row_size
+                state,
+                g_ref[].transformations,
+                g_ref[].fusion_matrices,
+                num_rows,
+                row_size,
+                actual_col_bits,
+                g_ref[].is_fused,
             )
-        elif g_ref[].is_radix4:
-            _execute_radix4_cross_row[N](state, g_ref[].transformations)
-
         else:
-            # Single cross-row gate
-            if len(g_ref[].transformations) > 0:
-                var t = g_ref[].transformations[0]
-                if t.isa[GateTransformation]():
-                    var gt = t[GateTransformation].copy()
-                    transform_simd[N](state, gt.target, gt.gate)
-                elif t.isa[SingleControlGateTransformation]():
-                    var sct = t[SingleControlGateTransformation].copy()
-                    from butterfly.core.gates import is_h, is_p, get_phase_angle
-                    from butterfly.core.c_transform_fast_v2 import (
-                        c_transform_h_simd_v2,
-                        c_transform_p_simd_v2,
-                    )
+            # Global gates - fall back to standard SIMD dispatcher (Stable & Bit-Perfect)
+            execute_transformations_simd_v2[N](state, g_ref[].transformations)
 
-                    if is_h(sct.gate):
-                        c_transform_h_simd_v2(state, sct.control, sct.target)
-                    elif is_p(sct.gate):
-                        c_transform_p_simd_v2(
-                            state,
-                            sct.control,
-                            sct.target,
-                            get_phase_angle(sct.gate),
-                        )
-                    else:
-                        from butterfly.core.state import (
-                            c_transform_simd_base_v2,
-                        )
 
-                        c_transform_simd_base_v2[N](
-                            state, sct.control, 1 << sct.target, sct.gate
-                        )
-                else:
-                    execute_transformations_simd_v2[N](
-                        state, g_ref[].transformations
-                    )
+fn transform_row_matrix4_simd[
+    simd_width: Int
+](
+    mut state: QuantumState,
+    row: Int,
+    row_size: Int,
+    t1: Int,
+    t2: Int,
+    mat: Matrix4x4,
+):
+    """Apply a 4x4 matrix to two qubits within a row using SIMD."""
+    var ptr_re = state.re.unsafe_ptr()
+    var ptr_im = state.im.unsafe_ptr()
+    var row_offset = row * row_size
+
+    var high_pos = t1
+    var low_pos = t2
+    if t2 > t1:
+        high_pos = t2
+        low_pos = t1
+
+    var stride_low = 1 << low_pos
+    var stride_high = 1 << high_pos
+    var num_base_pairs = row_size >> 2
+
+    if stride_low >= simd_width:
+
+        @parameter
+        fn inner_simd[w: Int](k: Int):
+            var i = insert_zero_bit(k, low_pos)
+            var idx0_local = insert_zero_bit(i, high_pos)
+            var idx1_local = idx0_local | stride_low
+            var idx2_local = idx0_local | stride_high
+            var idx3_local = idx1_local | stride_high
+
+            var idx0 = row_offset + idx0_local
+            var idx1 = row_offset + idx1_local
+            var idx2 = row_offset + idx2_local
+            var idx3 = row_offset + idx3_local
+
+            var re0 = ptr_re.load[width=w](idx0)
+            var im0 = ptr_im.load[width=w](idx0)
+            var re1 = ptr_re.load[width=w](idx1)
+            var im1 = ptr_im.load[width=w](idx1)
+            var re2 = ptr_re.load[width=w](idx2)
+            var im2 = ptr_im.load[width=w](idx2)
+            var re3 = ptr_re.load[width=w](idx3)
+            var im3 = ptr_im.load[width=w](idx3)
+
+            # Complex Matrix Mul (Correct and Bit-Perfect)
+            # Row 0
+            var n_re0 = re0 * mat[0][0].re - im0 * mat[0][0].im
+            var n_im0 = re0 * mat[0][0].im + im0 * mat[0][0].re
+            n_re0 += re1 * mat[0][1].re - im1 * mat[0][1].im
+            n_im0 += re1 * mat[0][1].im + im1 * mat[0][1].re
+            n_re0 += re2 * mat[0][2].re - im2 * mat[0][2].im
+            n_im0 += re2 * mat[0][2].im + im2 * mat[0][2].re
+            n_re0 += re3 * mat[0][3].re - im3 * mat[0][3].im
+            n_im0 += re3 * mat[0][3].im + im3 * mat[0][3].re
+
+            # Row 1
+            var n_re1 = re0 * mat[1][0].re - im0 * mat[1][0].im
+            var n_im1 = re0 * mat[1][0].im + im0 * mat[1][0].re
+            n_re1 += re1 * mat[1][1].re - im1 * mat[1][1].im
+            n_im1 += re1 * mat[1][1].im + im1 * mat[1][1].re
+            n_re1 += re2 * mat[1][2].re - im2 * mat[1][2].im
+            n_im1 += re2 * mat[1][2].im + im2 * mat[1][2].re
+            n_re1 += re3 * mat[1][3].re - im3 * mat[1][3].im
+            n_im1 += re3 * mat[1][3].im + im3 * mat[1][3].re
+
+            # Row 2
+            var n_re2 = re0 * mat[2][0].re - im0 * mat[2][0].im
+            var n_im2 = re0 * mat[2][0].im + im0 * mat[2][0].re
+            n_re2 += re1 * mat[2][1].re - im1 * mat[2][1].im
+            n_im2 += re1 * mat[2][1].im + im1 * mat[2][1].re
+            n_re2 += re2 * mat[2][2].re - im2 * mat[2][2].im
+            n_im2 += re2 * mat[2][2].im + im2 * mat[2][2].re
+            n_re2 += re3 * mat[2][3].re - im3 * mat[2][3].im
+            n_im2 += re3 * mat[2][3].im + im3 * mat[2][3].re
+
+            # Row 3
+            var n_re3 = re0 * mat[3][0].re - im0 * mat[3][0].im
+            var n_im3 = re0 * mat[3][0].im + im0 * mat[3][0].re
+            n_re3 += re1 * mat[3][1].re - im1 * mat[3][1].im
+            n_im3 += re1 * mat[3][1].im + im1 * mat[3][1].re
+            n_re3 += re2 * mat[3][2].re - im2 * mat[3][2].im
+            n_im3 += re2 * mat[3][2].im + im2 * mat[3][2].re
+            n_re3 += re3 * mat[3][3].re - im3 * mat[3][3].im
+            n_im3 += re3 * mat[3][3].im + im3 * mat[3][3].re
+
+            # Stores
+            ptr_re.store(idx0, n_re0)
+            ptr_im.store(idx0, n_im0)
+            ptr_re.store(idx1, n_re1)
+            ptr_im.store(idx1, n_im1)
+            ptr_re.store(idx2, n_re2)
+            ptr_im.store(idx2, n_im2)
+            ptr_re.store(idx3, n_re3)
+            ptr_im.store(idx3, n_im3)
+
+        vectorize[inner_simd, simd_width](num_base_pairs)
+    else:
+        # Scalar fallback
+        for k in range(num_base_pairs):
+            var i = insert_zero_bit(k, low_pos)
+            var idx0_local = insert_zero_bit(i, high_pos)
+            var idx0 = row_offset + idx0_local
+            var idx1 = idx0 | stride_low
+            var idx2 = idx0 | stride_high
+            var idx3 = idx1 | stride_high
+
+            var re0 = ptr_re[idx0]
+            var im0 = ptr_im[idx0]
+            var re1 = ptr_re[idx1]
+            var im1 = ptr_im[idx1]
+            var re2 = ptr_re[idx2]
+            var im2 = ptr_im[idx2]
+            var re3 = ptr_re[idx3]
+            var im3 = ptr_im[idx3]
+
+            var n_re0 = re0 * mat[0][0].re - im0 * mat[0][0].im
+            var n_im0 = re0 * mat[0][0].im + im0 * mat[0][0].re
+            n_re0 += re1 * mat[0][1].re - im1 * mat[0][1].im
+            n_im0 += re1 * mat[0][1].im + im1 * mat[0][1].re
+            n_re0 += re2 * mat[0][2].re - im2 * mat[0][2].im
+            n_im0 += re2 * mat[0][2].im + im2 * mat[0][2].re
+            n_re0 += re3 * mat[0][3].re - im3 * mat[0][3].im
+            n_im0 += re3 * mat[0][3].im + im3 * mat[0][3].re
+
+            var n_re1 = re0 * mat[1][0].re - im0 * mat[1][0].im
+            var n_im1 = re0 * mat[1][0].im + im0 * mat[1][0].re
+            n_re1 += re1 * mat[1][1].re - im1 * mat[1][1].im
+            n_im1 += re1 * mat[1][1].im + im1 * mat[1][1].re
+            n_re1 += re2 * mat[1][2].re - im2 * mat[1][2].im
+            n_im1 += re2 * mat[1][2].im + im2 * mat[1][2].re
+            n_re1 += re3 * mat[1][3].re - im3 * mat[1][3].im
+            n_im1 += re3 * mat[1][3].im + im3 * mat[1][3].re
+
+            var n_re2 = re0 * mat[2][0].re - im0 * mat[2][0].im
+            var n_im2 = re0 * mat[2][0].im + im0 * mat[2][0].re
+            n_re2 += re1 * mat[2][1].re - im1 * mat[2][1].im
+            n_im2 += re1 * mat[2][1].im + im1 * mat[2][1].re
+            n_re2 += re2 * mat[2][2].re - im2 * mat[2][2].im
+            n_im2 += re2 * mat[2][2].im + im2 * mat[2][2].re
+            n_re2 += re3 * mat[2][3].re - im3 * mat[2][3].im
+            n_im2 += re3 * mat[2][3].im + im3 * mat[2][3].re
+
+            var n_re3 = re0 * mat[3][0].re - im0 * mat[3][0].im
+            var n_im3 = re0 * mat[3][0].im + im0 * mat[3][0].re
+            n_re3 += re1 * mat[3][1].re - im1 * mat[3][1].im
+            n_im3 += re1 * mat[3][1].im + im1 * mat[3][1].re
+            n_re3 += re2 * mat[3][2].re - im2 * mat[3][2].im
+            n_im3 += re2 * mat[3][2].im + im2 * mat[3][2].re
+            n_re3 += re3 * mat[3][3].re - im3 * mat[3][3].im
+            n_im3 += re3 * mat[3][3].im + im3 * mat[3][3].re
+
+            ptr_re[idx0] = n_re0
+            ptr_im[idx0] = n_im0
+            ptr_re[idx1] = n_re1
+            ptr_im[idx1] = n_im1
+            ptr_re[idx2] = n_re2
+            ptr_im[idx2] = n_im2
+            ptr_re[idx3] = n_re3
+            ptr_im[idx3] = n_im3
 
 
 fn execute_row_local_group[
@@ -290,108 +473,125 @@ fn execute_row_local_group[
 ](
     mut state: QuantumState,
     transformations: List[Transformation],
+    fusion_matrices: List[Matrix4x4],
     num_rows: Int,
     row_size: Int,
+    col_bits: Int,
+    is_fused: Bool = False,
 ):
     """Execute row-local gates in parallel."""
 
     var prepared = List[PreparedTransformation]()
     for i in range(len(transformations)):
-        prepared.append(PreparedTransformation(transformations[i]))
+        prepared.append(PreparedTransformation(transformations[i], col_bits))
     var prepared_ptr = prepared.unsafe_ptr()
+    var matrices_ptr = fusion_matrices.unsafe_ptr()
     var num_prepared = len(prepared)
 
     @parameter
     fn process_row(row: Int):
-        for i in range(num_prepared):
+        var i = 0
+        while i < num_prepared:
             var p = prepared_ptr + i
 
-            if p[].is_gate:
-                if row_size >= simd_width:
-                    if p[].is_h_gate:
-                        transform_row_h_simd[simd_width](
-                            state, row, row_size, p[].target
-                        )
-                    elif p[].is_x_gate:
-                        transform_row_x_simd[simd_width](
-                            state, row, row_size, p[].target
-                        )
-                    elif p[].is_z_gate:
-                        transform_row_z_simd[simd_width](
-                            state, row, row_size, p[].target
-                        )
-                    elif p[].is_p_gate:
-                        transform_row_p_simd[simd_width](
-                            state, row, row_size, p[].target, p[].theta
-                        )
-                    elif (1 << p[].target) >= simd_width:
-                        transform_row_simd[simd_width](
-                            state, row, row_size, p[].target, p[].gate
-                        )
+            # Row-Controlled Skip Logic
+            if p[].row_control_bit >= 0:
+                var row_bit_pos = p[].row_control_bit - col_bits
+                if not ((row >> row_bit_pos) & 1):
+                    # Control bit is 0 for this row, skip this gate
+                    i += 1
+                    continue
+                # Control bit is 1, treat as uncontrolled within this row
+
+            if is_fused and i + 1 < num_prepared:
+                # Lookahead Fusion: find next active gate to fuse with
+                var fused = False
+                for j in range(i + 1, num_prepared):
+                    var p2 = prepared_ptr + j
+                    # Check if p2 is active for this row
+                    var p2_active = True
+                    if p2[].row_control_bit >= 0:
+                        var row_bit_pos = p2[].row_control_bit - col_bits
+                        if not ((row >> row_bit_pos) & 1):
+                            p2_active = False
+
+                    if p2_active:
+                        # Found next active gate. Can we fuse?
+                        if (
+                            (not p[].is_controlled or p[].row_control_bit >= 0)
+                            and (
+                                not p2[].is_controlled
+                                or p2[].row_control_bit >= 0
+                            )
+                            and p[].target != p2[].target
+                        ):
+                            # Use precomputed matrix at index i * N + j
+                            var mat = matrices_ptr[i * num_prepared + j]
+                            transform_row_matrix4_simd[simd_width](
+                                state,
+                                row,
+                                row_size,
+                                p[].target,
+                                p2[].target,
+                                mat,
+                            )
+                            # Skip all gates up to j
+                            i = j + 1
+                            fused = True
+                        break  # Stop looking after finding first active successor
                     else:
-                        transform_row(
-                            state, row, row_size, p[].target, p[].gate
-                        )
-                else:
-                    transform_row(state, row, row_size, p[].target, p[].gate)
-            elif p[].is_controlled:
+                        # Successor is skipped. Continue lookahead to i+2, etc.
+                        continue
+
+                if fused:
+                    continue
+
+            # Fallback to single gate execution
+            if p[].is_controlled and p[].row_control_bit < 0:
+                # Actual row-local controlled gate
                 if p[].is_h_gate:
                     c_transform_row_h_simd[simd_width](
                         state, row, row_size, p[].control, p[].target
                     )
                 elif p[].is_p_gate:
                     c_transform_row_p_simd[simd_width](
-                        state, row, row_size, p[].control, p[].target, p[].theta
+                        state,
+                        row,
+                        row_size,
+                        p[].control,
+                        p[].target,
+                        p[].theta,
                     )
+                else:
+                    transform_row_simd[simd_width](
+                        state, row, row_size, p[].target, p[].gate
+                    )
+            else:
+                # Uncontrolled gate OR row-controlled skip gate (now satisfied)
+                if p[].is_h_gate:
+                    transform_row_h_simd[simd_width](
+                        state, row, row_size, p[].target
+                    )
+                elif p[].is_x_gate:
+                    transform_row_x_simd[simd_width](
+                        state, row, row_size, p[].target
+                    )
+                elif p[].is_z_gate:
+                    transform_row_z_simd[simd_width](
+                        state, row, row_size, p[].target
+                    )
+                elif p[].is_p_gate:
+                    transform_row_p_simd[simd_width](
+                        state, row, row_size, p[].target, p[].theta
+                    )
+                else:
+                    transform_row_simd[simd_width](
+                        state, row, row_size, p[].target, p[].gate
+                    )
+            i += 1
 
-    var row_workers = get_workers("v_grid_rows")
-    if row_workers > 0:
-        parallelize[process_row](num_rows, row_workers)
+    var workers = get_workers("v_grid_rows")
+    if workers > 0:
+        parallelize[process_row](num_rows, workers)
     else:
         parallelize[process_row](num_rows)
-
-
-fn _execute_radix4_cross_row[
-    N: Int
-](mut state: QuantumState, transformations: List[Transformation]):
-    """Execute 2 cross-row gates fused."""
-    if len(transformations) < 2:
-        return
-
-    var t1 = transformations[0]
-    var t2 = transformations[1]
-
-    if not t1.isa[GateTransformation]() or not t2.isa[GateTransformation]():
-        execute_transformations_simd_v2[N](state, transformations)
-        return
-
-    var gt1 = t1[GateTransformation].copy()
-    var gt2 = t2[GateTransformation].copy()
-
-    var q_high = max(gt1.target, gt2.target)
-    var q_low = min(gt1.target, gt2.target)
-
-    # Check if they are on the same qubit
-    if q_high == q_low:
-        from butterfly.core.gates import matmul_2x2
-
-        var G = matmul_2x2(gt2.gate, gt1.gate)
-        transform_simd[N](state, q_high, G)
-        return
-
-    # Build fused matrix via Kronecker product
-    var g_high: Gate
-    var g_low: Gate
-    if gt1.target > gt2.target:
-        g_high = gt1.gate
-        g_low = gt2.gate
-    else:
-        g_high = gt2.gate
-        g_low = gt1.gate
-
-    var M = compute_kron_product(g_high, g_low)
-
-    # Apply
-    from butterfly.algos.fused_gates import transform_matrix4
-
-    transform_matrix4(state, q_high, q_low, M)
