@@ -7,8 +7,12 @@ from butterfly.core.state import (
     bit_reverse_state,
     mc_transform_interval,
     c_transform_simd_base_v2,
+    transform_h_simd_v2,
+    transform_x_simd_v2,
+    transform_z_simd_v2,
+    transform_p_simd_v2,
 )
-from butterfly.core.gates import is_h, is_x, is_p, get_phase_angle
+from butterfly.core.gates import is_h, is_x, is_z, is_p, get_phase_angle
 from butterfly.core.types import Gate
 from butterfly.core.circuit import (
     Transformation,
@@ -52,7 +56,17 @@ fn execute_transformations_simd_v2[
             mc_transform_interval(state, g.controls, g.target, g.gate)
         elif t.isa[GateTransformation]():
             var g = t[GateTransformation].copy()
-            transform_simd[N](state, g.target, g.gate)
+            # Specialized kernels v2 (Uncontrolled)
+            if is_h(g.gate):
+                transform_h_simd_v2(state, g.target)
+            elif is_x(g.gate):
+                transform_x_simd_v2(state, g.target)
+            elif is_z(g.gate):
+                transform_z_simd_v2(state, g.target)
+            elif is_p(g.gate):
+                transform_p_simd_v2(state, g.target, get_phase_angle(g.gate))
+            else:
+                transform_simd[N](state, g.target, g.gate)
         elif t.isa[DiagonalTransformation]():
             # Handle diagonal phase flip transformation
             from butterfly.core.types import Amplitude

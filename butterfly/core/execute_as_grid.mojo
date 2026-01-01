@@ -435,86 +435,36 @@ fn execute_as_grid[
                 else:
                     parallelize[process_row](num_rows)
             else:
-                # Operation across rows - parallelize by column
-                var t_row = target - col_bits
-                var stride = 1 << t_row
-                alias chunk_size = simd_width
+                # Operation across rows - Just use global specialized Kernels (Faster!)
+                if is_h(gate):
+                    from butterfly.core.state import transform_h_simd_v2
 
-                if with_simd and row_size >= chunk_size:
+                    transform_h_simd_v2(state, target)
+                elif is_x(gate):
+                    from butterfly.core.state import transform_x_simd_v2
 
-                    @parameter
-                    fn process_column_simd(chunk_idx: Int):
-                        var col_base = chunk_idx * chunk_size
-                        var re_ptr = state.re.unsafe_ptr()
-                        var im_ptr = state.im.unsafe_ptr()
+                    transform_x_simd_v2(state, target)
+                elif is_z(gate):
+                    from butterfly.core.state import transform_z_simd_v2
 
-                        if is_h(gate):
-                            alias sq_half = 0.7071067811865476
-                            for k in range(num_rows // (2 * stride)):
-                                for row_idx in range(
-                                    k * 2 * stride, k * 2 * stride + stride
-                                ):
-                                    var idx0 = row_idx * row_size + col_base
-                                    var idx1 = (
-                                        row_idx + stride
-                                    ) * row_size + col_base
-                                    var r0 = re_ptr.load[width=chunk_size](idx0)
-                                    var i0 = im_ptr.load[width=chunk_size](idx0)
-                                    var r1 = re_ptr.load[width=chunk_size](idx1)
-                                    var i1 = im_ptr.load[width=chunk_size](idx1)
-                                    re_ptr.store(idx0, (r0 + r1) * sq_half)
-                                    im_ptr.store(idx0, (i0 + i1) * sq_half)
-                                    re_ptr.store(idx1, (r0 - r1) * sq_half)
-                                    im_ptr.store(idx1, (i0 - i1) * sq_half)
-                        elif is_x(gate):
-                            for k in range(num_rows // (2 * stride)):
-                                for row_idx in range(
-                                    k * 2 * stride, k * 2 * stride + stride
-                                ):
-                                    var idx0 = row_idx * row_size + col_base
-                                    var idx1 = (
-                                        row_idx + stride
-                                    ) * row_size + col_base
-                                    var r0 = re_ptr.load[width=chunk_size](idx0)
-                                    var i0 = im_ptr.load[width=chunk_size](idx0)
-                                    var r1 = re_ptr.load[width=chunk_size](idx1)
-                                    var i1 = im_ptr.load[width=chunk_size](idx1)
-                                    re_ptr.store(idx0, r1)
-                                    im_ptr.store(idx0, i1)
-                                    re_ptr.store(idx1, r0)
-                                    im_ptr.store(idx1, i0)
-                        elif is_z(gate):
-                            for k in range(num_rows // (2 * stride)):
-                                for row_idx in range(
-                                    k * 2 * stride, k * 2 * stride + stride
-                                ):
-                                    var idx1 = (
-                                        row_idx + stride
-                                    ) * row_size + col_base
-                                    re_ptr.store(
-                                        idx1,
-                                        -re_ptr.load[width=chunk_size](idx1),
-                                    )
-                                    im_ptr.store(
-                                        idx1,
-                                        -im_ptr.load[width=chunk_size](idx1),
-                                    )
-                        elif is_p(gate):
-                            var theta = get_phase_angle(gate)
-                            var cos_t = cos(theta)
-                            var sin_t = sin(theta)
-                            for k in range(num_rows // (2 * stride)):
-                                for row_idx in range(
-                                    k * 2 * stride, k * 2 * stride + stride
-                                ):
-                                    var idx1 = (
-                                        row_idx + stride
-                                    ) * row_size + col_base
-                                    var r1 = re_ptr.load[width=chunk_size](idx1)
-                                    var i1 = im_ptr.load[width=chunk_size](idx1)
-                                    re_ptr.store(idx1, r1 * cos_t - i1 * sin_t)
-                                    im_ptr.store(idx1, r1 * sin_t + i1 * cos_t)
-                        else:
+                    transform_z_simd_v2(state, target)
+                elif is_p(gate):
+                    from butterfly.core.state import transform_p_simd_v2
+
+                    transform_p_simd_v2(state, target, get_phase_angle(gate))
+                else:
+                    # Fallback to column-parallel for non-specialized gates
+                    var t_row = target - col_bits
+                    var stride = 1 << t_row
+                    alias chunk_size = simd_width
+
+                    if with_simd and row_size >= chunk_size:
+
+                        @parameter
+                        fn process_column_simd(chunk_idx: Int):
+                            var col_base = chunk_idx * chunk_size
+                            var re_ptr = state.re.unsafe_ptr()
+                            var im_ptr = state.im.unsafe_ptr()
                             var g00_re = gate[0][0].re
                             var g00_im = gate[0][0].im
                             var g01_re = gate[0][1].re
@@ -564,65 +514,69 @@ fn execute_as_grid[
                                         + g11_im * r1,
                                     )
 
-                    var col_workers = get_workers("v_grid_columns")
-                    if col_workers > 0:
-                        parallelize[process_column_simd](
-                            row_size // chunk_size, col_workers
-                        )
+                        var col_workers = get_workers("v_grid_columns")
+                        if col_workers > 0:
+                            parallelize[process_column_simd](
+                                row_size // chunk_size, col_workers
+                            )
+                        else:
+                            parallelize[process_column_simd](
+                                row_size // chunk_size
+                            )
                     else:
-                        parallelize[process_column_simd](row_size // chunk_size)
-                else:
 
-                    @parameter
-                    fn process_column(col: Int):
-                        var g00_re = gate[0][0].re
-                        var g00_im = gate[0][0].im
-                        var g01_re = gate[0][1].re
-                        var g01_im = gate[0][1].im
-                        var g10_re = gate[1][0].re
-                        var g10_im = gate[1][0].im
-                        var g11_re = gate[1][1].re
-                        var g11_im = gate[1][1].im
-                        for k in range(num_rows // (2 * stride)):
-                            for row_idx in range(
-                                k * 2 * stride, k * 2 * stride + stride
-                            ):
-                                var idx0 = row_idx * row_size + col
-                                var idx1 = (row_idx + stride) * row_size + col
-                                var r0 = state.re[idx0]
-                                var i0 = state.im[idx0]
-                                var r1 = state.re[idx1]
-                                var i1 = state.im[idx1]
-                                state.re[idx0] = (
-                                    g00_re * r0
-                                    - g00_im * i0
-                                    + g01_re * r1
-                                    - g01_im * i1
-                                )
-                                state.im[idx0] = (
-                                    g00_re * i0
-                                    + g00_im * r0
-                                    + g01_re * i1
-                                    + g01_im * r1
-                                )
-                                state.re[idx1] = (
-                                    g10_re * r0
-                                    - g10_im * i0
-                                    + g11_re * r1
-                                    - g11_im * i1
-                                )
-                                state.im[idx1] = (
-                                    g10_re * i0
-                                    + g10_im * r0
-                                    + g11_re * i1
-                                    + g11_im * r1
-                                )
+                        @parameter
+                        fn process_column(col: Int):
+                            var g00_re = gate[0][0].re
+                            var g00_im = gate[0][0].im
+                            var g01_re = gate[0][1].re
+                            var g01_im = gate[0][1].im
+                            var g10_re = gate[1][0].re
+                            var g10_im = gate[1][0].im
+                            var g11_re = gate[1][1].re
+                            var g11_im = gate[1][1].im
+                            for k in range(num_rows // (2 * stride)):
+                                for row_idx in range(
+                                    k * 2 * stride, k * 2 * stride + stride
+                                ):
+                                    var idx0 = row_idx * row_size + col
+                                    var idx1 = (
+                                        row_idx + stride
+                                    ) * row_size + col
+                                    var r0 = state.re[idx0]
+                                    var i0 = state.im[idx0]
+                                    var r1 = state.re[idx1]
+                                    var i1 = state.im[idx1]
+                                    state.re[idx0] = (
+                                        g00_re * r0
+                                        - g00_im * i0
+                                        + g01_re * r1
+                                        - g01_im * i1
+                                    )
+                                    state.im[idx0] = (
+                                        g00_re * i0
+                                        + g00_im * r0
+                                        + g01_re * i1
+                                        + g01_im * r1
+                                    )
+                                    state.re[idx1] = (
+                                        g10_re * r0
+                                        - g10_im * i0
+                                        + g11_re * r1
+                                        - g11_im * i1
+                                    )
+                                    state.im[idx1] = (
+                                        g10_re * i0
+                                        + g10_im * r0
+                                        + g11_re * i1
+                                        + g11_im * r1
+                                    )
 
-                    var col_workers = get_workers("v_grid_columns")
-                    if col_workers > 0:
-                        parallelize[process_column](row_size, col_workers)
-                    else:
-                        parallelize[process_column](row_size)
+                        var col_workers = get_workers("v_grid_columns")
+                        if col_workers > 0:
+                            parallelize[process_column](row_size, col_workers)
+                        else:
+                            parallelize[process_column](row_size)
 
         elif t.isa[SingleControlGateTransformation]():
             var sct = t[SingleControlGateTransformation].copy()

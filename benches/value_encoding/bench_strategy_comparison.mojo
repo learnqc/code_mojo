@@ -4,7 +4,11 @@ Strategies: scalar, simd_v2, fused_v3, v_grid, v_grid_fused, qiskit.
 Circuits: prep and prep+iqft (from value encoding).
 """
 
-from butterfly.utils.benchmark_runner import create_runner, should_autosave
+from butterfly.utils.benchmark_runner import (
+    create_runner,
+    should_autosave,
+    LabeledFunction,
+)
 from butterfly.core.state import QuantumState
 from butterfly.core.circuit import QuantumCircuit
 from butterfly.core.execute_as_grid import execute_as_grid
@@ -19,6 +23,8 @@ from butterfly.utils.quantum_interop import (
 from butterfly.utils.visualization import print_state
 from collections import Dict, List
 from math import pi
+
+alias Executor = LabeledFunction[QuantumCircuit, QuantumState]
 
 
 # --- Baseline Executors ---
@@ -254,17 +260,22 @@ fn main() raises:
     alias DESCRIPTION = "Value Encoding: Mojo vs Qiskit "
 
     var p_cols = List[String]("n", "circuit")
-    var b_cols = List[String](
-        "scalar",
-        "simd_v2",
-        "fused_v3",
-        "v_grid",
-        "v_grid_fused",
-        "grid_fusion",
-        "q_aer_raw",
-        "q_aer_opt",
-        "q_latency",
-    )
+    var executors = List[Executor]()
+    executors.append(Executor("scalar", execute_scalar_circuit))
+    executors.append(Executor("simd_v2", execute_simd_v2_circuit))
+    executors.append(Executor("fused_v3", execute_fused_v3_circuit))
+    executors.append(Executor("v_grid", execute_v_grid_circuit))
+    executors.append(Executor("v_grid_fused", execute_v_grid_fused_circuit))
+    executors.append(Executor("grid_fusion", execute_grid_fusion_circuit))
+    executors.append(Executor("qiskit", execute_qiskit_circuit))
+
+    var b_cols = List[String]()
+    for i in range(len(executors)):
+        b_cols.append(executors[i].name)
+
+    b_cols.append("q_aer_raw")
+    b_cols.append("q_aer_opt")
+    b_cols.append("q_latency")
 
     var runner = create_runner(NAME, DESCRIPTION, p_cols, b_cols, 6)
 
@@ -293,121 +304,23 @@ fn main() raises:
             params["n"] = String(n)
             params["circuit"] = c_name
 
-            try:
-                if n <= 22:
-                    # Mojo-to-Mojo parity
-                    runner.log_progress("Checking Mojo-to-Mojo parity...")
-                    try:
-                        runner.verify(
-                            input,
-                            execute_simd_v2_circuit,
-                            execute_scalar_circuit,
-                            compare_quantum_states,
-                            name1="simd_v2",
-                            name2="scalar",
-                        )
-                    except e:
-                        runner.log_progress(
-                            "!! simd_v2 verification failed: " + String(e)
-                        )
-
-                    try:
-                        runner.verify(
-                            input,
-                            execute_fused_v3_circuit,
-                            execute_scalar_circuit,
-                            compare_quantum_states,
-                            name1="fused_v3",
-                            name2="scalar",
-                        )
-                    except e:
-                        runner.log_progress(
-                            "!! fused_v3 verification failed: " + String(e)
-                        )
-
-                    try:
-                        runner.verify(
-                            input,
-                            execute_v_grid_circuit,
-                            execute_scalar_circuit,
-                            compare_quantum_states,
-                            name1="v_grid",
-                            name2="scalar",
-                        )
-                    except e:
-                        runner.log_progress(
-                            "!! v_grid verification failed: " + String(e)
-                        )
-
-                    try:
-                        runner.verify(
-                            input,
-                            execute_v_grid_fused_circuit,
-                            execute_scalar_circuit,
-                            compare_quantum_states,
-                            name1="v_grid_fused",
-                            name2="scalar",
-                        )
-                    except e:
-                        runner.log_progress(
-                            "!! v_grid_fused verification failed: " + String(e)
-                        )
-
-                    try:
-                        runner.verify(
-                            input,
-                            execute_grid_fusion_circuit,
-                            execute_scalar_circuit,
-                            compare_quantum_states,
-                            name1="grid_fusion",
-                            name2="scalar",
-                        )
-                    except e:
-                        runner.log_progress(
-                            "!! grid_fusion verification failed: " + String(e)
-                        )
-
-                if n <= 22:
-                    # Against Qiskit reference
-                    runner.log_progress("\nChecking against Qiskit ...")
-                    runner.verify(
-                        input,
-                        execute_scalar_circuit,
-                        execute_qiskit_circuit,
-                        compare_quantum_states,
-                        name1="scalar",
-                        name2="qiskit",
-                    )
-            except e:
-                print(
-                    "!! Verification failed for n="
-                    + String(n)
-                    + ", "
-                    + c_name
-                    + ": "
-                    + String(e)
+            # 1. Verification Phase
+            if n <= 22:
+                # Comprehensive Parity Check
+                runner.log_progress(
+                    "Checking parity (Mojo vs Qiskit reference)..."
                 )
-                # Continue anyway to see if others pass
+                runner.verify(
+                    input,
+                    executors,
+                    compare_quantum_states,
+                    params=params,
+                    stop_on_failure=False,
+                )
 
-            # 2. Performance Phase
-            runner.add_perf_result(
-                params, "scalar", execute_scalar_circuit, input
-            )
-            runner.add_perf_result(
-                params, "simd_v2", execute_simd_v2_circuit, input
-            )
-            runner.add_perf_result(
-                params, "fused_v3", execute_fused_v3_circuit, input
-            )
-            runner.add_perf_result(
-                params, "v_grid", execute_v_grid_circuit, input
-            )
-            runner.add_perf_result(
-                params, "v_grid_fused", execute_v_grid_fused_circuit, input
-            )
-            runner.add_perf_result(
-                params, "grid_fusion", execute_grid_fusion_circuit, input
-            )
+            # 2. Performance Measurement
+            if len(params) > 0:
+                runner.add_perf_results(params, executors, input)
 
             # Qiskit time (via interop wrapper)
             from python import Python

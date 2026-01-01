@@ -83,6 +83,29 @@ fn create_runner(
     return runner^
 
 
+@fieldwise_init
+struct LabeledFunction[Input: AnyType, Return: AnyType](
+    Copyable, ImplicitlyCopyable, Movable
+):
+    """Encapsulates a function and a name for automated verification and benchmarking.
+    """
+
+    var name: String
+    var func: fn (Input) raises -> Return
+
+    fn __copyinit__(out self, existing: Self):
+        self.name = existing.name
+        self.func = existing.func
+
+    fn __moveinit__(out self, deinit existing: Self):
+        self.name = existing.name^
+        self.func = existing.func
+
+    fn run(self, input: Input) raises -> Return:
+        """Execute the wrapped function."""
+        return self.func(input)
+
+
 struct BenchmarkResult(ImplicitlyCopyable, Movable):
     """Single benchmark result."""
 
@@ -251,6 +274,146 @@ struct BenchmarkRunner(Movable):
             "  [threads: " + format_thread_stats(stats_after) + "]"
         )
         print("  " + thread_info)
+
+    # --- AUTOMATED BATCH PROCESSING ---
+
+    fn verify[
+        Return: AnyType & Copyable & Movable & ImplicitlyCopyable
+    ](
+        mut self,
+        values: List[Return],
+        names: List[String],
+        comparator: fn (Return, Return, Float64) raises,
+        baseline_idx: Int = 0,
+        stop_on_failure: Bool = True,
+        tolerance: Float64 = 1e-5,
+    ) raises:
+        """Verify a list of pre-computed values against a baseline."""
+        if len(values) == 0:
+            return
+
+        var base_val = values[baseline_idx]
+        var base_name = names[baseline_idx]
+
+        for i in range(len(values)):
+            if i == baseline_idx:
+                continue
+
+            var contender_val = values[i]
+            var contender_name = names[i]
+
+            try:
+                comparator(base_val, contender_val, tolerance)
+                self.log_progress(
+                    "✓ Verification of "
+                    + contender_name
+                    + " vs "
+                    + base_name
+                    + " successful"
+                )
+            except e:
+                self.log_progress(
+                    "!! Verification of "
+                    + contender_name
+                    + " vs "
+                    + base_name
+                    + " FAILED: "
+                    + String(e)
+                )
+                if stop_on_failure:
+                    raise e
+
+    fn verify[
+        Input: AnyType & Copyable & Movable,
+        Return: AnyType & Copyable & Movable & ImplicitlyCopyable,
+    ](
+        mut self,
+        input: Input,
+        functions: List[LabeledFunction[Input, Return]],
+        comparator: fn (Return, Return, Float64) raises,
+        params: Dict[String, String] = Dict[String, String](),
+        iters: Int = 5,
+        baseline_idx: Int = 0,
+        stop_on_failure: Bool = True,
+        tolerance: Float64 = 1e-5,
+    ) raises:
+        """Execute and verify a list of functions against a baseline.
+        If params is provided, also records performance results.
+        This implementation is memory-efficient and only keeps the baseline
+        and the current contender in memory.
+        """
+        # 1. Verification
+        var baseline_val = functions[baseline_idx].run(input)
+        var baseline_name = functions[baseline_idx].name
+
+        for i in range(len(functions)):
+            if i == baseline_idx:
+                continue
+
+            var contender_name = functions[i].name
+            try:
+                var contender_val = functions[i].run(input)
+                comparator(baseline_val, contender_val, tolerance)
+                self.log_progress(
+                    "✓ Verification of "
+                    + contender_name
+                    + " vs "
+                    + baseline_name
+                    + " successful"
+                )
+            except e:
+                self.log_progress(
+                    "!! Verification of "
+                    + contender_name
+                    + " vs "
+                    + baseline_name
+                    + " FAILED: "
+                    + String(e)
+                )
+                if stop_on_failure:
+                    raise e
+
+        # Free baseline early if possible, but Mojo will do it at end of scope
+        # unless we explicitly drop it or it's moved.
+
+        # 2. Performance Measurement
+        if len(params) > 0:
+            self.add_perf_results[Input, Return](
+                params, functions, input, iters
+            )
+
+    fn add_perf_results[
+        Input: AnyType & Copyable & Movable, Return: AnyType
+    ](
+        mut self,
+        params: Dict[String, String],
+        functions: List[LabeledFunction[Input, Return]],
+        input: Input,
+        iters: Int = 5,
+        decimals: Int = 3,
+    ) raises:
+        """Measure and record performance for a list of labeled functions."""
+        for i in range(len(functions)):
+            var f = functions[i]
+            self.add_perf_result(params, f.name, f.func, input, iters, decimals)
+
+    fn add_bench_results[
+        Input: AnyType & Copyable & Movable, Return: AnyType
+    ](
+        mut self,
+        params: Dict[String, String],
+        functions: List[LabeledFunction[Input, Return]],
+        input: Input,
+        iters: Int = 5,
+        decimals: Int = 3,
+    ) raises:
+        """Measure and record high-precision performance for a list of labeled functions.
+        """
+        for i in range(len(functions)):
+            var f = functions[i]
+            self.add_bench_result(
+                params, f.name, f.func, input, iters, decimals
+            )
 
     # --- AGNOSTIC VERIFICATION (Hook Pattern) ---
 
