@@ -10,6 +10,7 @@ from butterfly.core.circuit import QuantumCircuit
 from butterfly.core.execute_as_grid import execute_as_grid
 from butterfly.core.execute_fused_v3 import execute_fused_v3
 from butterfly.core.execute_v_grid_fused import execute_v_grid_fused
+from butterfly.core.execute_grid_fused import execute_grid_fused
 from butterfly.algos.value_encoding_circuit import encode_value_circuits_runtime
 from butterfly.utils.quantum_interop import (
     get_qiskit_prep_state,
@@ -150,6 +151,67 @@ fn execute_v_grid_fused_circuit(circuit: QuantumCircuit) raises -> QuantumState:
     return state^
 
 
+fn execute_grid_fusion_circuit(circuit: QuantumCircuit) raises -> QuantumState:
+    """Execute using Grid-Fusion (new implementation)."""
+    var n = circuit.num_qubits
+    var state = QuantumState(n)
+    var col_bits = n - 3
+    var mut_circ = circuit.copy()
+
+    if n == 3:
+        execute_grid_fused[1 << 3, 8](state, mut_circ, col_bits)
+    elif n == 4:
+        execute_grid_fused[1 << 4, 8](state, mut_circ, col_bits)
+    elif n == 5:
+        execute_grid_fused[1 << 5, 8](state, mut_circ, col_bits)
+    elif n == 6:
+        execute_grid_fused[1 << 6, 8](state, mut_circ, col_bits)
+    elif n == 7:
+        execute_grid_fused[1 << 7, 8](state, mut_circ, col_bits)
+    elif n == 8:
+        execute_grid_fused[1 << 8, 8](state, mut_circ, col_bits)
+    elif n == 9:
+        execute_grid_fused[1 << 9, 8](state, mut_circ, col_bits)
+    elif n == 10:
+        execute_grid_fused[1 << 10, 8](state, mut_circ, col_bits)
+    elif n == 11:
+        execute_grid_fused[1 << 11, 8](state, mut_circ, col_bits)
+    elif n == 12:
+        execute_grid_fused[1 << 12, 8](state, mut_circ, col_bits)
+    elif n == 13:
+        execute_grid_fused[1 << 13, 8](state, mut_circ, col_bits)
+    elif n == 14:
+        execute_grid_fused[1 << 14, 8](state, mut_circ, col_bits)
+    elif n == 15:
+        execute_grid_fused[1 << 15, 8](state, mut_circ, col_bits)
+    elif n == 16:
+        execute_grid_fused[1 << 16, 8](state, mut_circ, col_bits)
+    elif n == 17:
+        execute_grid_fused[1 << 17, 8](state, mut_circ, col_bits)
+    elif n == 18:
+        execute_grid_fused[1 << 18, 8](state, mut_circ, col_bits)
+    elif n == 19:
+        execute_grid_fused[1 << 19, 8](state, mut_circ, col_bits)
+    elif n == 20:
+        execute_grid_fused[1 << 20, 8](state, mut_circ, col_bits)
+    elif n == 21:
+        execute_grid_fused[1 << 21, 8](state, mut_circ, col_bits)
+    elif n == 22:
+        execute_grid_fused[1 << 22, 8](state, mut_circ, col_bits)
+    elif n == 23:
+        execute_grid_fused[1 << 23, 8](state, mut_circ, col_bits)
+    elif n == 24:
+        execute_grid_fused[1 << 24, 8](state, mut_circ, col_bits)
+    elif n == 25:
+        execute_grid_fused[1 << 25, 8](state, mut_circ, col_bits)
+    elif n == 26:
+        execute_grid_fused[1 << 26, 8](state, mut_circ, col_bits)
+    elif n == 27:
+        execute_grid_fused[1 << 27, 8](state, mut_circ, col_bits)
+
+    return state^
+
+
 # --- Qiskit Interop Executors ---
 
 
@@ -198,6 +260,7 @@ fn main() raises:
         "fused_v3",
         "v_grid",
         "v_grid_fused",
+        "grid_fusion",
         "q_aer_raw",
         "q_aer_opt",
         "q_latency",
@@ -206,7 +269,9 @@ fn main() raises:
     var runner = create_runner(NAME, DESCRIPTION, p_cols, b_cols, 6)
 
     var n_values = List[Int]()
-    for n in range(3, 27):
+    for n in range(
+        12, 27
+    ):  # Start at n=12 to avoid grid_fusion crashes at small n
         n_values.append(n)
     var circuits = List[String]("prep", "prep+iqft")
 
@@ -288,6 +353,20 @@ fn main() raises:
                             "!! v_grid_fused verification failed: " + String(e)
                         )
 
+                    try:
+                        runner.verify(
+                            input,
+                            execute_grid_fusion_circuit,
+                            execute_scalar_circuit,
+                            compare_quantum_states,
+                            name1="grid_fusion",
+                            name2="scalar",
+                        )
+                    except e:
+                        runner.log_progress(
+                            "!! grid_fusion verification failed: " + String(e)
+                        )
+
                 if n <= 22:
                     # Against Qiskit reference
                     runner.log_progress("\nChecking against Qiskit ...")
@@ -325,6 +404,9 @@ fn main() raises:
             )
             runner.add_perf_result(
                 params, "v_grid_fused", execute_v_grid_fused_circuit, input
+            )
+            runner.add_perf_result(
+                params, "grid_fusion", execute_grid_fusion_circuit, input
             )
 
             # Qiskit time (via interop wrapper)

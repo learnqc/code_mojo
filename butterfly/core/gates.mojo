@@ -185,3 +185,18 @@ fn is_p(g: Gate) -> Bool:
 fn get_phase_angle(g: Gate) -> Float64:
     """Extract theta from a phase gate G = [[1,0],[0, exp(i*theta)]]."""
     return atan2(g[1][1].im[0], g[1][1].re[0])
+
+
+fn matmul_2x2(A: Gate, B: Gate) -> Gate:
+    """Compute C = A @ B for 2x2 gates."""
+    var C = Gate(
+        InlineArray[Amplitude, 2](Amplitude(0, 0), Amplitude(0, 0)),
+        InlineArray[Amplitude, 2](Amplitude(0, 0), Amplitude(0, 0)),
+    )
+    for i in range(2):
+        for j in range(2):
+            var val = Amplitude(0, 0)
+            for k in range(2):
+                val = val + A[i][k] * B[k][j]
+            C[i][j] = val
+    return C^

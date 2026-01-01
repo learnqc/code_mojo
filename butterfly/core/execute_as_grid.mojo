@@ -438,7 +438,7 @@ fn execute_as_grid[
                 # Operation across rows - parallelize by column
                 var t_row = target - col_bits
                 var stride = 1 << t_row
-                alias chunk_size = simd_width //TODO right?
+                alias chunk_size = simd_width
 
                 if with_simd and row_size >= chunk_size:
 

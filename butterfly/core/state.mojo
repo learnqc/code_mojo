@@ -199,11 +199,36 @@ fn generate_state(n: Int, seed: Int = 555) -> QuantumState:
 
 # @always_inline
 fn process_pair(mut state: QuantumState, gate: Gate, k0: Int, k1: Int):
-    x = state[k0]
-    y = state[k1]
-    # new amplitudes
-    state[k0] = x * gate[0][0] + y * gate[0][1]
-    state[k1] = x * gate[1][0] + y * gate[1][1]
+    var u_re = state.re[k0]
+    var u_im = state.im[k0]
+    var v_re = state.re[k1]
+    var v_im = state.im[k1]
+
+    # Matrix multiplication
+    state.re[k0] = (
+        u_re * gate[0][0].re
+        - u_im * gate[0][0].im
+        + v_re * gate[0][1].re
+        - v_im * gate[0][1].im
+    )
+    state.im[k0] = (
+        u_re * gate[0][0].im
+        + u_im * gate[0][0].re
+        + v_re * gate[0][1].im
+        + v_im * gate[0][1].re
+    )
+    state.re[k1] = (
+        u_re * gate[1][0].re
+        - u_im * gate[1][0].im
+        + v_re * gate[1][1].re
+        - v_im * gate[1][1].im
+    )
+    state.im[k1] = (
+        u_re * gate[1][0].im
+        + u_im * gate[1][0].re
+        + v_re * gate[1][1].im
+        + v_im * gate[1][1].re
+    )
 
 
 fn transform[par: Int = 0](mut state: QuantumState, target: Int, gate: Gate):
@@ -256,13 +281,15 @@ fn transform[par: Int = 0](mut state: QuantumState, target: Int, gate: Gate):
 
 
 fn transform_h(mut state: QuantumState, target: Int):
-    l = state.size()
-    stride = 1 << target
-    r = 0
+    var l = state.size()
+    var stride = 1 << target
+    var r = 0
     for j in range(l // 2):
-        idx = 2 * j - r  # r = j%stride
-        state[idx] = (state[idx] + state[idx + stride]) * sq_half
-        state[idx + stride] = state[idx] - state[idx + stride] * sq2
+        var idx = 2 * j - r  # r = j%stride
+        var u = state[idx]
+        var v = state[idx + stride]
+        state[idx] = (u + v) * sq_half
+        state[idx + stride] = (u - v) * sq_half
 
         r += 1
         if r == stride:
@@ -432,7 +459,7 @@ fn transform_simd_base[
 fn transform_simd[N: Int](mut state: QuantumState, target: Int, gate: Gate):
     stride = 1 << target
 
-    if stride < 4 * simd_width:  # TODO: check
+    if stride < 64:  # Force scalar for small strides/states
         transform(state, target, gate)
     else:
         # Optimized: No copy needed!
