@@ -7,12 +7,24 @@ from butterfly.core.state import (
     bit_reverse_state,
     mc_transform_interval,
     c_transform_simd_base_v2,
-    transform_h_simd_v2,
-    transform_x_simd_v2,
-    transform_z_simd_v2,
     transform_p_simd_v2,
+    transform_y_simd_v2,
+    transform_rx_simd_v2,
+    transform_ry_simd_v2,
+    transform_rz_simd_v2,
 )
-from butterfly.core.gates import is_h, is_x, is_z, is_p, get_phase_angle
+from butterfly.core.gates import (
+    is_h,
+    is_x,
+    is_y,
+    is_z,
+    is_p,
+    is_rx,
+    is_ry,
+    is_rz,
+    get_phase_angle,
+    get_rotation_angle,
+)
 from butterfly.core.types import Gate
 from butterfly.core.circuit import (
     Transformation,
@@ -26,6 +38,10 @@ from butterfly.core.c_transform_fast_v2 import (
     c_transform_h_simd_v2,
     c_transform_x_simd_v2,
     c_transform_p_simd_v2,
+    c_transform_y_simd_v2,
+    c_transform_rx_simd_v2,
+    c_transform_ry_simd_v2,
+    c_transform_rz_simd_v2,
 )
 
 
@@ -45,6 +61,20 @@ fn dispatch_single_transformation_v2[
         elif is_p(g.gate):
             var theta = get_phase_angle(g.gate)
             c_transform_p_simd_v2(state, g.control, g.target, theta)
+        elif is_y(g.gate):
+            c_transform_y_simd_v2(state, g.control, g.target)
+        elif is_rx(g.gate):
+            c_transform_rx_simd_v2(
+                state, g.control, g.target, get_rotation_angle(g.gate)
+            )
+        elif is_ry(g.gate):
+            c_transform_ry_simd_v2(
+                state, g.control, g.target, get_rotation_angle(g.gate)
+            )
+        elif is_rz(g.gate):
+            c_transform_rz_simd_v2(
+                state, g.control, g.target, get_rotation_angle(g.gate)
+            )
         else:
             var stride = 1 << g.target
             c_transform_simd_base_v2[N](state, g.control, stride, g.gate)
@@ -62,6 +92,14 @@ fn dispatch_single_transformation_v2[
             transform_z_simd_v2(state, g.target)
         elif is_p(g.gate):
             transform_p_simd_v2(state, g.target, get_phase_angle(g.gate))
+        elif is_y(g.gate):
+            transform_y_simd_v2(state, g.target)
+        elif is_rx(g.gate):
+            transform_rx_simd_v2(state, g.target, get_rotation_angle(g.gate))
+        elif is_ry(g.gate):
+            transform_ry_simd_v2(state, g.target, get_rotation_angle(g.gate))
+        elif is_rz(g.gate):
+            transform_rz_simd_v2(state, g.target, get_rotation_angle(g.gate))
         else:
             transform_simd[N](state, g.target, g.gate)
     elif t.isa[DiagonalTransformation]():

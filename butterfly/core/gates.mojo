@@ -182,6 +182,62 @@ fn is_p(g: Gate) -> Bool:
 
 
 @always_inline
+fn is_rx(g: Gate) -> Bool:
+    """Returns True if the gate is a rotation gate RX(theta)."""
+    return (
+        abs(g[0][0].re[0] - g[1][1].re[0]) < 1e-12
+        and abs(g[0][0].im[0]) < 1e-12
+        and abs(g[1][1].im[0]) < 1e-12
+        and abs(g[0][1].re[0]) < 1e-12
+        and abs(g[1][0].re[0]) < 1e-12
+        and abs(g[0][1].im[0] - g[1][0].im[0]) < 1e-12
+    )
+
+
+@always_inline
+fn is_ry(g: Gate) -> Bool:
+    """Returns True if the gate is a rotation gate RY(theta)."""
+    return (
+        abs(g[0][0].re[0] - g[1][1].re[0]) < 1e-12
+        and abs(g[0][0].im[0]) < 1e-12
+        and abs(g[1][1].im[0]) < 1e-12
+        and abs(g[0][1].im[0]) < 1e-12
+        and abs(g[1][0].im[0]) < 1e-12
+        and abs(g[0][1].re[0] + g[1][0].re[0]) < 1e-12
+    )
+
+
+@always_inline
+fn is_rz(g: Gate) -> Bool:
+    """Returns True if the gate is a rotation gate RZ(theta)."""
+    return (
+        abs(g[0][1].re[0]) < 1e-12
+        and abs(g[0][1].im[0]) < 1e-12
+        and abs(g[1][0].re[0]) < 1e-12
+        and abs(g[1][0].im[0]) < 1e-12
+        and abs(g[0][0].re[0] - g[1][1].re[0]) < 1e-12
+        and abs(g[0][0].im[0] + g[1][1].im[0]) < 1e-12
+    )
+
+
+@always_inline
+fn get_rotation_angle(g: Gate) -> Float64:
+    """Extract theta from a rotation gate RX, RY, or RZ.
+
+    Assumes rotation form:
+    RX: [[cos(t/2), -i*sin(t/2)], [-i*sin(t/2), cos(t/2)]]
+    RY: [[cos(t/2), -sin(t/2)], [sin(t/2), cos(t/2)]]
+    RZ: [[e^{-i*t/2}, 0], [0, e^{i*t/2}]]
+    """
+    if abs(g[0][1].im[0]) > 1e-12:  # RX
+        return -2.0 * atan2(g[0][1].im[0], g[0][0].re[0])
+    elif abs(g[0][1].re[0]) > 1e-12:  # RY
+        return -2.0 * atan2(g[0][1].re[0], g[0][0].re[0])
+    else:  # RZ
+        return 2.0 * atan2(g[1][1].im[0], g[1][1].re[0])
+
+
+@always_inline
 fn get_phase_angle(g: Gate) -> Float64:
     """Extract theta from a phase gate G = [[1,0],[0, exp(i*theta)]]."""
     return atan2(g[1][1].im[0], g[1][1].re[0])

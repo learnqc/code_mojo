@@ -337,3 +337,460 @@ fn c_transform_p_simd_v2(
                         ptr_im[idx] = v_re * sin_t + v_im * cos_t
 
         parallelize[worker_high](actual_work_items)
+
+
+@always_inline
+fn c_transform_y_simd_v2(mut state: QuantumState, control: Int, target: Int):
+    """Specialized CY gate v2 with chunked parallelization."""
+    var c_stride = 1 << control
+    var t_stride = 1 << target
+    var size = state.size()
+    var ptr_re = state.re.unsafe_ptr()
+    var ptr_im = state.im.unsafe_ptr()
+
+    var num_work_items = get_workers("quantum_simd_v2_chunks")
+    if num_work_items == 0:
+        num_work_items = 16
+
+    if target < control:
+        var total_work = (size // (2 * c_stride)) * (c_stride // (2 * t_stride))
+        var actual_work_items = min(num_work_items, total_work)
+        var chunk_size = max(1, total_work // num_work_items)
+
+        @parameter
+        fn worker_low(item_id: Int):
+            var start_idx = item_id * chunk_size
+            var end_idx = (
+                total_work if item_id
+                == actual_work_items - 1 else (item_id + 1) * chunk_size
+            )
+            var segments_per_block = c_stride // (2 * t_stride)
+            for s in range(start_idx, end_idx):
+                var k = s // segments_per_block
+                var j = s % segments_per_block
+                var sub_start = k * 2 * c_stride + c_stride + j * 2 * t_stride
+
+                @parameter
+                fn vectorize_y[width: Int](m: Int):
+                    var idx0 = sub_start + m
+                    var idx1 = idx0 + t_stride
+                    var u_re = ptr_re.load[width=width](idx0)
+                    var u_im = ptr_im.load[width=width](idx0)
+                    var v_re = ptr_re.load[width=width](idx1)
+                    var v_im = ptr_im.load[width=width](idx1)
+                    # Y: [u, v] -> [v_im - i*v_re, -u_im + i*u_re]
+                    ptr_re.store[width=width](idx0, v_im)
+                    ptr_im.store[width=width](idx0, -v_re)
+                    ptr_re.store[width=width](idx1, -u_im)
+                    ptr_im.store[width=width](idx1, u_re)
+
+                if t_stride >= simd_width:
+                    vectorize[vectorize_y, simd_width](t_stride)
+                else:
+                    for m in range(t_stride):
+                        var idx0 = sub_start + m
+                        var idx1 = idx0 + t_stride
+                        var u_re = ptr_re[idx0]
+                        var u_im = ptr_im[idx0]
+                        var v_re = ptr_re[idx1]
+                        var v_im = ptr_im[idx1]
+                        ptr_re[idx0] = v_im
+                        ptr_im[idx0] = -v_re
+                        ptr_re[idx1] = -u_im
+                        ptr_im[idx1] = u_re
+
+        parallelize[worker_low](actual_work_items)
+    else:
+        var total_work = (size // (2 * t_stride)) * (t_stride // (2 * c_stride))
+        var actual_work_items = min(num_work_items, total_work)
+        var chunk_size = max(1, total_work // num_work_items)
+
+        @parameter
+        fn worker_high(item_id: Int):
+            var start_idx = item_id * chunk_size
+            var end_idx = (
+                total_work if item_id
+                == actual_work_items - 1 else (item_id + 1) * chunk_size
+            )
+            var segments_per_block = t_stride // (2 * c_stride)
+            for s in range(start_idx, end_idx):
+                var k = s // segments_per_block
+                var p = s % segments_per_block
+                var p_start = k * 2 * t_stride + p * 2 * c_stride + c_stride
+
+                @parameter
+                fn vectorize_y[width: Int](m: Int):
+                    var idx0 = p_start + m
+                    var idx1 = idx0 + t_stride
+                    var u_re = ptr_re.load[width=width](idx0)
+                    var u_im = ptr_im.load[width=width](idx0)
+                    var v_re = ptr_re.load[width=width](idx1)
+                    var v_im = ptr_im.load[width=width](idx1)
+                    ptr_re.store[width=width](idx0, v_im)
+                    ptr_im.store[width=width](idx0, -v_re)
+                    ptr_re.store[width=width](idx1, -u_im)
+                    ptr_im.store[width=width](idx1, u_re)
+
+                if c_stride >= simd_width:
+                    vectorize[vectorize_y, simd_width](c_stride)
+                else:
+                    for m in range(c_stride):
+                        var idx0 = p_start + m
+                        var idx1 = idx0 + t_stride
+                        var u_re = ptr_re[idx0]
+                        var u_im = ptr_im[idx0]
+                        var v_re = ptr_re[idx1]
+                        var v_im = ptr_im[idx1]
+                        ptr_re[idx0] = v_im
+                        ptr_im[idx0] = -v_re
+                        ptr_re[idx1] = -u_im
+                        ptr_im[idx1] = u_re
+
+        parallelize[worker_high](actual_work_items)
+
+
+@always_inline
+fn c_transform_rz_simd_v2(
+    mut state: QuantumState, control: Int, target: Int, theta: Float64
+):
+    """Specialized CRZ gate v2 with chunked parallelization."""
+    var c_stride = 1 << control
+    var t_stride = 1 << target
+    var size = state.size()
+    var ptr_re = state.re.unsafe_ptr()
+    var ptr_im = state.im.unsafe_ptr()
+
+    var phi = theta / 2.0
+    var cos_p = cos(phi)
+    var sin_p = sin(phi)
+
+    var num_work_items = get_workers("quantum_simd_v2_chunks")
+    if num_work_items == 0:
+        num_work_items = 16
+
+    if target < control:
+        var total_work = (size // (2 * c_stride)) * (c_stride // (2 * t_stride))
+        var actual_work_items = min(num_work_items, total_work)
+        var chunk_size = max(1, total_work // num_work_items)
+
+        @parameter
+        fn worker_low(item_id: Int):
+            var start_idx = item_id * chunk_size
+            var end_idx = (
+                total_work if item_id
+                == actual_work_items - 1 else (item_id + 1) * chunk_size
+            )
+            var segments_per_block = c_stride // (2 * t_stride)
+            for s in range(start_idx, end_idx):
+                var k = s // segments_per_block
+                var j = s % segments_per_block
+                var sub_start = k * 2 * c_stride + c_stride + j * 2 * t_stride
+
+                @parameter
+                fn vectorize_rz[width: Int](m: Int):
+                    var idx0 = sub_start + m
+                    var idx1 = idx0 + t_stride
+                    var u_re = ptr_re.load[width=width](idx0)
+                    var u_im = ptr_im.load[width=width](idx0)
+                    var v_re = ptr_re.load[width=width](idx1)
+                    var v_im = ptr_im.load[width=width](idx1)
+                    ptr_re.store[width=width](idx0, u_re * cos_p + u_im * sin_p)
+                    ptr_im.store[width=width](idx0, u_im * cos_p - u_re * sin_p)
+                    ptr_re.store[width=width](idx1, v_re * cos_p - v_im * sin_p)
+                    ptr_im.store[width=width](idx1, v_im * cos_p + v_re * sin_p)
+
+                if t_stride >= simd_width:
+                    vectorize[vectorize_rz, simd_width](t_stride)
+                else:
+                    for m in range(t_stride):
+                        var idx0 = sub_start + m
+                        var idx1 = idx0 + t_stride
+                        var u_re = ptr_re[idx0]
+                        var u_im = ptr_im[idx0]
+                        var v_re = ptr_re[idx1]
+                        var v_im = ptr_im[idx1]
+                        ptr_re[idx0] = u_re * cos_p + u_im * sin_p
+                        ptr_im[idx0] = u_im * cos_p - u_re * sin_p
+                        ptr_re[idx1] = v_re * cos_p - v_im * sin_p
+                        ptr_im[idx1] = v_im * cos_p + v_re * sin_p
+
+        parallelize[worker_low](actual_work_items)
+    else:
+        var total_work = (size // (2 * t_stride)) * (t_stride // (2 * c_stride))
+        var actual_work_items = min(num_work_items, total_work)
+        var chunk_size = max(1, total_work // num_work_items)
+
+        @parameter
+        fn worker_high(item_id: Int):
+            var start_idx = item_id * chunk_size
+            var end_idx = (
+                total_work if item_id
+                == actual_work_items - 1 else (item_id + 1) * chunk_size
+            )
+            var segments_per_block = t_stride // (2 * c_stride)
+            for s in range(start_idx, end_idx):
+                var k = s // segments_per_block
+                var p = s % segments_per_block
+                var p_start = k * 2 * t_stride + p * 2 * c_stride + c_stride
+
+                @parameter
+                fn vectorize_rz[width: Int](m: Int):
+                    var idx0 = p_start + m
+                    var idx1 = idx0 + t_stride
+                    var u_re = ptr_re.load[width=width](idx0)
+                    var u_im = ptr_im.load[width=width](idx0)
+                    var v_re = ptr_re.load[width=width](idx1)
+                    var v_im = ptr_im.load[width=width](idx1)
+                    ptr_re.store[width=width](idx0, u_re * cos_p + u_im * sin_p)
+                    ptr_im.store[width=width](idx0, u_im * cos_p - u_re * sin_p)
+                    ptr_re.store[width=width](idx1, v_re * cos_p - v_im * sin_p)
+                    ptr_im.store[width=width](idx1, v_im * cos_p + v_re * sin_p)
+
+                if c_stride >= simd_width:
+                    vectorize[vectorize_rz, simd_width](c_stride)
+                else:
+                    for m in range(c_stride):
+                        var idx0 = p_start + m
+                        var idx1 = idx0 + t_stride
+                        var u_re = ptr_re[idx0]
+                        var u_im = ptr_im[idx0]
+                        var v_re = ptr_re[idx1]
+                        var v_im = ptr_im[idx1]
+                        ptr_re[idx0] = u_re * cos_p + u_im * sin_p
+                        ptr_im[idx0] = u_im * cos_p - u_re * sin_p
+                        ptr_re[idx1] = v_re * cos_p - v_im * sin_p
+                        ptr_im[idx1] = v_im * cos_p + v_re * sin_p
+
+        parallelize[worker_high](actual_work_items)
+
+
+@always_inline
+fn c_transform_rx_simd_v2(
+    mut state: QuantumState, control: Int, target: Int, theta: Float64
+):
+    """Specialized CRX gate v2 with chunked parallelization."""
+    var c_stride = 1 << control
+    var t_stride = 1 << target
+    var size = state.size()
+    var ptr_re = state.re.unsafe_ptr()
+    var ptr_im = state.im.unsafe_ptr()
+
+    var phi = theta / 2.0
+    var cos_p = cos(phi)
+    var sin_p = sin(phi)
+
+    var num_work_items = get_workers("quantum_simd_v2_chunks")
+    if num_work_items == 0:
+        num_work_items = 16
+
+    if target < control:
+        var total_work = (size // (2 * c_stride)) * (c_stride // (2 * t_stride))
+        var actual_work_items = min(num_work_items, total_work)
+        var chunk_size = max(1, total_work // num_work_items)
+
+        @parameter
+        fn worker_low(item_id: Int):
+            var start_idx = item_id * chunk_size
+            var end_idx = (
+                total_work if item_id
+                == actual_work_items - 1 else (item_id + 1) * chunk_size
+            )
+            var segments_per_block = c_stride // (2 * t_stride)
+            for s in range(start_idx, end_idx):
+                var k = s // segments_per_block
+                var j = s % segments_per_block
+                var sub_start = k * 2 * c_stride + c_stride + j * 2 * t_stride
+
+                @parameter
+                fn vectorize_rx[width: Int](m: Int):
+                    var idx0 = sub_start + m
+                    var idx1 = idx0 + t_stride
+                    var u_re = ptr_re.load[width=width](idx0)
+                    var u_im = ptr_im.load[width=width](idx0)
+                    var v_re = ptr_re.load[width=width](idx1)
+                    var v_im = ptr_im.load[width=width](idx1)
+                    # u -> cos*u - i*sin*v, v -> -i*sin*u + cos*v
+                    ptr_re.store[width=width](idx0, u_re * cos_p + v_im * sin_p)
+                    ptr_im.store[width=width](idx0, u_im * cos_p - v_re * sin_p)
+                    ptr_re.store[width=width](idx1, v_re * cos_p + u_im * sin_p)
+                    ptr_im.store[width=width](idx1, v_im * cos_p - u_re * sin_p)
+
+                if t_stride >= simd_width:
+                    vectorize[vectorize_rx, simd_width](t_stride)
+                else:
+                    for m in range(t_stride):
+                        var idx0 = sub_start + m
+                        var idx1 = idx0 + t_stride
+                        var u_re = ptr_re[idx0]
+                        var u_im = ptr_im[idx0]
+                        var v_re = ptr_re[idx1]
+                        var v_im = ptr_im[idx1]
+                        ptr_re[idx0] = u_re * cos_p + v_im * sin_p
+                        ptr_im[idx0] = u_im * cos_p - v_re * sin_p
+                        ptr_re[idx1] = v_re * cos_p + u_im * sin_p
+                        ptr_im[idx1] = v_im * cos_p - u_re * sin_p
+
+        parallelize[worker_low](actual_work_items)
+    else:
+        var total_work = (size // (2 * t_stride)) * (t_stride // (2 * c_stride))
+        var actual_work_items = min(num_work_items, total_work)
+        var chunk_size = max(1, total_work // num_work_items)
+
+        @parameter
+        fn worker_high(item_id: Int):
+            var start_idx = item_id * chunk_size
+            var end_idx = (
+                total_work if item_id
+                == actual_work_items - 1 else (item_id + 1) * chunk_size
+            )
+            var segments_per_block = t_stride // (2 * c_stride)
+            for s in range(start_idx, end_idx):
+                var k = s // segments_per_block
+                var p = s % segments_per_block
+                var p_start = k * 2 * t_stride + p * 2 * c_stride + c_stride
+
+                @parameter
+                fn vectorize_rx[width: Int](m: Int):
+                    var idx0 = p_start + m
+                    var idx1 = idx0 + t_stride
+                    var u_re = ptr_re.load[width=width](idx0)
+                    var u_im = ptr_im.load[width=width](idx0)
+                    var v_re = ptr_re.load[width=width](idx1)
+                    var v_im = ptr_im.load[width=width](idx1)
+                    ptr_re.store[width=width](idx0, u_re * cos_p + v_im * sin_p)
+                    ptr_im.store[width=width](idx0, u_im * cos_p - v_re * sin_p)
+                    ptr_re.store[width=width](idx1, v_re * cos_p + u_im * sin_p)
+                    ptr_im.store[width=width](idx1, v_im * cos_p - u_re * sin_p)
+
+                if c_stride >= simd_width:
+                    vectorize[vectorize_rx, simd_width](c_stride)
+                else:
+                    for m in range(c_stride):
+                        var idx0 = p_start + m
+                        var idx1 = idx0 + t_stride
+                        var u_re = ptr_re[idx0]
+                        var u_im = ptr_im[idx0]
+                        var v_re = ptr_re[idx1]
+                        var v_im = ptr_im[idx1]
+                        ptr_re[idx0] = u_re * cos_p + v_im * sin_p
+                        ptr_im[idx0] = u_im * cos_p - v_re * sin_p
+                        ptr_re[idx1] = v_re * cos_p + u_im * sin_p
+                        ptr_im[idx1] = v_im * cos_p - u_re * sin_p
+
+        parallelize[worker_high](actual_work_items)
+
+
+@always_inline
+fn c_transform_ry_simd_v2(
+    mut state: QuantumState, control: Int, target: Int, theta: Float64
+):
+    """Specialized CRY gate v2 with chunked parallelization."""
+    var c_stride = 1 << control
+    var t_stride = 1 << target
+    var size = state.size()
+    var ptr_re = state.re.unsafe_ptr()
+    var ptr_im = state.im.unsafe_ptr()
+
+    var phi = theta / 2.0
+    var cos_p = cos(phi)
+    var sin_p = sin(phi)
+
+    var num_work_items = get_workers("quantum_simd_v2_chunks")
+    if num_work_items == 0:
+        num_work_items = 16
+
+    if target < control:
+        var total_work = (size // (2 * c_stride)) * (c_stride // (2 * t_stride))
+        var actual_work_items = min(num_work_items, total_work)
+        var chunk_size = max(1, total_work // num_work_items)
+
+        @parameter
+        fn worker_low(item_id: Int):
+            var start_idx = item_id * chunk_size
+            var end_idx = (
+                total_work if item_id
+                == actual_work_items - 1 else (item_id + 1) * chunk_size
+            )
+            var segments_per_block = c_stride // (2 * t_stride)
+            for s in range(start_idx, end_idx):
+                var k = s // segments_per_block
+                var j = s % segments_per_block
+                var sub_start = k * 2 * c_stride + c_stride + j * 2 * t_stride
+
+                @parameter
+                fn vectorize_ry[width: Int](m: Int):
+                    var idx0 = sub_start + m
+                    var idx1 = idx0 + t_stride
+                    var u_re = ptr_re.load[width=width](idx0)
+                    var u_im = ptr_im.load[width=width](idx0)
+                    var v_re = ptr_re.load[width=width](idx1)
+                    var v_im = ptr_im.load[width=width](idx1)
+                    # u -> cos*u - sin*v, v -> sin*u + cos*v
+                    ptr_re.store[width=width](idx0, u_re * cos_p - v_re * sin_p)
+                    ptr_im.store[width=width](idx0, u_im * cos_p - v_im * sin_p)
+                    ptr_re.store[width=width](idx1, v_re * cos_p + u_re * sin_p)
+                    ptr_im.store[width=width](idx1, v_im * cos_p + u_im * sin_p)
+
+                if t_stride >= simd_width:
+                    vectorize[vectorize_ry, simd_width](t_stride)
+                else:
+                    for m in range(t_stride):
+                        var idx0 = sub_start + m
+                        var idx1 = idx0 + t_stride
+                        var u_re = ptr_re[idx0]
+                        var u_im = ptr_im[idx0]
+                        var v_re = ptr_re[idx1]
+                        var v_im = ptr_im[idx1]
+                        ptr_re[idx0] = u_re * cos_p - v_re * sin_p
+                        ptr_im[idx0] = u_im * cos_p - v_im * sin_p
+                        ptr_re[idx1] = v_re * cos_p + u_re * sin_p
+                        ptr_im[idx1] = v_im * cos_p + u_im * sin_p
+
+        parallelize[worker_low](actual_work_items)
+    else:
+        var total_work = (size // (2 * t_stride)) * (t_stride // (2 * c_stride))
+        var actual_work_items = min(num_work_items, total_work)
+        var chunk_size = max(1, total_work // num_work_items)
+
+        @parameter
+        fn worker_high(item_id: Int):
+            var start_idx = item_id * chunk_size
+            var end_idx = (
+                total_work if item_id
+                == actual_work_items - 1 else (item_id + 1) * chunk_size
+            )
+            var segments_per_block = t_stride // (2 * c_stride)
+            for s in range(start_idx, end_idx):
+                var k = s // segments_per_block
+                var p = s % segments_per_block
+                var p_start = k * 2 * t_stride + p * 2 * c_stride + c_stride
+
+                @parameter
+                fn vectorize_ry[width: Int](m: Int):
+                    var idx0 = p_start + m
+                    var idx1 = idx0 + t_stride
+                    var u_re = ptr_re.load[width=width](idx0)
+                    var u_im = ptr_im.load[width=width](idx0)
+                    var v_re = ptr_re.load[width=width](idx1)
+                    var v_im = ptr_im.load[width=width](idx1)
+                    ptr_re.store[width=width](idx0, u_re * cos_p - v_re * sin_p)
+                    ptr_im.store[width=width](idx0, u_im * cos_p - v_im * sin_p)
+                    ptr_re.store[width=width](idx1, v_re * cos_p + u_re * sin_p)
+                    ptr_im.store[width=width](idx1, v_im * cos_p + u_im * sin_p)
+
+                if c_stride >= simd_width:
+                    vectorize[vectorize_ry, simd_width](c_stride)
+                else:
+                    for m in range(c_stride):
+                        var idx0 = p_start + m
+                        var idx1 = idx0 + t_stride
+                        var u_re = ptr_re[idx0]
+                        var u_im = ptr_im[idx0]
+                        var v_re = ptr_re[idx1]
+                        var v_im = ptr_im[idx1]
+                        ptr_re[idx0] = u_re * cos_p - v_re * sin_p
+                        ptr_im[idx0] = u_im * cos_p - v_im * sin_p
+                        ptr_re[idx1] = v_re * cos_p + u_re * sin_p
+                        ptr_im[idx1] = v_im * cos_p + u_im * sin_p
+
+        parallelize[worker_high](actual_work_items)

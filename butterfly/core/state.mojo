@@ -61,7 +61,7 @@ struct QuantumState(Copyable, ImplicitlyCopyable, Movable, Sized):
         return _QuantumStateIterator(self)
 
 
-struct _QuantumStateIterator:
+struct _QuantumStateIterator(Copyable, ImplicitlyCopyable):
     """Iterator for QuantumState that yields Amplitude values."""
 
     var state: QuantumState
@@ -70,6 +70,10 @@ struct _QuantumStateIterator:
     fn __init__(out self, state: QuantumState):
         self.state = state.copy()
         self.index = 0
+
+    fn __copyinit__(out self, existing: Self):
+        self.state = existing.state.copy()
+        self.index = existing.index
 
     fn __iter__(self) -> Self:
         return self
@@ -673,6 +677,259 @@ fn transform_p_simd_v2(mut state: QuantumState, target: Int, theta: Float64):
                     var v_im = ptr_im[idx]
                     ptr_re[idx] = v_re * cos_t - v_im * sin_t
                     ptr_im[idx] = v_re * sin_t + v_im * cos_t
+
+    if actual_workers > 1:
+        parallelize[worker](actual_workers)
+    else:
+        worker(0)
+
+
+fn transform_y_simd_v2(mut state: QuantumState, target: Int):
+    """Parallelized Vectorized Y gate."""
+    var l = state.size()
+    var stride = 1 << target
+    var ptr_re = state.re.unsafe_ptr()
+    var ptr_im = state.im.unsafe_ptr()
+
+    var num_work_items = get_workers("quantum_simd_v2_chunks")
+    if num_work_items == 0:
+        num_work_items = 16
+
+    var total_blocks = l // (2 * stride)
+    var actual_workers = min(num_work_items, total_blocks)
+    var blocks_per_worker = max(1, total_blocks // num_work_items)
+
+    @parameter
+    fn worker(item_id: Int):
+        var start_block = item_id * blocks_per_worker
+        var end_block = (
+            total_blocks if item_id
+            == actual_workers - 1 else (item_id + 1) * blocks_per_worker
+        )
+
+        for k_idx in range(start_block, end_block):
+            var k = k_idx * 2 * stride
+
+            @parameter
+            fn vectorize_y[width: Int](m: Int):
+                var idx0 = k + m
+                var idx1 = idx0 + stride
+                var u_re = ptr_re.load[width=width](idx0)
+                var u_im = ptr_im.load[width=width](idx0)
+                var v_re = ptr_re.load[width=width](idx1)
+                var v_im = ptr_im.load[width=width](idx1)
+                # Y: [u, v] -> [v_im - i*v_re, -u_im + i*u_re]
+                ptr_re.store[width=width](idx0, v_im)
+                ptr_im.store[width=width](idx0, -v_re)
+                ptr_re.store[width=width](idx1, -u_im)
+                ptr_im.store[width=width](idx1, u_re)
+
+            if stride >= simd_width:
+                vectorize[vectorize_y, simd_width](stride)
+            else:
+                for m in range(stride):
+                    var idx0 = k + m
+                    var idx1 = idx0 + stride
+                    var u_re = ptr_re[idx0]
+                    var u_im = ptr_im[idx0]
+                    var v_re = ptr_re[idx1]
+                    var v_im = ptr_im[idx1]
+                    ptr_re[idx0] = v_im
+                    ptr_im[idx0] = -v_re
+                    ptr_re[idx1] = -u_im
+                    ptr_im[idx1] = u_re
+
+    if actual_workers > 1:
+        parallelize[worker](actual_workers)
+    else:
+        worker(0)
+
+
+fn transform_rz_simd_v2(mut state: QuantumState, target: Int, theta: Float64):
+    """Parallelized Vectorized RZ gate."""
+    var l = state.size()
+    var stride = 1 << target
+    var ptr_re = state.re.unsafe_ptr()
+    var ptr_im = state.im.unsafe_ptr()
+    var phi = theta / 2.0
+    var cos_p = cos(phi)
+    var sin_p = sin(phi)
+
+    var num_work_items = get_workers("quantum_simd_v2_chunks")
+    if num_work_items == 0:
+        num_work_items = 16
+
+    var total_blocks = l // (2 * stride)
+    var actual_workers = min(num_work_items, total_blocks)
+    var blocks_per_worker = max(1, total_blocks // num_work_items)
+
+    @parameter
+    fn worker(item_id: Int):
+        var start_block = item_id * blocks_per_worker
+        var end_block = (
+            total_blocks if item_id
+            == actual_workers - 1 else (item_id + 1) * blocks_per_worker
+        )
+
+        for k_idx in range(start_block, end_block):
+            var k = k_idx * 2 * stride
+
+            @parameter
+            fn vectorize_rz[width: Int](m: Int):
+                var idx0 = k + m
+                var idx1 = idx0 + stride
+                var u_re = ptr_re.load[width=width](idx0)
+                var u_im = ptr_im.load[width=width](idx0)
+                var v_re = ptr_re.load[width=width](idx1)
+                var v_im = ptr_im.load[width=width](idx1)
+                # u -> (cos - i*sin)*u, v -> (cos + i*sin)*v
+                ptr_re.store[width=width](idx0, u_re * cos_p + u_im * sin_p)
+                ptr_im.store[width=width](idx0, u_im * cos_p - u_re * sin_p)
+                ptr_re.store[width=width](idx1, v_re * cos_p - v_im * sin_p)
+                ptr_im.store[width=width](idx1, v_im * cos_p + v_re * sin_p)
+
+            if stride >= simd_width:
+                vectorize[vectorize_rz, simd_width](stride)
+            else:
+                for m in range(stride):
+                    var idx0 = k + m
+                    var idx1 = idx0 + stride
+                    var u_re = ptr_re[idx0]
+                    var u_im = ptr_im[idx0]
+                    var v_re = ptr_re[idx1]
+                    var v_im = ptr_im[idx1]
+                    ptr_re[idx0] = u_re * cos_p + u_im * sin_p
+                    ptr_im[idx0] = u_im * cos_p - u_re * sin_p
+                    ptr_re[idx1] = v_re * cos_p - v_im * sin_p
+                    ptr_im[idx1] = v_im * cos_p + v_re * sin_p
+
+    if actual_workers > 1:
+        parallelize[worker](actual_workers)
+    else:
+        worker(0)
+
+
+fn transform_rx_simd_v2(mut state: QuantumState, target: Int, theta: Float64):
+    """Parallelized Vectorized RX gate."""
+    var l = state.size()
+    var stride = 1 << target
+    var ptr_re = state.re.unsafe_ptr()
+    var ptr_im = state.im.unsafe_ptr()
+    var phi = theta / 2.0
+    var cos_p = cos(phi)
+    var sin_p = sin(phi)
+
+    var num_work_items = get_workers("quantum_simd_v2_chunks")
+    if num_work_items == 0:
+        num_work_items = 16
+
+    var total_blocks = l // (2 * stride)
+    var actual_workers = min(num_work_items, total_blocks)
+    var blocks_per_worker = max(1, total_blocks // num_work_items)
+
+    @parameter
+    fn worker(item_id: Int):
+        var start_block = item_id * blocks_per_worker
+        var end_block = (
+            total_blocks if item_id
+            == actual_workers - 1 else (item_id + 1) * blocks_per_worker
+        )
+
+        for k_idx in range(start_block, end_block):
+            var k = k_idx * 2 * stride
+
+            @parameter
+            fn vectorize_rx[width: Int](m: Int):
+                var idx0 = k + m
+                var idx1 = idx0 + stride
+                var u_re = ptr_re.load[width=width](idx0)
+                var u_im = ptr_im.load[width=width](idx0)
+                var v_re = ptr_re.load[width=width](idx1)
+                var v_im = ptr_im.load[width=width](idx1)
+                # u -> cos*u - i*sin*v, v -> -i*sin*u + cos*v
+                ptr_re.store[width=width](idx0, u_re * cos_p + v_im * sin_p)
+                ptr_im.store[width=width](idx0, u_im * cos_p - v_re * sin_p)
+                ptr_re.store[width=width](idx1, v_re * cos_p + u_im * sin_p)
+                ptr_im.store[width=width](idx1, v_im * cos_p - u_re * sin_p)
+
+            if stride >= simd_width:
+                vectorize[vectorize_rx, simd_width](stride)
+            else:
+                for m in range(stride):
+                    var idx0 = k + m
+                    var idx1 = idx0 + stride
+                    var u_re = ptr_re[idx0]
+                    var u_im = ptr_im[idx0]
+                    var v_re = ptr_re[idx1]
+                    var v_im = ptr_im[idx1]
+                    ptr_re[idx0] = u_re * cos_p + v_im * sin_p
+                    ptr_im[idx0] = u_im * cos_p - v_re * sin_p
+                    ptr_re[idx1] = v_re * cos_p + u_im * sin_p
+                    ptr_im[idx1] = v_im * cos_p - u_re * sin_p
+
+    if actual_workers > 1:
+        parallelize[worker](actual_workers)
+    else:
+        worker(0)
+
+
+fn transform_ry_simd_v2(mut state: QuantumState, target: Int, theta: Float64):
+    """Parallelized Vectorized RY gate."""
+    var l = state.size()
+    var stride = 1 << target
+    var ptr_re = state.re.unsafe_ptr()
+    var ptr_im = state.im.unsafe_ptr()
+    var phi = theta / 2.0
+    var cos_p = cos(phi)
+    var sin_p = sin(phi)
+
+    var num_work_items = get_workers("quantum_simd_v2_chunks")
+    if num_work_items == 0:
+        num_work_items = 16
+
+    var total_blocks = l // (2 * stride)
+    var actual_workers = min(num_work_items, total_blocks)
+    var blocks_per_worker = max(1, total_blocks // num_work_items)
+
+    @parameter
+    fn worker(item_id: Int):
+        var start_block = item_id * blocks_per_worker
+        var end_block = (
+            total_blocks if item_id
+            == actual_workers - 1 else (item_id + 1) * blocks_per_worker
+        )
+
+        for k_idx in range(start_block, end_block):
+            var k = k_idx * 2 * stride
+
+            @parameter
+            fn vectorize_ry[width: Int](m: Int):
+                var idx0 = k + m
+                var idx1 = idx0 + stride
+                var u_re = ptr_re.load[width=width](idx0)
+                var u_im = ptr_im.load[width=width](idx0)
+                var v_re = ptr_re.load[width=width](idx1)
+                var v_im = ptr_im.load[width=width](idx1)
+                # u -> cos*u - sin*v, v -> sin*u + cos*v
+                ptr_re.store[width=width](idx0, u_re * cos_p - v_re * sin_p)
+                ptr_im.store[width=width](idx0, u_im * cos_p - v_im * sin_p)
+                ptr_re.store[width=width](idx1, v_re * cos_p + u_re * sin_p)
+                ptr_im.store[width=width](idx1, v_im * cos_p + u_im * sin_p)
+
+            if stride >= simd_width:
+                vectorize[vectorize_ry, simd_width](stride)
+            else:
+                for m in range(stride):
+                    var idx0 = k + m
+                    var idx1 = idx0 + stride
+                    var u_re = ptr_re[idx0]
+                    var u_im = ptr_im[idx0]
+                    var v_re = ptr_re[idx1]
+                    var v_im = ptr_im[idx1]
+                    ptr_re[idx0] = u_re * cos_p - v_re * sin_p
+                    ptr_im[idx0] = u_im * cos_p - v_im * sin_p
+                    ptr_re[idx1] = v_re * cos_p + u_re * sin_p
+                    ptr_im[idx1] = v_im * cos_p + u_im * sin_p
 
     if actual_workers > 1:
         parallelize[worker](actual_workers)
@@ -2093,6 +2350,18 @@ fn dagger(g: Gate) -> Gate:
             Amplitude(g[1][1].re, -g[1][1].im),
         ),
     )
+
+
+fn mat_vec_mul(U: List[Amplitude], vec: List[Amplitude]) -> List[Amplitude]:
+    """Basic matrix-vector multiplication for arbitrary unitaries."""
+    var size = len(vec)
+    var res = List[Amplitude](capacity=size)
+    for i in range(size):
+        var dot = Amplitude(0.0, 0.0)
+        for j in range(size):
+            dot = dot + U[i * size + j] * vec[j]
+        res.append(dot)
+    return res^
 
 
 fn transform_u(mut state: QuantumState, U: List[Amplitude], t: Int, m: Int):
