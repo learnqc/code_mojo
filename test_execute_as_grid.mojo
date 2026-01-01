@@ -35,7 +35,7 @@ fn main() raises:
 
     # 3. Target: Execute as grid (col_bits = 4)
     var state_grid = QuantumState(n)
-    execute_as_grid[4](state_grid, prep_circuit)
+    execute_as_grid(state_grid, prep_circuit, 4)
 
     # Verify
     print("Comparing Grid vs V2...")
