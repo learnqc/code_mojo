@@ -771,7 +771,7 @@ fn get_as_matrix16x16(
     return m
 
 
-struct FusedTransformation(Copyable, Movable):
+struct FusedTransformation(Copyable, ImplicitlyCopyable, Movable):
     """A pre-computed fused transformation for efficient execution."""
 
     var type: Int  # 0: Permutation, 1: Matrix4, 2: Matrix8, 3: Matrix16
@@ -848,9 +848,9 @@ struct FusedTransformation(Copyable, Movable):
         self.q1 = q_mid
         self.q2 = q_high
         self.q3 = -1
+        self.m8 = mat
         var r4 = InlineArray[Amplitude, 4](Amplitude(0, 0))
         self.m4 = Matrix4x4(r4, r4, r4, r4)
-        self.m8 = mat
         var r16 = InlineArray[Amplitude, 16](Amplitude(0, 0))
         self.m16 = Matrix16x16(
             r16,
@@ -883,25 +883,66 @@ struct FusedTransformation(Copyable, Movable):
         self.m8 = Matrix8x8(r8, r8, r8, r8, r8, r8, r8, r8)
         self.m16 = mat
 
+    fn copy(self) -> Self:
+        return self
+
+
+struct FusedV3Group(Copyable, ImplicitlyCopyable, Movable):
+    """A pre-analyzed and potentially fused group of transformations for V3 executor.
+    """
+
+    var transformations: List[Transformation]
+    var is_local: Bool
+    var is_radix4: Bool
+    var is_radix8: Bool
+    var m4: Matrix4x4
+    var m8: Matrix8x8
+    var q_high: Int
+    var q_mid: Int
+    var q_low: Int
+
+    fn __init__(
+        out self,
+        is_local: Bool = False,
+        is_radix4: Bool = False,
+        is_radix8: Bool = False,
+    ):
+        self.transformations = List[Transformation]()
+        self.is_local = is_local
+        self.is_radix4 = is_radix4
+        self.is_radix8 = is_radix8
+        var r4 = InlineArray[Amplitude, 4](Amplitude(0, 0))
+        self.m4 = Matrix4x4(r4, r4, r4, r4)
+        var r8 = InlineArray[Amplitude, 8](Amplitude(0, 0))
+        self.m8 = Matrix8x8(r8, r8, r8, r8, r8, r8, r8, r8)
+        self.q_high = -1
+        self.q_mid = -1
+        self.q_low = -1
+
     fn __copyinit__(out self, existing: Self):
-        self.type = existing.type
-        self.q0 = existing.q0
-        self.q1 = existing.q1
-        self.q2 = existing.q2
-        self.q3 = existing.q3
+        self.transformations = existing.transformations.copy()
+        self.is_local = existing.is_local
+        self.is_radix4 = existing.is_radix4
+        self.is_radix8 = existing.is_radix8
         self.m4 = existing.m4
         self.m8 = existing.m8
-        self.m16 = existing.m16
+        self.q_high = existing.q_high
+        self.q_mid = existing.q_mid
+        self.q_low = existing.q_low
 
     fn __moveinit__(out self, deinit existing: Self):
-        self.type = existing.type
-        self.q0 = existing.q0
-        self.q1 = existing.q1
-        self.q2 = existing.q2
-        self.q3 = existing.q3
+        self.transformations = existing.transformations^
+        self.is_local = existing.is_local
+        self.is_radix4 = existing.is_radix4
+        self.is_radix8 = existing.is_radix8
         self.m4 = existing.m4
         self.m8 = existing.m8
-        self.m16 = existing.m16
+        self.q_high = existing.q_high
+        self.q_mid = existing.q_mid
+        self.q_low = existing.q_low
+
+    fn copy(self) -> Self:
+        return self
 
 
 struct QuantumRegister(Copyable, Movable):
@@ -949,7 +990,9 @@ struct QuantumCircuit(Copyable, Movable):
     var num_qubits: Int
     var registers: List[QuantumRegister]
     var fused_transformations: List[FusedTransformation]
+    var fused_v3_groups: List[FusedV3Group]
     var is_fused: Bool
+    var is_transpiled_v3: Bool
 
     fn __init__(out self, num_qubits: Int):
         """Initialize a quantum circuit with n qubits in the |0⟩ state."""
@@ -957,7 +1000,9 @@ struct QuantumCircuit(Copyable, Movable):
         self.transformations = List[Transformation]()
         self.registers = List[QuantumRegister]()
         self.fused_transformations = List[FusedTransformation]()
+        self.fused_v3_groups = List[FusedV3Group]()
         self.is_fused = False
+        self.is_transpiled_v3 = False
 
     fn __copyinit__(out self, existing: Self):
         self.num_qubits = existing.num_qubits
@@ -978,6 +1023,12 @@ struct QuantumCircuit(Copyable, Movable):
             self.fused_transformations.append(
                 existing.fused_transformations[i].copy()
             )
+        self.fused_v3_groups = List[FusedV3Group](
+            capacity=len(existing.fused_v3_groups)
+        )
+        for i in range(len(existing.fused_v3_groups)):
+            self.fused_v3_groups.append(existing.fused_v3_groups[i].copy())
+        self.is_transpiled_v3 = existing.is_transpiled_v3
         self.is_fused = existing.is_fused
 
     fn __moveinit__(out self, deinit existing: Self):
@@ -985,7 +1036,9 @@ struct QuantumCircuit(Copyable, Movable):
         self.transformations = existing.transformations^
         self.registers = existing.registers^
         self.fused_transformations = existing.fused_transformations^
+        self.fused_v3_groups = existing.fused_v3_groups^
         self.is_fused = existing.is_fused
+        self.is_transpiled_v3 = existing.is_transpiled_v3
 
     fn add(
         mut self,
@@ -1058,7 +1111,27 @@ struct QuantumCircuit(Copyable, Movable):
                 transform_matrix8(state, ft.q2, ft.q1, ft.q0, ft.m8)
             elif ft.type == 3:
                 transform_matrix16(state, ft.q3, ft.q2, ft.q1, ft.q0, ft.m16)
-        return state^
+        return state
+
+    fn transpile_v3(
+        mut self,
+        use_radix8: Bool = False,
+        fuse_controlled: Bool = False,
+        block_log: Int = 11,
+    ) raises:
+        """Pre-analyze and fuse the circuit using V3 strategy.
+        This eliminates the 'Analysis Tax' during the execution loop.
+        """
+        from butterfly.core.execute_fused_v3 import (
+            analyze_and_fuse_v3,
+            DEFAULT_BLOCK_LOG,
+        )
+
+        var groups = analyze_and_fuse_v3(
+            self, use_radix8, fuse_controlled, block_log
+        )
+        self.fused_v3_groups = groups^
+        self.is_transpiled_v3 = True
 
     fn run_simd_dynamic(mut self) -> QuantumState:
         """

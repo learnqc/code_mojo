@@ -314,13 +314,20 @@ fn main() raises:
                     input,
                     executors,
                     compare_quantum_states,
-                    params=params,
                     stop_on_failure=False,
                 )
 
             # 2. Performance Measurement
             if len(params) > 0:
-                runner.add_perf_results(params, executors, input)
+                if n > 20:
+                    var filtered_executors = List[Executor]()
+                    for idx in range(len(executors)):
+                        var name = executors[idx].name
+                        if name != "scalar" and name != "qiskit":
+                            filtered_executors.append(executors[idx])
+                    runner.add_perf_results(params, filtered_executors, input)
+                else:
+                    runner.add_perf_results(params, executors, input)
 
             # Qiskit time (via interop wrapper)
             from python import Python

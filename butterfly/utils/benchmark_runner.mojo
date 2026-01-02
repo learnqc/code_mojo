@@ -178,6 +178,12 @@ struct BenchmarkRunner(Movable):
             var matches = True
             for j in range(len(self.param_columns)):
                 var param_name = self.param_columns[j]
+                if (
+                    param_name not in params
+                    or param_name not in self.results[i].params
+                ):
+                    matches = False
+                    break
                 if self.results[i].params[param_name] != params[param_name]:
                     matches = False
                     break
@@ -332,7 +338,6 @@ struct BenchmarkRunner(Movable):
         functions: List[LabeledFunction[Input, Return]],
         comparator: fn (Return, Return, Float64) raises,
         params: Dict[String, String] = Dict[String, String](),
-        iters: Int = 5,
         baseline_idx: Int = 0,
         stop_on_failure: Bool = True,
         tolerance: Float64 = 1e-5,
@@ -372,15 +377,6 @@ struct BenchmarkRunner(Movable):
                 )
                 if stop_on_failure:
                     raise e
-
-        # Free baseline early if possible, but Mojo will do it at end of scope
-        # unless we explicitly drop it or it's moved.
-
-        # 2. Performance Measurement
-        if len(params) > 0:
-            self.add_perf_results[Input, Return](
-                params, functions, input, iters
-            )
 
     fn add_perf_results[
         Input: AnyType & Copyable & Movable, Return: AnyType
@@ -602,16 +598,16 @@ struct BenchmarkRunner(Movable):
 
             # Winner column
             if show_winner and min_time > 0:
-                var bench_ref_time = result.benchmarks[
-                    self.bench_columns[self.reference_idx]
-                ]
+                var ref_name = self.bench_columns[self.reference_idx]
                 var winner_text = winner
-                if max_time > min_time:
-                    var speedup = bench_ref_time / min_time
-                    var speedup_str = format_float(speedup)
-                    winner_text = (
-                        winner.ljust(12) + " x " + speedup_str.rjust(6) + ""
-                    )
+                if ref_name in result.benchmarks:
+                    var bench_ref_time = result.benchmarks[ref_name]
+                    if max_time > min_time:
+                        var speedup = bench_ref_time / min_time
+                        var speedup_str = format_float(speedup)
+                        winner_text = (
+                            winner.ljust(12) + " x " + speedup_str.rjust(6) + ""
+                        )
                 row += winner_text
 
             print(row)

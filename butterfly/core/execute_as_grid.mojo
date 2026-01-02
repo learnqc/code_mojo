@@ -462,7 +462,7 @@ fn dispatch_global_delegate(
 
 
 fn execute_as_grid(
-    mut state: QuantumState, mut circuit: QuantumCircuit, col_bits: Int = -1
+    mut state: QuantumState, circuit: QuantumCircuit, col_bits: Int = -1
 ) raises:
     """Execute circuit using grid strategy.
 
@@ -477,8 +477,6 @@ fn execute_as_grid(
     var num_rows = 1 << (n - actual_col_bits)
 
     # Performance optimization: determine if SIMD is likely to help
-    alias with_simd = True
-
     for i in range(len(circuit.transformations)):
         var t = circuit.transformations[i].copy()
 
@@ -492,7 +490,7 @@ fn execute_as_grid(
                 @parameter
                 fn process_row(row: Int):
                     var stride = 1 << target
-                    if with_simd and row_size >= simd_width:
+                    if row_size >= simd_width:
                         if is_h(gate):
                             transform_row_h_simd[simd_width](
                                 state, row, row_size, target

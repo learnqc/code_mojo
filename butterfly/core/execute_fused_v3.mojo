@@ -8,6 +8,7 @@ from butterfly.core.types import FloatType, Type, Gate, Amplitude
 from butterfly.core.circuit import (
     QuantumCircuit,
     Transformation,
+    FusedV3Group,
     is_permutation,
     is_controlled,
     num_controls,
@@ -29,52 +30,10 @@ alias DEFAULT_BLOCK_LOG = 11
 alias BLOCK_SIZE = 1 << DEFAULT_BLOCK_LOG
 
 
-struct TransformationGroup(Copyable, Movable):
-    """A list of transformations that can be executed in a single pass."""
-
-    var transformations: List[Transformation]
-    var is_local: Bool  # If true, these can be block-executed
-    var is_radix4: Bool  # If true, these are fused into a 4x4 matrix
-    var is_radix8: Bool  # If true, these are fused into an 8x8 matrix
-
-    fn __init__(
-        out self,
-        is_local: Bool = False,
-        is_radix4: Bool = False,
-        is_radix8: Bool = False,
-    ):
-        self.transformations = List[Transformation]()
-        self.is_local = is_local
-        self.is_radix4 = is_radix4
-        self.is_radix8 = is_radix8
-
-    fn __copyinit__(out self, existing: Self):
-        self.transformations = List[Transformation]()
-        for i in range(len(existing.transformations)):
-            self.transformations.append(existing.transformations[i])
-        self.is_local = existing.is_local
-        self.is_radix4 = existing.is_radix4
-        self.is_radix8 = existing.is_radix8
-
-    fn __moveinit__(out self, deinit existing: Self):
-        self.transformations = existing.transformations^
-        self.is_local = existing.is_local
-        self.is_radix4 = existing.is_radix4
-        self.is_radix8 = existing.is_radix8
-
-    fn copy(self) -> Self:
-        var new_g = TransformationGroup(
-            self.is_local, self.is_radix4, self.is_radix8
-        )
-        for i in range(len(self.transformations)):
-            new_g.transformations.append(self.transformations[i])
-        return new_g^
-
-
 struct CircuitAnalyzer:
     """Partitions a circuit into execution groups."""
 
-    var groups: List[TransformationGroup]
+    var groups: List[FusedV3Group]
     var use_radix8: Bool
     var fuse_controlled: Bool
     var block_log: Int
@@ -86,7 +45,7 @@ struct CircuitAnalyzer:
         fuse_controlled: Bool = False,
         block_log: Int = DEFAULT_BLOCK_LOG,
     ):
-        self.groups = List[TransformationGroup]()
+        self.groups = List[FusedV3Group]()
         self.use_radix8 = use_radix8
         self.fuse_controlled = fuse_controlled
         self.block_log = block_log
@@ -110,7 +69,7 @@ struct CircuitAnalyzer:
             var t = transformations[i]
 
             if is_permutation(t):
-                var g = TransformationGroup()
+                var g = FusedV3Group()
                 g.transformations.append(t)
                 self.groups.append(g^)
                 i += 1
@@ -141,7 +100,7 @@ struct CircuitAnalyzer:
                         and get_target(t) != get_target(t3)
                         and get_target(t2) != get_target(t3)
                     ):
-                        var g = TransformationGroup(
+                        var g = FusedV3Group(
                             is_local=True, is_radix4=False, is_radix8=True
                         )
                         g.transformations.append(t)
@@ -152,7 +111,7 @@ struct CircuitAnalyzer:
                         continue
 
                 # Start a local group (cache-blocked execution)
-                var g = TransformationGroup(is_local=True)
+                var g = FusedV3Group(is_local=True)
                 g.transformations.append(t)
                 i += 1
                 while i < n:
@@ -180,9 +139,7 @@ struct CircuitAnalyzer:
                         )
                         and get_target(t) != get_target(next_t)
                     ):
-                        var g = TransformationGroup(
-                            is_local=False, is_radix4=True
-                        )
+                        var g = FusedV3Group(is_local=False, is_radix4=True)
                         g.transformations.append(t)
                         g.transformations.append(next_t)
                         self.groups.append(g^)
@@ -190,7 +147,7 @@ struct CircuitAnalyzer:
                         continue
 
                 # Fallback: Single Global group
-                var g = TransformationGroup(is_local=False, is_radix4=False)
+                var g = FusedV3Group(is_local=False, is_radix4=False)
                 g.transformations.append(t)
                 self.groups.append(g^)
                 i += 1
@@ -228,20 +185,112 @@ fn execute_fused_v3[
         return
 
     var analyzer = CircuitAnalyzer(
-        circuit.transformations, use_radix8, fuse_controlled
+        circuit.transformations, use_radix8, fuse_controlled, block_log
     )
 
-    for i in range(len(analyzer.groups)):
-        var g_ref = analyzer.groups[i].copy()
+    if circuit.is_transpiled_v3:
+        _execute_groups[N](state, circuit.fused_v3_groups)
+    else:
+        var groups = analyze_and_fuse_v3(
+            circuit, use_radix8, fuse_controlled, block_log
+        )
+        _execute_groups[N](state, groups)
+
+
+fn _execute_groups[
+    N: Int
+](mut state: QuantumState, ref groups: List[FusedV3Group]):
+    for i in range(len(groups)):
+        # Use reference to avoid copy if List had reference semantics,
+        # but Mojo List[T] with index access returns a copy if T is Copyable.
+        # However, FusedV3Group is ImplicitlyCopyable, so it works.
+        # To be safe and efficient, we can't easily get a reference from List[T] yet
+        # unless it was a List of pointers. But these groups are small.
+        var g_ref = groups[i]
 
         if g_ref.is_radix8:
-            execute_radix8_local_group(state, g_ref.transformations)
+            execute_radix8_local_group(state, g_ref)
         elif g_ref.is_local:
             execute_local_group(state, g_ref.transformations)
         elif g_ref.is_radix4:
-            execute_radix4_group[N](state, g_ref.transformations)
+            execute_radix4_group[N](state, g_ref)
         else:
             execute_global_group[N](state, g_ref.transformations)
+
+
+fn analyze_and_fuse_v3(
+    circuit: QuantumCircuit,
+    use_radix8: Bool = False,
+    fuse_controlled: Bool = False,
+    block_log: Int = DEFAULT_BLOCK_LOG,
+) -> List[FusedV3Group]:
+    """Analyzes a circuit and returns a list of fused V3 groups."""
+    var analyzer = CircuitAnalyzer(
+        circuit.transformations, use_radix8, fuse_controlled, block_log
+    )
+
+    # Perform fusion for Radix-4 and Radix-8 groups
+    for i in range(len(analyzer.groups)):
+        var g = analyzer.groups[i]
+        if g.is_radix4:
+            var t0 = g.transformations[0]
+            var t1 = g.transformations[1]
+            var q_high = max(get_target(t0), get_target(t1))
+            var q_low = min(get_target(t0), get_target(t1))
+            g.q_high = q_high
+            g.q_low = q_low
+
+            # Check if all involved qubits fit within the 2-qubit subspace [q_low, q_high]
+            var can_fuse = True
+            for q in get_involved_qubits(t0):
+                if q != q_high and q != q_low:
+                    can_fuse = False
+                    break
+            if can_fuse:
+                for q in get_involved_qubits(t1):
+                    if q != q_high and q != q_low:
+                        can_fuse = False
+                        break
+
+            if can_fuse:
+                var M0 = get_as_matrix4x4(t0, q_high, q_low)
+                var M1 = get_as_matrix4x4(t1, q_high, q_low)
+                from butterfly.algos.unitary_kernels import matmul_matrix4x4
+
+                g.m4 = matmul_matrix4x4(M1, M0)
+            else:
+                # Mark as not fused for sequential execution
+                g.is_radix4 = False
+        elif g.is_radix8:
+            var t0 = g.transformations[0]
+            var t1 = g.transformations[1]
+            var t2 = g.transformations[2]
+
+            var targets = List[Int](capacity=3)
+            var gates = List[Gate](capacity=3)
+            targets.append(get_target(t0))
+            targets.append(get_target(t1))
+            targets.append(get_target(t2))
+            gates.append(get_gate(t0))
+            gates.append(get_gate(t1))
+            gates.append(get_gate(t2))
+
+            # Bubble sort
+            for _ in range(2):
+                for j in range(2):
+                    if targets[j] < targets[j + 1]:
+                        var tmp_t = targets[j]
+                        targets[j] = targets[j + 1]
+                        targets[j + 1] = tmp_t
+                        var tmp_g = gates[j]
+                        gates[j] = gates[j + 1]
+                        gates[j + 1] = tmp_g
+
+            g.q_high = targets[0]
+            g.q_mid = targets[1]
+            g.q_low = targets[2]
+            g.m8 = compute_kron_product_3(gates[0], gates[1], gates[2])
+    return analyzer.groups.copy()
 
 
 fn execute_local_group(
@@ -346,50 +395,12 @@ fn apply_local_transform(
         vectorize[v_butterfly, simd_width](count)
 
 
-fn execute_radix8_local_group(
-    mut state: QuantumState, transformations: List[Transformation]
-):
+fn execute_radix8_local_group(mut state: QuantumState, g: FusedV3Group):
     """Execute a triplet of local gates using Radix-8 fusion."""
-    # Should have exactly 3 transformations
-    if len(transformations) != 3:
-        return
-
-    var t0 = transformations[0]
-    var t1 = transformations[1]
-    var t2 = transformations[2]
-
-    # Sort by target (descending for Kronecker product ordering)
-    var targets = List[Int](capacity=3)
-    var gates = List[Gate](capacity=3)
-    targets.append(get_target(t0))
-    targets.append(get_target(t1))
-    targets.append(get_target(t2))
-    gates.append(get_gate(t0))
-    gates.append(get_gate(t1))
-    gates.append(get_gate(t2))
-
-    # Bubble sort
-    for _ in range(2):
-        for j in range(2):
-            if targets[j] < targets[j + 1]:
-                var tmp_t = targets[j]
-                targets[j] = targets[j + 1]
-                targets[j + 1] = tmp_t
-                var tmp_g = gates[j]
-                gates[j] = gates[j + 1]
-                gates[j + 1] = tmp_g
-
-    var q_high = targets[0]
-    var q_mid = targets[1]
-    var q_low = targets[2]
-
-    # Compute fused 8x8 matrix: M = g_high ⊗ g_mid ⊗ g_low
-    var M = compute_kron_product_3(gates[0], gates[1], gates[2])
-
     # Apply using transform_matrix8 from fused_gates
     from butterfly.algos.fused_gates import transform_matrix8
 
-    transform_matrix8(state, q_high, q_mid, q_low, M)
+    transform_matrix8(state, g.q_high, g.q_mid, g.q_low, g.m8)
 
 
 fn execute_global_group[
@@ -403,32 +414,20 @@ fn execute_global_group[
     execute_transformations_simd_v2[N](state, transformations)
 
 
-fn execute_radix4_group[
-    N: Int
-](mut state: QuantumState, transformations: List[Transformation]):
+fn execute_radix4_group[N: Int](mut state: QuantumState, g: FusedV3Group):
     """Execute two gates fused into a Radix-4 passage using matrix-based approach.
     """
-    var t0 = transformations[0]
-    var t1 = transformations[1]
+    if (
+        g.m4[0][0].re != 0 or g.m4[0][0].im != 0 or g.m4[0][1].re != 0
+    ):  # Rough check for fusion
+        # Apply combined matrix
+        from butterfly.algos.fused_gates import transform_matrix4
 
-    # Determine qubit ordering
-    var q_high = max(get_target(t0), get_target(t1))
-    var q_low = min(get_target(t0), get_target(t1))
-
-    # Check if all involved qubits fit within the 2-qubit subspace [q_low, q_high]
-    var can_fuse = True
-    for q in get_involved_qubits(t0):
-        if q != q_high and q != q_low:
-            can_fuse = False
-            break
-    if can_fuse:
-        for q in get_involved_qubits(t1):
-            if q != q_high and q != q_low:
-                can_fuse = False
-                break
-
-    # If qubits don't fit in 2-qubit subspace, execute sequentially
-    if not can_fuse:
+        transform_matrix4(state, g.q_high, g.q_low, g.m4)
+    else:
+        # Fallback to sequential
+        var t0 = g.transformations[0]
+        var t1 = g.transformations[1]
         from butterfly.core.state import (
             transform,
             c_transform,
@@ -456,21 +455,6 @@ fn execute_radix4_group[
                 )
         else:
             transform(state, get_target(t1), get_gate(t1))
-        return
-
-    # For 2-qubit subspace, compute combined matrix
-    var M0 = get_as_matrix4x4(t0, q_high, q_low)
-    var M1 = get_as_matrix4x4(t1, q_high, q_low)
-
-    # Multiply matrices: M = M1 * M0 (apply M0 first, then M1)
-    from butterfly.algos.unitary_kernels import matmul_matrix4x4
-
-    var M = matmul_matrix4x4(M1, M0)
-
-    # Apply combined matrix
-    from butterfly.algos.fused_gates import transform_matrix4
-
-    transform_matrix4(state, q_high, q_low, M)
 
 
 fn compute_fused_matrix(u_high: Gate, u_low: Gate) -> Matrix4x4:
