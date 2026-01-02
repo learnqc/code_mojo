@@ -4,7 +4,11 @@ Strategies: scalar, simd_v2, fused_v3, v_grid, v_grid_fused, qiskit.
 Circuits: prep and prep+iqft (from value encoding).
 """
 
-from butterfly.utils.benchmark_runner import create_runner, should_autosave
+from butterfly.utils.benchmark_runner import (
+    create_runner,
+    should_autosave,
+    LabeledFunction,
+)
 from butterfly.core.state import QuantumState
 from butterfly.core.circuit import QuantumCircuit
 from butterfly.core.execute_as_grid import execute_as_grid
@@ -20,6 +24,8 @@ from butterfly.utils.visualization import print_state
 from collections import Dict, List
 from math import pi
 
+alias Executor = LabeledFunction[QuantumCircuit, QuantumState]
+alias encoding_value = 4.7
 
 # --- Baseline Executors ---
 
@@ -218,7 +224,7 @@ fn execute_grid_fusion_circuit(circuit: QuantumCircuit) raises -> QuantumState:
 fn execute_qiskit_circuit(circuit: QuantumCircuit) raises -> QuantumState:
     """Fetch current state from Qiskit (baseline)."""
     var n = circuit.num_qubits
-    var value = 4.7
+    var value = encoding_value
 
     # Heuristic: prep circuit has exactly 2*n gates (n H + n P)
     if len(circuit.transformations) <= 2 * n:
@@ -250,28 +256,54 @@ fn compare_quantum_states(
 
 
 fn main() raises:
-    alias NAME = "comprehensive_strategies"
+    from python import Python
+
+    try:
+        var sys = Python.import_module("sys")
+        _ = sys.path.append(".")
+    except:
+        pass
+
+    alias NAME = "value_encoding_strategies"
     alias DESCRIPTION = "Value Encoding: Mojo vs Qiskit "
 
     var p_cols = List[String]("n", "circuit")
-    var b_cols = List[String](
-        "scalar",
-        "simd_v2",
-        "fused_v3",
-        "v_grid",
-        "v_grid_fused",
-        "grid_fusion",
-        "q_aer_raw",
-        "q_aer_opt",
-        "q_latency",
-    )
+    var executors = List[Executor]()
+    executors.append(Executor("scalar", execute_scalar_circuit))
+    executors.append(Executor("simd_v2", execute_simd_v2_circuit))
+    executors.append(Executor("fused_v3", execute_fused_v3_circuit))
+    executors.append(Executor("v_grid", execute_v_grid_circuit))
+    executors.append(Executor("v_grid_fused", execute_v_grid_fused_circuit))
+    executors.append(Executor("grid_fusion", execute_grid_fusion_circuit))
+    executors.append(Executor("qiskit", execute_qiskit_circuit))
 
-    var runner = create_runner(NAME, DESCRIPTION, p_cols, b_cols, 6)
+    var qiskit_executors = List[String]("q_aer_raw", "q_latency", "q_aer_opt")
+    var qiskit_executor_modes = List[String]("none", "in_loop", "cached")
+
+    var excluded_executors = List[String]("scalar", "qiskit")
+    var excluded_qiskit_executors = List[String]("q_aer_raw", "q_latency")
+
+    var b_cols = List[String]()
+    for i in range(len(executors)):
+        b_cols.append(executors[i].name)
+
+    for i in range(len(qiskit_executors)):
+        b_cols.append(qiskit_executors[i])
+
+    var runner = create_runner(NAME, DESCRIPTION, p_cols, b_cols, 9)
+
+    var n_range = range(21, 22)
+    var n_verification_range = range(22)
+    var n_verification_list = List[Int]()
+    for n in n_verification_range:
+        n_verification_list.append(n)
+    var n_exclusion_range = range(20, 27)
+    var n_exclusion_list = List[Int]()
+    for n in n_exclusion_range:
+        n_exclusion_list.append(n)
 
     var n_values = List[Int]()
-    for n in range(
-        20, 27
-    ):  # Start at n=12 to avoid grid_fusion crashes at small n
+    for n in n_range:
         n_values.append(n)
     var circuits = List[String]("prep", "prep+iqft")
 
@@ -279,7 +311,9 @@ fn main() raises:
         var n = n_values[i]
 
         # Pre-generate circuits for this n to avoid overhead in executors
-        var full_circuits = encode_value_circuits_runtime(n, 4.7, swap=False)
+        var full_circuits = encode_value_circuits_runtime(
+            n, encoding_value, swap=False
+        )
 
         for i in [0, 1]:
             var input = full_circuits[0].copy()
@@ -293,121 +327,30 @@ fn main() raises:
             params["n"] = String(n)
             params["circuit"] = c_name
 
-            try:
-                if n <= 22:
-                    # Mojo-to-Mojo parity
-                    runner.log_progress("Checking Mojo-to-Mojo parity...")
-                    try:
-                        runner.verify(
-                            input,
-                            execute_simd_v2_circuit,
-                            execute_scalar_circuit,
-                            compare_quantum_states,
-                            name1="simd_v2",
-                            name2="scalar",
-                        )
-                    except e:
-                        runner.log_progress(
-                            "!! simd_v2 verification failed: " + String(e)
-                        )
-
-                    try:
-                        runner.verify(
-                            input,
-                            execute_fused_v3_circuit,
-                            execute_scalar_circuit,
-                            compare_quantum_states,
-                            name1="fused_v3",
-                            name2="scalar",
-                        )
-                    except e:
-                        runner.log_progress(
-                            "!! fused_v3 verification failed: " + String(e)
-                        )
-
-                    try:
-                        runner.verify(
-                            input,
-                            execute_v_grid_circuit,
-                            execute_scalar_circuit,
-                            compare_quantum_states,
-                            name1="v_grid",
-                            name2="scalar",
-                        )
-                    except e:
-                        runner.log_progress(
-                            "!! v_grid verification failed: " + String(e)
-                        )
-
-                    try:
-                        runner.verify(
-                            input,
-                            execute_v_grid_fused_circuit,
-                            execute_scalar_circuit,
-                            compare_quantum_states,
-                            name1="v_grid_fused",
-                            name2="scalar",
-                        )
-                    except e:
-                        runner.log_progress(
-                            "!! v_grid_fused verification failed: " + String(e)
-                        )
-
-                    try:
-                        runner.verify(
-                            input,
-                            execute_grid_fusion_circuit,
-                            execute_scalar_circuit,
-                            compare_quantum_states,
-                            name1="grid_fusion",
-                            name2="scalar",
-                        )
-                    except e:
-                        runner.log_progress(
-                            "!! grid_fusion verification failed: " + String(e)
-                        )
-
-                if n <= 22:
-                    # Against Qiskit reference
-                    runner.log_progress("\nChecking against Qiskit ...")
-                    runner.verify(
-                        input,
-                        execute_scalar_circuit,
-                        execute_qiskit_circuit,
-                        compare_quantum_states,
-                        name1="scalar",
-                        name2="qiskit",
-                    )
-            except e:
-                print(
-                    "!! Verification failed for n="
-                    + String(n)
-                    + ", "
-                    + c_name
-                    + ": "
-                    + String(e)
+            # 1. Verification Phase
+            if n in n_verification_list:
+                # Comprehensive Parity Check
+                runner.log_progress(
+                    "Checking parity (Mojo vs Qiskit reference)..."
                 )
-                # Continue anyway to see if others pass
+                runner.verify(
+                    input,
+                    executors,
+                    compare_quantum_states,
+                    stop_on_failure=False,
+                )
 
-            # 2. Performance Phase
-            runner.add_perf_result(
-                params, "scalar", execute_scalar_circuit, input
-            )
-            runner.add_perf_result(
-                params, "simd_v2", execute_simd_v2_circuit, input
-            )
-            runner.add_perf_result(
-                params, "fused_v3", execute_fused_v3_circuit, input
-            )
-            runner.add_perf_result(
-                params, "v_grid", execute_v_grid_circuit, input
-            )
-            runner.add_perf_result(
-                params, "v_grid_fused", execute_v_grid_fused_circuit, input
-            )
-            runner.add_perf_result(
-                params, "grid_fusion", execute_grid_fusion_circuit, input
-            )
+            # 2. Performance Measurement
+            if len(params) > 0:
+                if n in n_exclusion_list:
+                    var filtered_executors = List[Executor]()
+                    for idx in range(len(executors)):
+                        var name = executors[idx].name
+                        if name not in excluded_executors:
+                            filtered_executors.append(executors[idx])
+                    runner.add_perf_results(params, filtered_executors, input)
+                else:
+                    runner.add_perf_results(params, executors, input)
 
             # Qiskit time (via interop wrapper)
             from python import Python
@@ -417,59 +360,32 @@ fn main() raises:
             )
 
             if i == 0:
-                var q_aer_raw = atof(
-                    String(
-                        py_bench.benchmark_qiskit_prep(
-                            n, 4.7, iters=3, mode="none"
+                for q_executor, q_mode in zip(
+                    qiskit_executors, qiskit_executor_modes
+                ):
+                    if q_executor not in excluded_qiskit_executors:
+                        var result = atof(
+                            String(
+                                py_bench.benchmark_qiskit_prep(
+                                    n, encoding_value, iters=3, mode=q_mode
+                                )
+                            )
                         )
-                    )
-                )
-                runner.add_result(params, "q_aer_raw", q_aer_raw)
+                        runner.add_result(params, q_executor, result)
 
-                var q_aer_opt = atof(
-                    String(
-                        py_bench.benchmark_qiskit_prep(
-                            n, 4.7, iters=3, mode="cached"
-                        )
-                    )
-                )
-                runner.add_result(params, "q_aer_opt", q_aer_opt)
-
-                var q_latency = atof(
-                    String(
-                        py_bench.benchmark_qiskit_prep(
-                            n, 4.7, iters=3, mode="in_loop"
-                        )
-                    )
-                )
-                runner.add_result(params, "q_latency", q_latency)
             else:
-                var q_aer_raw = atof(
-                    String(
-                        py_bench.benchmark_qiskit_value_encoding(
-                            n, 4.7, iters=3, mode="none"
+                for q_executor, q_mode in zip(
+                    qiskit_executors, qiskit_executor_modes
+                ):
+                    if q_executor not in excluded_qiskit_executors:
+                        var result = atof(
+                            String(
+                                py_bench.benchmark_qiskit_value_encoding(
+                                    n, encoding_value, iters=3, mode=q_mode
+                                )
+                            )
                         )
-                    )
-                )
-                runner.add_result(params, "q_aer_raw", q_aer_raw)
-
-                var q_aer_opt = atof(
-                    String(
-                        py_bench.benchmark_qiskit_value_encoding(
-                            n, 4.7, iters=3, mode="cached"
-                        )
-                    )
-                )
-                runner.add_result(params, "q_aer_opt", q_aer_opt)
-
-                var q_latency = atof(
-                    String(
-                        py_bench.benchmark_qiskit_value_encoding(
-                            n, 4.7, iters=3, mode="in_loop"
-                        )
-                    )
-                )
-                runner.add_result(params, "q_latency", q_latency)
+                        runner.add_result(params, q_executor, result)
 
     runner.print_table()
     runner.save_csv(NAME, autosave=should_autosave())
