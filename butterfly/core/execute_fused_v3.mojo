@@ -16,11 +16,34 @@ from butterfly.core.circuit import (
     get_gate,
     get_as_matrix4x4,
     get_controls,
+    get_name,
+    get_arg,
+    GateTransformation,
+    SingleControlGateTransformation,
 )
 from butterfly.algos.unitary_kernels import Matrix4x4, Matrix8x8, acc_mul
 from butterfly.algos.fused_gates import (
     compute_kron_product,
     compute_kron_product_3,
+    transform_matrix4,
+)
+from butterfly.core.fused_kernels_sparse_global import (
+    transform_fused_hh_sparse,
+    transform_fused_hp_sparse,
+    transform_fused_pp_sparse,
+    transform_fused_shared_c_pp_sparse,
+)
+from butterfly.core.fused_kernels_sparse import (
+    transform_row_fused_hh_simd,
+    transform_row_fused_hp_simd,
+    transform_row_fused_pp_simd,
+    transform_row_fused_shared_c_pp_simd,
+    transform_row_fused_st_hp_simd,
+    transform_row_fused_hh_ptr,
+    transform_row_fused_hp_ptr,
+    transform_row_fused_pp_ptr,
+    transform_row_fused_shared_c_pp_ptr,
+    transform_row_fused_st_hp_ptr,
 )
 from algorithm import parallelize, vectorize
 from memory import UnsafePointer
@@ -93,9 +116,10 @@ struct CircuitAnalyzer:
         self.analyze(transformations)
 
     fn is_local(self, t: Transformation) -> Bool:
-        # Controlled gates are never local - they require global coordination
-        if is_controlled(t):
+        # If enabled, controlled gates can be local if all involved qubits fit in the block
+        if is_controlled(t) and not self.fuse_controlled:
             return False
+
         var involved = get_involved_qubits(t)
         for i in range(len(involved)):
             if involved[i] >= self.block_log:
@@ -244,44 +268,218 @@ fn execute_fused_v3[
             execute_global_group[N](state, g_ref.transformations)
 
 
+fn analyze_and_fuse_v3(
+    transformations: List[Transformation],
+    use_radix8: Bool = False,
+    fuse_controlled: Bool = False,
+    block_log: Int = DEFAULT_BLOCK_LOG,
+) -> List[TransformationGroup]:
+    """Helper for transpilation logic."""
+    var analyzer = CircuitAnalyzer(
+        transformations, use_radix8, fuse_controlled, block_log
+    )
+    return analyzer.groups.copy()
+
+
+@fieldwise_init
+struct LocalOp(Copyable, ImplicitlyCopyable, Movable):
+    var type: Int  # 0: single, 1: hh, 2: hp, 3: ph, 4: pp, 5: st_hp, 6: shared_c_pp
+    var target1: Int
+    var target2: Int
+    var control: Int
+    var gate: Gate
+    var arg1: FloatType
+    var arg2: FloatType
+
+    fn __copyinit__(out self, existing: Self):
+        self.type = existing.type
+        self.target1 = existing.target1
+        self.target2 = existing.target2
+        self.control = existing.control
+        self.gate = existing.gate
+        self.arg1 = existing.arg1
+        self.arg2 = existing.arg2
+
+    fn __moveinit__(out self, deinit existing: Self):
+        self.type = existing.type
+        self.target1 = existing.target1
+        self.target2 = existing.target2
+        self.control = existing.control
+        self.gate = existing.gate
+        self.arg1 = existing.arg1
+        self.arg2 = existing.arg2
+
+    fn __init__(
+        out self,
+        type: Int,
+        target1: Int,
+        target2: Int = -1,
+        control: Int = -1,
+        arg1: Float64 = 0,
+        arg2: Float64 = 0,
+        gate: Gate = X,
+    ):
+        self.type = type
+        self.target1 = target1
+        self.target2 = target2
+        self.control = control
+        self.gate = gate
+        self.arg1 = arg1
+        self.arg2 = arg2
+
+
 fn execute_local_group(
     mut state: QuantumState, transformations: List[Transformation]
 ):
-    """Execute a group of local gates using cache-blocking."""
+    """Execute a group of local gates using cache-blocking and sparse fusion."""
     var size = state.size()
     # Handle cases where state size is less than block size
     var actual_block_size = size if size < BLOCK_SIZE else BLOCK_SIZE
     var num_blocks = size // actual_block_size
 
-    # BUGFIX: Use state pointers directly instead of creating new UnsafePointer from address
-    # This ensures NDBuffer can correctly wrap the pointers later
-    var ptr_re = state.re.unsafe_ptr()
-    var ptr_im = state.im.unsafe_ptr()
-
-    # Pre-extract targets and gates to avoid Loop Copy Tax on Variant copies
-    var targets = List[Int](capacity=len(transformations))
-    var gates = List[Gate](capacity=len(transformations))
-    for i in range(len(transformations)):
+    # Pointers will be acquired later using the laundered pointer pattern for stable capture
+    # Pre-analyze for fusion and extract into LocalOp list
+    var ops = List[LocalOp]()
+    var i = 0
+    var n = len(transformations)
+    while i < n:
         var t = transformations[i]
-        targets.append(get_target(t))
-        gates.append(get_gate(t))
+        var fused = False
 
-    var ptr_targets = targets.unsafe_ptr()
-    var ptr_gates = gates.unsafe_ptr()
-    var num_transforms = len(targets)
+        if i + 1 < n:
+            var t2 = transformations[i + 1]
+            var p_is_h = get_name(t) == "h"
+            var p_is_p = get_name(t) == "p" or get_name(t) == "cp"
+            var p2_is_h = get_name(t2) == "h"
+            var p2_is_p = get_name(t2) == "p" or get_name(t2) == "cp"
+
+            var p_ctrl = get_controls(t)
+            var p2_ctrl = get_controls(t2)
+            var p_c = p_ctrl[0] if len(p_ctrl) > 0 else -1
+            var p2_c = p2_ctrl[0] if len(p2_ctrl) > 0 else -1
+
+            var can_fuse = False
+            if p_c == -1 and p2_c == -1:
+                can_fuse = True
+            elif p_c != -1 and p2_c != -1 and p_c == p2_c:
+                can_fuse = True
+
+            if can_fuse:
+                var th1 = get_arg(t)
+                var th2 = get_arg(t2)
+                var target1 = get_target(t)
+                var target2 = get_target(t2)
+
+                if target1 != target2:
+                    if p_is_h and p2_is_h:
+                        ops.append(LocalOp(1, target1, target2))
+                        fused = True
+                    elif p_is_h and p2_is_p:
+                        ops.append(LocalOp(2, target1, target2, arg2=th2))
+                        fused = True
+                    elif p_is_p and p2_is_h:
+                        ops.append(
+                            LocalOp(2, target2, target1, arg2=th1)
+                        )  # swapping logic to match hp
+                        fused = True
+                    elif p_is_p and p2_is_p:
+                        if p_c != -1:
+                            ops.append(
+                                LocalOp(
+                                    6,
+                                    target1,
+                                    target2,
+                                    control=p_c,
+                                    arg1=th1,
+                                    arg2=th2,
+                                )
+                            )
+                        else:
+                            ops.append(
+                                LocalOp(4, target1, target2, arg1=th1, arg2=th2)
+                            )
+                        fused = True
+                else:  # same target
+                    if p_is_h and p2_is_p:
+                        ops.append(LocalOp(5, target1, arg2=th2))
+                        fused = True
+
+        if fused:
+            i += 2
+        else:
+            ops.append(LocalOp(0, get_target(t), gate=get_gate(t)))
+            i += 1
+    var ptr_ops = ops.unsafe_ptr()
+    var num_ops = len(ops)
+
+    var p_re_block = UnsafePointer[FloatType](state.re.unsafe_ptr().address)
+    var p_im_block = UnsafePointer[FloatType](state.im.unsafe_ptr().address)
 
     @parameter
     fn block_worker(block_idx: Int):
         var start = block_idx * actual_block_size
-        for i in range(num_transforms):
-            apply_local_transform(
-                ptr_re,
-                ptr_im,
-                start,
-                ptr_targets[i],
-                ptr_gates[i],
-                actual_block_size,
-            )
+        for idx in range(num_ops):
+            var op = ptr_ops[idx]
+            if op.type == 0:
+                apply_local_transform(
+                    p_re_block,
+                    p_im_block,
+                    start,
+                    op.target1,
+                    op.gate,
+                    actual_block_size,
+                )
+            elif op.type == 1:  # HH
+                transform_row_fused_hh_ptr[simd_width](
+                    p_re_block,
+                    p_im_block,
+                    block_idx,
+                    actual_block_size,
+                    op.target1,
+                    op.target2,
+                )
+            elif op.type == 2:  # HP
+                transform_row_fused_hp_ptr[simd_width](
+                    p_re_block,
+                    p_im_block,
+                    block_idx,
+                    actual_block_size,
+                    op.target1,
+                    op.target2,
+                    op.arg2,
+                )
+            elif op.type == 4:  # PP
+                transform_row_fused_pp_ptr[simd_width](
+                    p_re_block,
+                    p_im_block,
+                    block_idx,
+                    actual_block_size,
+                    op.target1,
+                    op.target2,
+                    op.arg1,
+                    op.arg2,
+                )
+            elif op.type == 5:  # Same-target HP
+                transform_row_fused_st_hp_ptr[simd_width](
+                    p_re_block,
+                    p_im_block,
+                    block_idx,
+                    actual_block_size,
+                    op.target1,
+                    op.arg2,
+                )
+            elif op.type == 6:  # Shared-control CP+CP
+                transform_row_fused_shared_c_pp_ptr[simd_width](
+                    p_re_block,
+                    p_im_block,
+                    block_idx,
+                    actual_block_size,
+                    op.control,
+                    op.target1,
+                    op.target2,
+                    op.arg1,
+                    op.arg2,
+                )
 
     parallelize[block_worker](num_blocks)
 
@@ -313,10 +511,10 @@ fn apply_local_transform(
         var idx0 = start + (group << (target + 1)) + offset
         var idx1 = idx0 + stride
 
-        var r0 = ptr_re.load[width=w](idx0)
-        var i0 = ptr_im.load[width=w](idx0)
-        var r1 = ptr_re.load[width=w](idx1)
-        var i1 = ptr_im.load[width=w](idx1)
+        var r0 = p_re.load[width=w](idx0)
+        var i0 = p_im.load[width=w](idx0)
+        var r1 = p_re.load[width=w](idx1)
+        var i1 = p_im.load[width=w](idx1)
 
         var res0_re = SIMD[DType.float64, w](0.0)
         var res0_im = SIMD[DType.float64, w](0.0)
@@ -372,7 +570,6 @@ fn execute_radix8_local_group(
                 var tmp_g = gates[j]
                 gates[j] = gates[j + 1]
                 gates[j + 1] = tmp_g
-
     var q_high = targets[0]
     var q_mid = targets[1]
     var q_low = targets[2]
@@ -452,18 +649,70 @@ fn execute_radix4_group[
             transform(state, get_target(t1), get_gate(t1))
         return
 
-    # For 2-qubit subspace, compute combined matrix
+    # Try specialized sparse global fusion
+    var p_is_h = get_name(t0) == "h"
+    var p_is_p = get_name(t0) == "p" or get_name(t0) == "cp"
+    var p2_is_h = get_name(t1) == "h"
+    var p2_is_p = get_name(t1) == "p" or get_name(t1) == "cp"
+
+    var p_ctrl = get_controls(t0)
+    var p2_ctrl = get_controls(t1)
+    var p_c = p_ctrl[0] if len(p_ctrl) > 0 else -1
+    var p2_c = p2_ctrl[0] if len(p2_ctrl) > 0 else -1
+
+    if p_c == -1 and p2_c == -1:
+        if p_is_h and p2_is_h:
+            transform_fused_hh_sparse[simd_width](state, q_high, q_low)
+            return
+        elif p_is_h and p2_is_p:
+            var tp = get_target(t1)
+            var th = get_target(t0)
+            var angle = get_arg(t1)
+            transform_fused_hp_sparse[simd_width](state, th, tp, angle)
+            return
+        elif p_is_p and p2_is_h:
+            var tp = get_target(t0)
+            var th = get_target(t1)
+            var angle = get_arg(t0)
+            transform_fused_hp_sparse[simd_width](state, th, tp, angle)
+            return
+        elif p_is_p and p2_is_p:
+            var target0 = get_target(t0)
+            var target1 = get_target(t1)
+            var arg0 = get_arg(t0)
+            var arg1 = get_arg(t1)
+            if target0 > target1:
+                transform_fused_pp_sparse[simd_width](
+                    state, target0, target1, arg0, arg1
+                )
+            else:
+                transform_fused_pp_sparse[simd_width](
+                    state, target1, target0, arg1, arg0
+                )
+            return
+    elif p_c != -1 and p_c == p2_c:
+        if p_is_p and p2_is_p:
+            var target0 = get_target(t0)
+            var target1 = get_target(t1)
+            var arg0 = get_arg(t0)
+            var arg1 = get_arg(t1)
+            if target0 > target1:
+                transform_fused_shared_c_pp_sparse[simd_width](
+                    state, p_c, target0, target1, arg0, arg1
+                )
+            else:
+                transform_fused_shared_c_pp_sparse[simd_width](
+                    state, p_c, target1, target0, arg1, arg0
+                )
+            return
+
+    # Fallback to Generic Matrix Fusion
     var M0 = get_as_matrix4x4(t0, q_high, q_low)
     var M1 = get_as_matrix4x4(t1, q_high, q_low)
 
-    # Multiply matrices: M = M1 * M0 (apply M0 first, then M1)
     from butterfly.algos.unitary_kernels import matmul_matrix4x4
 
     var M = matmul_matrix4x4(M1, M0)
-
-    # Apply combined matrix
-    from butterfly.algos.fused_gates import transform_matrix4
-
     transform_matrix4(state, q_high, q_low, M)
 
 
@@ -508,9 +757,6 @@ fn generic_radix4_kernel[
 
     @parameter
     fn v_radix4[w: Int](i: Int):
-        var p_re = UnsafePointer[FloatType](ptr_re.address)
-        var p_im = UnsafePointer[FloatType](ptr_im.address)
-
         var idx = (
             ((i & high_mask) << 2) | ((i & mid_mask) << 1) | (i & low_mask)
         )
@@ -558,17 +804,17 @@ fn generic_radix4_kernel[
         acc_mul(z_re3, z_im3, M[3][2], r2, i2)
         acc_mul(z_re3, z_im3, M[3][3], r3, i3)
 
-        p_re.store(idx0, z_re0)
-        p_im.store(idx0, z_im0)
-        p_re.store(idx1, z_re1)
-        p_im.store(idx1, z_im1)
-        p_re.store(idx2, z_re2)
-        p_im.store(idx2, z_im2)
-        p_re.store(idx3, z_re3)
-        p_im.store(idx3, z_im3)
+        ptr_re.store[width=w](idx0, z_re0)
+        ptr_im.store[width=w](idx0, z_im0)
+        ptr_re.store[width=w](idx1, z_re1)
+        ptr_im.store[width=w](idx1, z_im1)
+        ptr_re.store[width=w](idx2, z_re2)
+        ptr_im.store[width=w](idx2, z_im2)
+        ptr_re.store[width=w](idx3, z_re3)
+        ptr_im.store[width=w](idx3, z_im3)
 
     @parameter
     fn global_worker(idx: Int):
-        v_radix4[1](idx)
+        v_radix4[simd_width](idx)
 
     parallelize[global_worker](count)

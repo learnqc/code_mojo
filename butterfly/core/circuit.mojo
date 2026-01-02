@@ -337,6 +337,26 @@ fn get_gate(t: Transformation) -> Gate:
     return X
 
 
+fn get_name(t: Transformation) -> String:
+    if t.isa[GateTransformation]():
+        return t[GateTransformation].name
+    elif t.isa[SingleControlGateTransformation]():
+        return t[SingleControlGateTransformation].name
+    elif t.isa[MultiControlGateTransformation]():
+        return t[MultiControlGateTransformation].name
+    return "unitary"
+
+
+fn get_arg(t: Transformation) -> FloatType:
+    if t.isa[GateTransformation]():
+        return t[GateTransformation].arg
+    elif t.isa[SingleControlGateTransformation]():
+        return t[SingleControlGateTransformation].arg
+    elif t.isa[MultiControlGateTransformation]():
+        return t[MultiControlGateTransformation].arg
+    return 0.0
+
+
 fn get_controls(t: Transformation) -> List[Int]:
     var res = List[Int]()
     if t.isa[SingleControlGateTransformation]():
@@ -2542,7 +2562,7 @@ fn run_circuit[n: Int](circuit: QuantumCircuit) -> QuantumState:
         return QuantumState(n)  # Return empty state on error
 
     var state = QuantumState(n)
-    execute_simd[1 << n](state, circuit)
+    execute_simd[n](state, circuit)
     return state^
 
 
@@ -2574,7 +2594,7 @@ fn run_circuit_fused[n: Int](circuit: QuantumCircuit) -> QuantumState:
     var state = QuantumState(n)
     from butterfly.core.execute_fused_v3 import execute_fused_v3
 
-    execute_fused_v3[1 << n](state, circuit)
+    execute_fused_v3[n](state, circuit)
     return state^
 
 
@@ -2747,7 +2767,7 @@ fn run_circuit_optimized[n: Int](circuit: QuantumCircuit) -> QuantumState:
         return QuantumState(n)
 
     var state = QuantumState(n)
-    execute_fused_v3[1 << n](state, circuit)
+    execute_fused_v3[n](state, circuit)
     return state^
 
 

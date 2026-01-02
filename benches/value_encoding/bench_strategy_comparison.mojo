@@ -15,6 +15,7 @@ from butterfly.core.execute_as_grid import execute_as_grid
 from butterfly.core.execute_fused_v3 import execute_fused_v3
 from butterfly.core.execute_v_grid_fused import execute_v_grid_fused
 from butterfly.core.execute_grid_fused import execute_grid_fused
+from butterfly.core.execute_simd_fused import execute_simd_fused
 from butterfly.algos.value_encoding_circuit import encode_value_circuits_runtime
 from butterfly.utils.quantum_interop import (
     get_qiskit_prep_state,
@@ -157,6 +158,16 @@ fn execute_v_grid_fused_circuit(circuit: QuantumCircuit) raises -> QuantumState:
     return state^
 
 
+fn execute_simd_fused_circuit(circuit: QuantumCircuit) raises -> QuantumState:
+    """Execute using SIMD + Gate Fusion (Clean)."""
+    var n = circuit.num_qubits
+    var state = QuantumState(n)
+
+    execute_simd_fused(state, circuit)
+
+    return state^
+
+
 fn execute_grid_fusion_circuit(circuit: QuantumCircuit) raises -> QuantumState:
     """Execute using Grid-Fusion (new implementation)."""
     var n = circuit.num_qubits
@@ -292,8 +303,8 @@ fn main() raises:
 
     var runner = create_runner(NAME, DESCRIPTION, p_cols, b_cols, 9)
 
-    var n_range = range(12, 27)
-    var n_verification_range = range(22)
+    var n_range = range(3, 27)
+    var n_verification_range = range(4, 13)
     var n_verification_list = List[Int]()
     for n in n_verification_range:
         n_verification_list.append(n)
@@ -337,7 +348,7 @@ fn main() raises:
                     input,
                     executors,
                     compare_quantum_states,
-                    stop_on_failure=False,
+                    stop_on_failure=True,
                 )
 
             # 2. Performance Measurement

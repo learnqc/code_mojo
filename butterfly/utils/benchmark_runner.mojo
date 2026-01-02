@@ -352,11 +352,12 @@ struct BenchmarkRunner(Movable):
         var baseline_name = functions[baseline_idx].name
 
         for i in range(len(functions)):
+            var contender_name = functions[i].name
             if i == baseline_idx:
                 continue
 
-            var contender_name = functions[i].name
             try:
+                self.log_progress("  Verifying " + contender_name + "...")
                 var contender_val = functions[i].run(input)
                 comparator(baseline_val, contender_val, tolerance)
                 self.log_progress(

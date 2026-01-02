@@ -15,6 +15,23 @@ from butterfly.utils.config import CONFIG, get_workers
 alias simd_width = simd_width_of[Type]()
 
 
+@fieldwise_init
+struct LiteState(Copyable, ImplicitlyCopyable, Movable):
+    var ptr_re: UnsafePointer[Type]
+    var ptr_im: UnsafePointer[Type]
+    var size: Int
+
+    fn __copyinit__(out self, existing: Self):
+        self.ptr_re = existing.ptr_re
+        self.ptr_im = existing.ptr_im
+        self.size = existing.size
+
+    fn __moveinit__(out self, deinit existing: Self):
+        self.ptr_re = existing.ptr_re
+        self.ptr_im = existing.ptr_im
+        self.size = existing.size
+
+
 struct QuantumState(Copyable, ImplicitlyCopyable, Movable, Sized):
     var re: List[FloatType]
     var im: List[FloatType]
@@ -668,7 +685,7 @@ fn transform_p_simd_v2(mut state: QuantumState, target: Int, theta: Float64):
                     var v_re = ptr_re[idx]
                     var v_im = ptr_im[idx]
                     ptr_re[idx] = v_re * cos_t - v_im * sin_t
-                    ptr_im[idx] = v_re * sin_t + v_im * cos_t
+                    ptr_im[idx] = v_im * cos_t + v_re * sin_t
 
     if actual_workers > 1:
         parallelize[worker](actual_workers)
@@ -1852,8 +1869,8 @@ fn partial_bit_reverse_state(mut state: QuantumState, targets: List[Int]):
                 sorted_targets[j] = temp
 
     var size = state.size()
-    var ptr_re = state.re.unsafe_ptr()
-    var ptr_im = state.im.unsafe_ptr()
+    var ptr_re = UnsafePointer[FloatType](state.re.unsafe_ptr().address)
+    var ptr_im = UnsafePointer[FloatType](state.im.unsafe_ptr().address)
 
     for i_large in range(size):
         # Extract small index i from large index i_large
@@ -1961,10 +1978,6 @@ fn cft(
     var b = targets[0]
     var stride = 1 << b
     var span = 1 << k
-    var num_subspaces = n_total // span
-
-    var ptr_re = state.re.unsafe_ptr()
-    var ptr_im = state.im.unsafe_ptr()
     alias scale = sqrt(0.5).cast[Type]()
 
     # Precompute Twiddle Table for k >= 4
@@ -1995,6 +2008,8 @@ fn cft(
             var angle = angle_base * Float64(j) / base_n
             twiddle_ptr_re[j] = cos(angle)
             twiddle_ptr_im[j] = sin(angle)
+    var ptr_re = UnsafePointer[FloatType](state.re.unsafe_ptr().address)
+    var ptr_im = UnsafePointer[FloatType](state.im.unsafe_ptr().address)
 
     @parameter
     fn subspace_worker(blk_idx: Int):
