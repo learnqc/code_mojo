@@ -39,6 +39,13 @@ from butterfly.algos.fused_gates import compute_kron_product
 from butterfly.algos.unitary_kernels import Matrix4x4
 from butterfly.core.types import Amplitude, Gate
 from butterfly.core.gates import is_h, is_x, is_z, is_p, get_phase_angle
+from butterfly.core.fused_kernels_sparse import (
+    transform_row_fused_hh_simd,
+    transform_row_fused_hp_simd,
+    transform_row_fused_pp_simd,
+    transform_row_fused_shared_c_pp_simd,
+    transform_row_fused_st_hp_simd,
+)
 from algorithm import parallelize
 from butterfly.utils.config import get_workers
 from butterfly.utils.bit_utils import insert_zero_bit
@@ -134,6 +141,7 @@ struct GridFusionGroup(Copyable, Movable):
     var is_row_local: Bool  # All targets < col_bits
     var is_fused: Bool
     var fusion_matrices: List[Matrix4x4]
+    var fusion_gates: List[Gate]
 
     fn __init__(
         out self,
@@ -144,6 +152,7 @@ struct GridFusionGroup(Copyable, Movable):
         self.is_row_local = is_row_local
         self.is_fused = is_fused
         self.fusion_matrices = List[Matrix4x4]()
+        self.fusion_gates = List[Gate]()
 
     fn __copyinit__(out self, existing: Self):
         self.transformations = List[Transformation]()
@@ -154,12 +163,16 @@ struct GridFusionGroup(Copyable, Movable):
         self.fusion_matrices = List[Matrix4x4]()
         for i in range(len(existing.fusion_matrices)):
             self.fusion_matrices.append(existing.fusion_matrices[i])
+        self.fusion_gates = List[Gate]()
+        for i in range(len(existing.fusion_gates)):
+            self.fusion_gates.append(existing.fusion_gates[i])
 
     fn __moveinit__(out self, deinit existing: Self):
         self.transformations = existing.transformations^
         self.is_row_local = existing.is_row_local
         self.is_fused = existing.is_fused
         self.fusion_matrices = existing.fusion_matrices^
+        self.fusion_gates = existing.fusion_gates^
 
 
 fn is_row_local_gate(t: Transformation, col_bits: Int) -> Bool:
@@ -210,13 +223,11 @@ fn analyze_for_grid_fusion(
                     break
                 var t2 = transformations[i]
                 g.transformations.append(t2)
-                # If we have 2 or more uncontrolled gates, we can fuse
-                if not g.is_fused and not is_controlled(t2):
-                    # Search if any previous gate in group was uncontrolled
-                    for j in range(len(g.transformations) - 1):
-                        if not is_controlled(g.transformations[j]):
-                            g.is_fused = True
-                            break
+                # If we have 2 or more row-local gates, we can try to fuse
+                if not g.is_fused:
+                    # Enable fusion if we have at least two transformations
+                    if len(g.transformations) >= 2:
+                        g.is_fused = True
                 i += 1
 
             # Precompute all possible fusion matrices for this group
@@ -234,14 +245,17 @@ fn analyze_for_grid_fusion(
                 # Initialize with placeholders
                 for _ in range(num_g * num_g):
                     g.fusion_matrices.append(Matrix4x4(uninitialized=True))
+                    g.fusion_gates.append(Gate(uninitialized=True))
 
                 # Compute all pairs
+                from butterfly.core.gates import matmul_2x2
+
                 for k1 in range(num_g):
                     for k2 in range(num_g):
                         if k1 < k2:
                             var p1 = preps_ptr + k1
                             var p2 = preps_ptr + k2
-                            # Only precompute if they have different targets
+                            # Different targets -> 4x4 Kronecker Fusion
                             if p1[].target != p2[].target:
                                 var mat = compute_kron_product(
                                     p1[].gate, p2[].gate
@@ -251,6 +265,12 @@ fn analyze_for_grid_fusion(
                                         p2[].gate, p1[].gate
                                     )
                                 g.fusion_matrices[k1 * num_g + k2] = mat
+                            else:
+                                # Same target -> 2x2 Matrix Fusion
+                                # G = G2 @ G1 (p2 is applied after p1)
+                                g.fusion_gates[k1 * num_g + k2] = matmul_2x2(
+                                    p2[].gate, p1[].gate
+                                )
 
             groups.append(g^)
         else:
@@ -293,6 +313,7 @@ fn execute_grid_fused[
                 state,
                 g_ref[].transformations,
                 g_ref[].fusion_matrices,
+                g_ref[].fusion_gates,
                 num_rows,
                 row_size,
                 actual_col_bits,
@@ -475,6 +496,7 @@ fn execute_row_local_group[
     mut state: QuantumState,
     transformations: List[Transformation],
     fusion_matrices: List[Matrix4x4],
+    fusion_gates: List[Gate],
     num_rows: Int,
     row_size: Int,
     col_bits: Int,
@@ -487,6 +509,7 @@ fn execute_row_local_group[
         prepared.append(PreparedTransformation(transformations[i], col_bits))
     var prepared_ptr = prepared.unsafe_ptr()
     var matrices_ptr = fusion_matrices.unsafe_ptr()
+    var gates_ptr = fusion_gates.unsafe_ptr()
     var num_prepared = len(prepared)
 
     @parameter
@@ -518,27 +541,117 @@ fn execute_row_local_group[
 
                     if p2_active:
                         # Found next active gate. Can we fuse?
+                        var can_fuse = False
                         if (
-                            (not p[].is_controlled or p[].row_control_bit >= 0)
-                            and (
-                                not p2[].is_controlled
-                                or p2[].row_control_bit >= 0
-                            )
-                            and p[].target != p2[].target
+                            not p[].is_controlled or p[].row_control_bit >= 0
+                        ) and (
+                            not p2[].is_controlled or p2[].row_control_bit >= 0
                         ):
-                            # Use precomputed matrix at index i * N + j
-                            var mat = matrices_ptr[i * num_prepared + j]
-                            transform_row_matrix4_simd[simd_width](
-                                state,
-                                row,
-                                row_size,
-                                p[].target,
-                                p2[].target,
-                                mat,
-                            )
-                            # Skip all gates up to j
-                            i = j + 1
-                            fused = True
+                            can_fuse = True
+                        elif (
+                            p[].is_controlled
+                            and p2[].is_controlled
+                            and p[].control == p2[].control
+                        ):
+                            can_fuse = True
+
+                        if can_fuse:
+                            # Case A: Different targets -> 4x4 Fusion
+                            if p[].target != p2[].target:
+                                # Dispatch to specialized sparse kernels or fallback to dense
+                                if p[].is_h_gate and p2[].is_h_gate:
+                                    transform_row_fused_hh_simd[simd_width](
+                                        state,
+                                        row,
+                                        row_size,
+                                        p[].target,
+                                        p2[].target,
+                                    )
+                                elif p[].is_h_gate and p2[].is_p_gate:
+                                    transform_row_fused_hp_simd[simd_width](
+                                        state,
+                                        row,
+                                        row_size,
+                                        p[].target,
+                                        p2[].target,
+                                        p2[].theta,
+                                    )
+                                elif p[].is_p_gate and p2[].is_h_gate:
+                                    # Order matters for HP kernel (H index first)
+                                    transform_row_fused_hp_simd[simd_width](
+                                        state,
+                                        row,
+                                        row_size,
+                                        p2[].target,
+                                        p[].target,
+                                        p[].theta,
+                                    )
+                                elif p[].is_p_gate and p2[].is_p_gate:
+                                    if (
+                                        p[].control == p2[].control
+                                        and p[].is_controlled
+                                        and p2[].is_controlled
+                                    ):
+                                        transform_row_fused_shared_c_pp_simd[
+                                            simd_width
+                                        ](
+                                            state,
+                                            row,
+                                            row_size,
+                                            p[].control,
+                                            p[].target,
+                                            p2[].target,
+                                            p[].theta,
+                                            p2[].theta,
+                                        )
+                                    else:
+                                        transform_row_fused_pp_simd[simd_width](
+                                            state,
+                                            row,
+                                            row_size,
+                                            p[].target,
+                                            p2[].target,
+                                            p[].theta,
+                                            p2[].theta,
+                                        )
+                                else:
+                                    # Fallback to Generic Dense Matrix Fusion
+                                    var mat = matrices_ptr[i * num_prepared + j]
+                                    transform_row_matrix4_simd[simd_width](
+                                        state,
+                                        row,
+                                        row_size,
+                                        p[].target,
+                                        p2[].target,
+                                        mat,
+                                    )
+                                i = j + 1
+                                fused = True
+                            else:
+                                # Case B: Same target -> 2x2 Fusion
+                                # Detect specialized Same-Target H+P pattern
+                                if p[].is_h_gate and p2[].is_p_gate:
+                                    transform_row_fused_st_hp_simd[simd_width](
+                                        state,
+                                        row,
+                                        row_size,
+                                        p[].target,
+                                        p2[].theta,
+                                    )
+                                else:
+                                    # Fallback to Generic 2x2 Matrix Fusion
+                                    var fused_gate = gates_ptr[
+                                        i * num_prepared + j
+                                    ]
+                                    transform_row_simd[simd_width](
+                                        state,
+                                        row,
+                                        row_size,
+                                        p[].target,
+                                        fused_gate,
+                                    )
+                                i = j + 1
+                                fused = True
                         break  # Stop looking after finding first active successor
                     else:
                         # Successor is skipped. Continue lookahead to i+2, etc.
