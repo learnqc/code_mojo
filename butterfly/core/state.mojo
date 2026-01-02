@@ -378,8 +378,6 @@ fn transform_h_simd_v2(mut state: QuantumState, target: Int):
     alias sq_half = 0.7071067811865476
 
     var num_work_items = get_workers("quantum_simd_v2_chunks")
-    if num_work_items == 0:
-        num_work_items = 16
 
     var total_blocks = l // (2 * stride)
     var actual_workers = min(num_work_items, total_blocks)
@@ -534,8 +532,6 @@ fn transform_x_simd_v2(mut state: QuantumState, target: Int):
     var ptr_im = state.im.unsafe_ptr()
 
     var num_work_items = get_workers("quantum_simd_v2_chunks")
-    if num_work_items == 0:
-        num_work_items = 16
 
     var total_blocks = l // (2 * stride)
     var actual_workers = min(num_work_items, total_blocks)
@@ -594,8 +590,6 @@ fn transform_z_simd_v2(mut state: QuantumState, target: Int):
     var ptr_im = state.im.unsafe_ptr()
 
     var num_work_items = get_workers("quantum_simd_v2_chunks")
-    if num_work_items == 0:
-        num_work_items = 16
 
     var total_blocks = l // (2 * stride)
     var actual_workers = min(num_work_items, total_blocks)
@@ -642,8 +636,6 @@ fn transform_p_simd_v2(mut state: QuantumState, target: Int, theta: Float64):
     var sin_t = sin(theta)
 
     var num_work_items = get_workers("quantum_simd_v2_chunks")
-    if num_work_items == 0:
-        num_work_items = 16
 
     var total_blocks = l // (2 * stride)
     var actual_workers = min(num_work_items, total_blocks)
@@ -692,8 +684,6 @@ fn transform_y_simd_v2(mut state: QuantumState, target: Int):
     var ptr_im = state.im.unsafe_ptr()
 
     var num_work_items = get_workers("quantum_simd_v2_chunks")
-    if num_work_items == 0:
-        num_work_items = 16
 
     var total_blocks = l // (2 * stride)
     var actual_workers = min(num_work_items, total_blocks)
@@ -756,8 +746,6 @@ fn transform_rz_simd_v2(mut state: QuantumState, target: Int, theta: Float64):
     var sin_p = sin(phi)
 
     var num_work_items = get_workers("quantum_simd_v2_chunks")
-    if num_work_items == 0:
-        num_work_items = 16
 
     var total_blocks = l // (2 * stride)
     var actual_workers = min(num_work_items, total_blocks)
@@ -820,8 +808,6 @@ fn transform_rx_simd_v2(mut state: QuantumState, target: Int, theta: Float64):
     var sin_p = sin(phi)
 
     var num_work_items = get_workers("quantum_simd_v2_chunks")
-    if num_work_items == 0:
-        num_work_items = 16
 
     var total_blocks = l // (2 * stride)
     var actual_workers = min(num_work_items, total_blocks)
@@ -884,8 +870,6 @@ fn transform_ry_simd_v2(mut state: QuantumState, target: Int, theta: Float64):
     var sin_p = sin(phi)
 
     var num_work_items = get_workers("quantum_simd_v2_chunks")
-    if num_work_items == 0:
-        num_work_items = 16
 
     var total_blocks = l // (2 * stride)
     var actual_workers = min(num_work_items, total_blocks)
@@ -1009,12 +993,18 @@ fn c_transform_interval_p_precomputed(
 fn transform_simd_base[
     N: Int
 ](mut state: QuantumState, stride: Int, gate: Gate):
-    gate_re = [[gate[0][0].re, gate[0][1].re], [gate[1][0].re, gate[1][1].re]]
-    gate_im = [[gate[0][0].im, gate[0][1].im], [gate[1][0].im, gate[1][1].im]]
+    var gate_re = [
+        [gate[0][0].re, gate[0][1].re],
+        [gate[1][0].re, gate[1][1].re],
+    ]
+    var gate_im = [
+        [gate[0][0].im, gate[0][1].im],
+        [gate[1][0].im, gate[1][1].im],
+    ]
 
-    alias num_work_items = 8
-    alias num_threads = num_work_items
-    alias chunk_size = max(1, N // 2 // num_work_items)
+    var num_work_items = get_workers("quantum_simd_v2_chunks")
+    var num_threads = num_work_items
+    var chunk_size = max(1, N // 2 // num_work_items)
 
     var vector_re = NDBuffer[Type, 1, _, N](state.re.unsafe_ptr())
     var vector_im = NDBuffer[Type, 1, _, N](state.im.unsafe_ptr())
@@ -1022,8 +1012,8 @@ fn transform_simd_base[
     @always_inline
     @parameter
     fn butterfly_simd[simd_width: Int](idx: Int):
-        zero_idx = 2 * idx - idx % stride
-        one_idx = zero_idx + stride
+        var zero_idx = 2 * idx - idx % stride
+        var one_idx = zero_idx + stride
 
         var elem0_re = vector_re.load[width=simd_width](zero_idx)
         var elem0_im = vector_im.load[width=simd_width](zero_idx)
@@ -1519,9 +1509,9 @@ fn c_transform_simd_base[
         [gate[1][0].im, gate[1][1].im],
     ]
 
-    alias num_work_items = 8
-    alias num_threads = num_work_items
-    alias chunk_size = max(1, N // 2 // num_work_items)
+    var num_work_items = get_workers("quantum_simd_v2_chunks")
+    var num_threads = num_work_items
+    var chunk_size = max(1, N // 2 // num_work_items)
 
     var vector_re = NDBuffer[Type, 1, _, N](state.re.unsafe_ptr())
     var vector_im = NDBuffer[Type, 1, _, N](state.im.unsafe_ptr())
@@ -1620,9 +1610,9 @@ fn c_transform_simd_base_v2[
         [gate[1][0].im, gate[1][1].im],
     ]
 
-    alias num_work_items = 8
-    alias num_threads = num_work_items
-    alias chunk_size = max(1, N // 2 // num_work_items)
+    var num_work_items = get_workers("quantum_simd_v2_chunks")
+    var num_threads = num_work_items
+    var chunk_size = max(1, N // 2 // num_work_items)
 
     var vector_re = NDBuffer[Type, 1, _, N](state.re.unsafe_ptr())
     var vector_im = NDBuffer[Type, 1, _, N](state.im.unsafe_ptr())

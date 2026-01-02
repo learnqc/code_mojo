@@ -5,7 +5,7 @@ Provides file-based configuration for parallelization, performance tuning,
 algorithm selection, memory management, and debugging.
 """
 
-from sys.info import num_physical_cores
+from sys.info import num_physical_cores, num_logical_cores
 
 
 # Config key aliases - centralized for maintainability
@@ -44,12 +44,19 @@ alias CFG_DEBUG_LOG_FILE = "debugging.log_file"
 
 
 fn detect_physical_cores() -> Int:
-    """Detect number of physical CPU cores, fallback to 16 if detection fails.
-    """
+    """Detect number of physical CPU cores."""
     var cores = num_physical_cores()
     if cores > 0:
         return cores
-    return 8  # Fallback
+    return 1  # Minimum safe fallback
+
+
+fn detect_logical_cores() -> Int:
+    """Detect number of logical CPU cores (hardware threads)."""
+    var cores = num_logical_cores()
+    if cores > 0:
+        return cores
+    return detect_physical_cores()
 
 
 struct ButterflyConfig(Copyable):
@@ -189,44 +196,53 @@ struct ButterflyConfig(Copyable):
     fn get_workers(self, operation_type: String) -> Int:
         """Get worker count for a specific operation type."""
         if operation_type == "quantum":
-            return (
-                self.parallel_quantum if self.parallel_quantum
-                > 0 else self.parallel_default
-            )
+            if self.parallel_quantum > 0:
+                return self.parallel_quantum
+            if self.parallel_default > 0:
+                return self.parallel_default
+            return detect_logical_cores()
         elif operation_type == "quantum_four_quarters":
-            return self.parallel_quantum_four_quarters
+            if self.parallel_quantum_four_quarters > 0:
+                return self.parallel_quantum_four_quarters
+            return detect_logical_cores()
         elif operation_type == "quantum_simd_v2_chunks":
             if self.parallel_quantum_simd_v2_chunks > 0:
                 return self.parallel_quantum_simd_v2_chunks
-            else:
-                # Auto-detect physical cores
-                return detect_physical_cores()
+            return detect_logical_cores()
         elif operation_type == "fused_v3_local_blocks":
-            # 0 = unlimited (don't pass workers param), >0 = explicit limit
-            return self.parallel_fused_v3_local_blocks
+            if self.parallel_fused_v3_local_blocks > 0:
+                return self.parallel_fused_v3_local_blocks
+            return detect_logical_cores()
         elif operation_type == "fused_v3_radix4_chunks":
-            # 0 = unlimited (don't pass workers param), >0 = explicit limit
-            return self.parallel_fused_v3_radix4_chunks
+            if self.parallel_fused_v3_radix4_chunks > 0:
+                return self.parallel_fused_v3_radix4_chunks
+            return detect_logical_cores()
         elif operation_type == "fft":
-            return (
-                self.parallel_fft if self.parallel_fft
-                > 0 else self.parallel_default
-            )
+            if self.parallel_fft > 0:
+                return self.parallel_fft
+            if self.parallel_default > 0:
+                return self.parallel_default
+            return detect_logical_cores()
         elif operation_type == "fft_global":
-            return (
-                self.parallel_fft_global if self.parallel_fft_global
-                > 0 else self.parallel_fft
-            )
+            if self.parallel_fft_global > 0:
+                return self.parallel_fft_global
+            return self.get_workers("fft")
         elif operation_type == "fft_local":
-            return (
-                self.parallel_fft_local if self.parallel_fft_local
-                > 0 else self.parallel_fft
-            )
+            if self.parallel_fft_local > 0:
+                return self.parallel_fft_local
+            return self.get_workers("fft")
         elif operation_type == "v_grid_rows":
-            return self.parallel_v_grid_rows
+            if self.parallel_v_grid_rows > 0:
+                return self.parallel_v_grid_rows
+            return detect_logical_cores()
         elif operation_type == "v_grid_columns":
-            return self.parallel_v_grid_columns
-        return self.parallel_default
+            if self.parallel_v_grid_columns > 0:
+                return self.parallel_v_grid_columns
+            return detect_logical_cores()
+
+        if self.parallel_default > 0:
+            return self.parallel_default
+        return detect_logical_cores()
 
     @staticmethod
     fn from_file(path: String) raises -> ButterflyConfig:

@@ -9,6 +9,7 @@ from butterfly.core.state import (
     QuantumState,
     transform_simd,
     c_transform_simd_base_v2,
+    simd_width,
 )
 from butterfly.core.circuit import (
     QuantumCircuit,
@@ -269,7 +270,7 @@ fn analyze_for_grid_fusion(
 
 fn execute_grid_fused[
     N: Int,
-    SIMD_WIDTH: Int = 8,
+    SIMD_WIDTH: Int = simd_width,
 ](
     mut state: QuantumState, mut circuit: QuantumCircuit, col_bits: Int = -1
 ) raises:
