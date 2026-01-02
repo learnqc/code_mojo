@@ -234,30 +234,35 @@ fn execute_fused_local_pair(
         var ptr_re = state.re.unsafe_ptr()
         var ptr_im = state.im.unsafe_ptr()
 
+        # Within this row, we need to apply the 4x4 matrix
+        # The indices within the row are computed using insert_zero_bit
+        # but relative to the row, not the entire state
         var stride1 = 1 << low_pos
         var stride2 = 1 << high_pos
-        var num_quads = row_size >> 2
 
-        @parameter
-        fn vectorized_quad[width: Int](k: Int):
+        # Number of 4-element groups in this row
+        var num_quads = row_size >> 2  # row_size / 4
+
+        for k in range(num_quads):
             # Compute base index within row (with both bits zeroed)
-            var i = insert_zero_bit(k, low_pos)
-            var idx0_local = insert_zero_bit(i, high_pos)
+            var local_idx = insert_zero_bit(k, low_pos)
+            var idx0_local = insert_zero_bit(local_idx, high_pos)
 
+            # Convert to global index
             var idx0 = row_offset + idx0_local
             var idx1 = idx0 | stride1
             var idx2 = idx0 | stride2
             var idx3 = idx1 | stride2
 
-            # Load SIMD widths
-            var re0 = ptr_re.load[width=width](idx0)
-            var im0 = ptr_im.load[width=width](idx0)
-            var re1 = ptr_re.load[width=width](idx1)
-            var im1 = ptr_im.load[width=width](idx1)
-            var re2 = ptr_re.load[width=width](idx2)
-            var im2 = ptr_im.load[width=width](idx2)
-            var re3 = ptr_re.load[width=width](idx3)
-            var im3 = ptr_im.load[width=width](idx3)
+            # Load amplitudes
+            var re0 = ptr_re[idx0]
+            var im0 = ptr_im[idx0]
+            var re1 = ptr_re[idx1]
+            var im1 = ptr_im[idx1]
+            var re2 = ptr_re[idx2]
+            var im2 = ptr_im[idx2]
+            var re3 = ptr_re[idx3]
+            var im3 = ptr_im[idx3]
 
             # Apply 4x4 matrix M
             # Row 0
@@ -301,21 +306,14 @@ fn execute_fused_local_pair(
             n_im3 += re3 * M[3][3].im + im3 * M[3][3].re
 
             # Store results
-            ptr_re.store(idx0, n_re0)
-            ptr_im.store(idx0, n_im0)
-            ptr_re.store(idx1, n_re1)
-            ptr_im.store(idx1, n_im1)
-            ptr_re.store(idx2, n_re2)
-            ptr_im.store(idx2, n_im2)
-            ptr_re.store(idx3, n_re3)
-            ptr_im.store(idx3, n_im3)
-
-        from butterfly.core.state import simd_width
-
-        if stride1 >= simd_width:
-            vectorize[vectorized_quad, simd_width](num_quads)
-        else:
-            vectorize[vectorized_quad, 1](num_quads)
+            ptr_re[idx0] = n_re0
+            ptr_im[idx0] = n_im0
+            ptr_re[idx1] = n_re1
+            ptr_im[idx1] = n_im1
+            ptr_re[idx2] = n_re2
+            ptr_im[idx2] = n_im2
+            ptr_re[idx3] = n_re3
+            ptr_im[idx3] = n_im3
 
     parallelize[process_row](num_rows)
 
@@ -329,10 +327,6 @@ fn execute_local_group(
     """Execute local gates sequentially on each row."""
     from butterfly.core.execute_as_grid import (
         transform_row_simd,
-        transform_row_h_simd,
-        transform_row_x_simd,
-        transform_row_z_simd,
-        transform_row_p_simd,
         c_transform_row_h_simd,
         c_transform_row_p_simd,
     )
@@ -366,18 +360,7 @@ fn execute_local_group(
                 # Uncontrolled gate
                 var target = get_target(t)
                 var gate = get_gate(t)
-                if is_h(gate):
-                    transform_row_h_simd(state, row, row_size, target)
-                elif is_x(gate):
-                    transform_row_x_simd(state, row, row_size, target)
-                elif is_z(gate):
-                    transform_row_z_simd(state, row, row_size, target)
-                elif is_p(gate):
-                    transform_row_p_simd(
-                        state, row, row_size, target, get_phase_angle(gate)
-                    )
-                else:
-                    transform_row_simd[8](state, row, row_size, target, gate)
+                transform_row_simd[8](state, row, row_size, target, gate)
 
     parallelize[process_row](num_rows)
 
