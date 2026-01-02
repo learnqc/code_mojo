@@ -10,7 +10,7 @@ from buffer import NDBuffer
 
 from butterfly.core.types import *
 from butterfly.core.gates import *
-from butterfly.utils.config import get_workers
+from butterfly.utils.config import CONFIG, get_workers
 
 alias simd_width = simd_width_of[Type]()
 

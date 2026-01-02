@@ -331,35 +331,68 @@ fn execute_local_group(
         c_transform_row_p_simd,
     )
 
+    var num_t = len(transformations)
+    var is_c = List[Bool](capacity=num_t)
+    var is_hg = List[Bool](capacity=num_t)
+    var is_pg = List[Bool](capacity=num_t)
+    var targets = List[Int](capacity=num_t)
+    var controls = List[Int](capacity=num_t)
+    var gates = List[Gate](capacity=num_t)
+    var phases = List[Float64](capacity=num_t)
+
+    for i in range(num_t):
+        var t = transformations[i]
+        var ic = is_controlled(t)
+        is_c.append(ic)
+        if ic:
+            var sct = t[SingleControlGateTransformation].copy()
+            var g = sct.gate
+            targets.append(sct.target)
+            controls.append(sct.control)
+            gates.append(g)
+            is_hg.append(is_h(g))
+            is_pg.append(is_p(g))
+            phases.append(get_phase_angle(g))
+        else:
+            var g = get_gate(t)
+            targets.append(get_target(t))
+            controls.append(-1)
+            gates.append(g)
+            is_hg.append(False)
+            is_pg.append(False)
+            phases.append(0.0)
+
+    var ptr_is_c = is_c.unsafe_ptr()
+    var ptr_is_hg = is_hg.unsafe_ptr()
+    var ptr_is_pg = is_pg.unsafe_ptr()
+    var ptr_targets = targets.unsafe_ptr()
+    var ptr_controls = controls.unsafe_ptr()
+    var ptr_gates = gates.unsafe_ptr()
+    var ptr_phases = phases.unsafe_ptr()
+
     @parameter
     fn process_row(row: Int):
-        for i in range(len(transformations)):
-            var t = transformations[i]
+        for i in range(num_t):
+            var ic = ptr_is_c[i]
+            var target = ptr_targets[i]
+            var gate = ptr_gates[i]
 
-            if is_controlled(t):
-                # Controlled gate - use row-local controlled kernels
-                var sct = t[SingleControlGateTransformation].copy()
-                var control = sct.control
-                var target = sct.target
-                var gate = sct.gate
-
-                if is_h(gate):
+            if ic:
+                var control = ptr_controls[i]
+                if ptr_is_hg[i]:
                     c_transform_row_h_simd(
                         state, row, row_size, control, target
                     )
-                elif is_p(gate):
+                elif ptr_is_pg[i]:
                     c_transform_row_p_simd(
                         state,
                         row,
                         row_size,
                         control,
                         target,
-                        get_phase_angle(gate),
+                        ptr_phases[i],
                     )
             else:
-                # Uncontrolled gate
-                var target = get_target(t)
-                var gate = get_gate(t)
                 transform_row_simd[8](state, row, row_size, target, gate)
 
     parallelize[process_row](num_rows)

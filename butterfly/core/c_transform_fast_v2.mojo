@@ -20,10 +20,10 @@ fn c_transform_h_simd_v2(mut state: QuantumState, control: Int, target: Int):
     var ptr_re = state.re.unsafe_ptr()
     var ptr_im = state.im.unsafe_ptr()
 
-    # Use chunked parallelization (configurable via butterfly.config)
-    var num_work_items = get_workers("quantum_simd_v2_chunks")
-    if num_work_items == 0:
-        num_work_items = 16  # Default if not configured
+    from butterfly.utils.config import detect_logical_cores
+
+    # Use dynamic core detection (avoiding Config Tax/Disk I/O)
+    var num_work_items = detect_logical_cores()
 
     if target < control:
         var num_c_blocks = size // (2 * c_stride)

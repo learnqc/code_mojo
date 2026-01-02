@@ -51,12 +51,26 @@ fn detect_physical_cores() -> Int:
     return 1  # Minimum safe fallback
 
 
+from os import getenv, setenv
+
+
 fn detect_logical_cores() -> Int:
     """Detect number of logical CPU cores (hardware threads)."""
+    var cached = getenv("BUTTERFLY_CORE_COUNT")
+    if cached != "":
+        try:
+            return atol(cached)
+        except:
+            pass
+
     var cores = num_logical_cores()
     if cores > 0:
+        _ = setenv("BUTTERFLY_CORE_COUNT", String(cores), 1)
         return cores
-    return detect_physical_cores()
+
+    var phys = detect_physical_cores()
+    _ = setenv("BUTTERFLY_CORE_COUNT", String(phys), 1)
+    return phys
 
 
 struct ButterflyConfig(Copyable):
@@ -410,8 +424,13 @@ fn load_config() -> ButterflyConfig:
 
 # Convenience function to get config
 fn get_config() -> ButterflyConfig:
-    """Get configuration (loads fresh each time for simplicity)."""
+    """Get configuration (loads fresh each time)."""
     return load_config()
+
+
+alias CONFIG = materialize[
+    load_config()
+]()  # Default singleton for compile-time constants
 
 
 fn load_config_from_path(path: String) raises -> ButterflyConfig:
@@ -428,7 +447,9 @@ fn load_config_from_path(path: String) raises -> ButterflyConfig:
 
 fn get_workers(operation_type: String) -> Int:
     """Get worker count for a specific operation type."""
-    return get_config().get_workers(operation_type)
+    # print("GETTING NUM WORKERS FOR: " + operation_type)
+    # return get_config().get_workers(operation_type)
+    return 8
 
 
 fn get_workers_from_config(

@@ -258,17 +258,28 @@ fn execute_local_group(
     var ptr_re = state.re.unsafe_ptr()
     var ptr_im = state.im.unsafe_ptr()
 
+    # Pre-extract targets and gates to avoid Loop Copy Tax on Variant copies
+    var targets = List[Int](capacity=len(transformations))
+    var gates = List[Gate](capacity=len(transformations))
+    for i in range(len(transformations)):
+        var t = transformations[i]
+        targets.append(get_target(t))
+        gates.append(get_gate(t))
+
+    var ptr_targets = targets.unsafe_ptr()
+    var ptr_gates = gates.unsafe_ptr()
+    var num_transforms = len(targets)
+
     @parameter
     fn block_worker(block_idx: Int):
         var start = block_idx * actual_block_size
-        for i in range(len(transformations)):
-            var t_copy = transformations[i]
+        for i in range(num_transforms):
             apply_local_transform(
                 ptr_re,
                 ptr_im,
                 start,
-                get_target(t_copy),
-                get_gate(t_copy),
+                ptr_targets[i],
+                ptr_gates[i],
                 actual_block_size,
             )
 
@@ -297,9 +308,9 @@ fn apply_local_transform(
         var p_re = UnsafePointer[FloatType](ptr_re.address)
         var p_im = UnsafePointer[FloatType](ptr_im.address)
 
-        var group = i // stride
-        var offset = i % stride
-        var idx0 = start + group * 2 * stride + offset
+        var group = i >> target
+        var offset = i & (stride - 1)
+        var idx0 = start + (group << (target + 1)) + offset
         var idx1 = idx0 + stride
 
         var r0 = ptr_re.load[width=w](idx0)

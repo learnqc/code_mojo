@@ -292,7 +292,7 @@ fn main() raises:
 
     var runner = create_runner(NAME, DESCRIPTION, p_cols, b_cols, 9)
 
-    var n_range = range(21, 22)
+    var n_range = range(12, 27)
     var n_verification_range = range(22)
     var n_verification_list = List[Int]()
     for n in n_verification_range:

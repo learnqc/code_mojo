@@ -429,11 +429,7 @@ fn execute_as_grid[
                     else:
                         transform_row(state, row, row_size, target, gate)
 
-                var row_workers = get_workers("v_grid_rows")
-                if row_workers > 0:
-                    parallelize[process_row](num_rows, row_workers)
-                else:
-                    parallelize[process_row](num_rows)
+                parallelize[process_row](num_rows)
             else:
                 # Operation across rows - parallelize by column
                 var t_row = target - col_bits
@@ -564,13 +560,7 @@ fn execute_as_grid[
                                         + g11_im * r1,
                                     )
 
-                    var col_workers = get_workers("v_grid_columns")
-                    if col_workers > 0:
-                        parallelize[process_column_simd](
-                            row_size // chunk_size, col_workers
-                        )
-                    else:
-                        parallelize[process_column_simd](row_size // chunk_size)
+                    parallelize[process_column_simd](row_size // chunk_size)
                 else:
 
                     @parameter
@@ -618,11 +608,7 @@ fn execute_as_grid[
                                     + g11_im * r1
                                 )
 
-                    var col_workers = get_workers("v_grid_columns")
-                    if col_workers > 0:
-                        parallelize[process_column](row_size, col_workers)
-                    else:
-                        parallelize[process_column](row_size)
+                    parallelize[process_column](row_size)
 
         elif t.isa[SingleControlGateTransformation]():
             var sct = t[SingleControlGateTransformation].copy()
@@ -649,11 +635,7 @@ fn execute_as_grid[
                             get_phase_angle(gate),
                         )
 
-                var row_workers = get_workers("v_grid_rows")
-                if row_workers > 0:
-                    parallelize[process_controlled_row](num_rows, row_workers)
-                else:
-                    parallelize[process_controlled_row](num_rows)
+                parallelize[process_controlled_row](num_rows)
             else:
                 # Global: fall back to SIMD v2 for cross-row gates
                 from butterfly.core.c_transform_fast_v2 import (
