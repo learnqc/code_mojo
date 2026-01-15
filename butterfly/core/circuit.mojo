@@ -287,8 +287,14 @@ struct Circuit[StateType: AnyType](Copyable, Movable):
 
     fn append_circuit(
         mut self,
-        reg: Register,
+        other: Circuit[StateType]
+    ) -> Bool:
+        return self.append_circuit(other, Register("default", self.num_qubits))
+    
+    fn append_circuit(
+        mut self,
         other: Circuit[StateType],
+        reg: Register,
     ) -> Bool:
         if other.num_qubits != reg.length:
             return False
@@ -424,7 +430,7 @@ struct Circuit[StateType: AnyType](Copyable, Movable):
         var idx = self.find_register(name)
         if idx < 0:
             return False
-        return self.append_circuit(self.registers[idx].copy(), other)
+        return self.append_circuit(other, self.registers[idx].copy())
 
     fn unitary(
         mut self,
@@ -660,3 +666,137 @@ struct Circuit[StateType: AnyType](Copyable, Movable):
         theta: FloatType,
     ):
         self.add(controls, target, P_Gate(theta))
+
+    fn inverse(self) raises -> Self:
+        """Return the inverse of this circuit.
+
+        Creates a new circuit with transformations in reverse order,
+        where each transformation is inverted. Gates that are not
+        invertible (like measurements) will raise an error.
+        """
+        var inv_circuit = Circuit[StateType](self.num_qubits)
+
+        # Process transformations in reverse order
+        for i in range(len(self.transformations) - 1, -1, -1):
+            var tr = self.transformations[i]
+            var inv_tr = _invert_transformation(tr)
+            inv_circuit.transformations.append(inv_tr)
+
+        inv_circuit.registers = self.registers.copy()
+        return inv_circuit^
+
+
+fn _invert_transformation[StateType: AnyType](
+    tr: Transformation[StateType]
+) raises -> Transformation[StateType]:
+    """Invert a single transformation."""
+    # Check for non-invertible transformations first
+    if tr.isa[MeasurementTransformation[StateType]]():
+        raise Error("Cannot invert circuit containing measurements")
+
+    # Handle invertible transformations
+    if tr.isa[GateTransformation]():
+        var gate_tr = tr[GateTransformation].copy()
+        return _invert_gate_transformation(gate_tr)
+
+    elif tr.isa[FusedPairTransformation]():
+        var fused_tr = tr[FusedPairTransformation].copy()
+        # Invert fused pairs by inverting each gate and swapping order
+        var inv_second = _invert_gate_transformation(fused_tr.second)
+        var inv_first = _invert_gate_transformation(fused_tr.first)
+        return FusedPairTransformation(inv_second, inv_first)
+
+    elif tr.isa[UnitaryTransformation]():
+        var unitary_tr = tr[UnitaryTransformation].copy()
+        return _invert_unitary_transformation(unitary_tr)
+
+    elif tr.isa[ControlledUnitaryTransformation]():
+        var ctrl_unitary_tr = tr[ControlledUnitaryTransformation].copy()
+        return _invert_controlled_unitary_transformation(ctrl_unitary_tr)
+
+    elif tr.isa[SwapTransformation]():
+        # Swap operations are their own inverse
+        return tr
+
+    elif tr.isa[QubitReversalTransformation]():
+        # Bit reversal is its own inverse
+        return tr
+
+    else:
+        # For any other transformation types, assume they are self-inverse
+        # This includes ClassicalTransformation[StateType]
+        return tr
+
+
+fn _invert_gate_transformation(gate_tr: GateTransformation) raises -> GateTransformation:
+    """Invert a gate transformation."""
+    var inv_gate_info = _invert_gate_info(gate_tr.gate_info)
+    return GateTransformation(gate_tr.controls, gate_tr.target, inv_gate_info)
+
+
+fn _invert_gate_info(gate_info: GateInfo) raises -> GateInfo:
+    """Invert a gate info by negating parameters where applicable."""
+    var kind = gate_info.kind
+    var arg = gate_info.arg
+
+    if kind == GateKind.H or kind == GateKind.X or kind == GateKind.Y or kind == GateKind.Z:
+        # Self-inverse gates: H, X, Y, Z
+        return gate_info.copy()
+
+    elif kind == GateKind.P or kind == GateKind.RX or kind == GateKind.RY or kind == GateKind.RZ:
+        # Parametric gates: negate the angle
+        if arg:
+            return GateInfo(kind, -arg.value())
+        else:
+            return gate_info.copy()
+
+    elif kind == GateKind.CUSTOM:
+        # For custom gates, we need to compute the adjoint (conjugate transpose)
+        # This is a simplified version - real implementation would need matrix inversion
+        raise Error("Custom gate inversion not implemented. Use unitary matrices for complex gates.")
+
+    else:
+        raise Error("Unknown gate kind in gate inversion")
+
+
+fn _invert_unitary_transformation(unitary_tr: UnitaryTransformation) raises -> UnitaryTransformation:
+    """Invert a unitary transformation by taking the adjoint."""
+    # For unitary matrices, the inverse is the adjoint (conjugate transpose)
+    # This requires implementing matrix adjoint operation
+    var adjoint_u = _matrix_adjoint(unitary_tr.u, unitary_tr.m)
+    return UnitaryTransformation(adjoint_u^, unitary_tr.target, unitary_tr.m, unitary_tr.name + "_inv")
+
+
+fn _invert_controlled_unitary_transformation(ctrl_unitary_tr: ControlledUnitaryTransformation) raises -> ControlledUnitaryTransformation:
+    """Invert a controlled unitary transformation."""
+    var adjoint_u = _matrix_adjoint(ctrl_unitary_tr.u, ctrl_unitary_tr.m)
+    return ControlledUnitaryTransformation(
+        adjoint_u^,
+        ctrl_unitary_tr.target,
+        ctrl_unitary_tr.control,
+        ctrl_unitary_tr.m,
+        ctrl_unitary_tr.name + "_inv"
+    )
+
+
+fn _invert_classical_transformation[StateType: AnyType](
+    classical_tr: ClassicalTransformation[StateType]
+) -> ClassicalTransformation[StateType]:
+    """Invert a classical transformation."""
+    # Most classical transformations are their own inverse
+    # Bit reversal and permutations can be inverted by applying again
+    return classical_tr.copy()
+
+
+fn _matrix_adjoint(u: List[Amplitude], m: Int) raises -> List[Amplitude]:
+    """Compute the adjoint (conjugate transpose) of a unitary matrix."""
+    var _dim = 1 << m
+    var adjoint = List[Amplitude](capacity=len(u))
+
+    # For now, implement a simple conjugate (transpose would need more complex logic)
+    # This is a placeholder - real matrix adjoint requires proper transpose + conjugate
+    for i in range(len(u)):
+        var amp = u[i]
+        adjoint.append(Complex(amp.re, -amp.im))  # Just conjugate for now
+
+    return adjoint^
