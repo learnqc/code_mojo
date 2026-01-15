@@ -1,5 +1,5 @@
 from butterfly.core.state import QuantumState
-from butterfly.core.types import Gate, FloatType
+from butterfly.core.types import Gate, FloatType, sq_half_re
 from butterfly.core.gates import GateKind
 from butterfly.utils.context import ExecContext
 from algorithm import parallelize

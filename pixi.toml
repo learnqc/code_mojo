@@ -6,6 +6,19 @@ platforms = ["osx-arm64"]
 version = "0.1.0"
 
 [tasks]
+# Package tasks
+package = "mkdir -p dist && mojo package butterfly && mv butterfly.mojopkg dist/ && echo '✓ Package created in dist/butterfly.mojopkg'"
+package-test = "mkdir -p dist && mojo package butterfly && mv butterfly.mojopkg dist/ && mojo run -I dist/ dist/example_usage.mojo && echo '✓ Package tested in dist/butterfly.mojopkg'"
+
+# Benchmark tasks
+bench-exec-strategies = "mojo run -I . benches/bench_execution_strategies.mojo --autosave"
+bench-exec-strategies-dev = "mojo run -I . benches/bench_execution_strategies.mojo"
+bench-qiskit = "mojo run -I . benches/bench_value_encoding_strategies_qiskit.mojo --autosave"
+bench-qiskit-dev = "mojo run -I . benches/bench_value_encoding_strategies_qiskit.mojo"
+
+# Packaged benchmark tasks (run with distributed package)
+bench-exec-strategies-package = "pixi run package && mojo run -I dist/ benches/bench_execution_strategies.mojo --autosave"
+bench-exec-strategies-package-dev = "pixi run package && mojo run -I dist/ benches/bench_execution_strategies.mojo"
 
 [dependencies]
 mojo = "==0.25.7"

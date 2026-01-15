@@ -6,7 +6,7 @@ serving as both validation and warmup.
 """
 
 from butterfly.core.state import QuantumState
-from butterfly.core.circuit import QuantumCircuit
+from butterfly.core.quantum_circuit import QuantumCircuit
 from butterfly.utils.visualization import print_state
 from collections import List
 
@@ -22,17 +22,17 @@ fn verify_states_equal(
     Verify two quantum states are approximately equal.
 
     Args:
-        state1: First quantum state
-        state2: Second quantum state
-        tolerance: Maximum allowed difference
-        name1: Name for first state (for error messages)
-        name2: Name for second state (for error messages)
+        state1: First quantum state.
+        state2: Second quantum state.
+        tolerance: Maximum allowed difference. Default is 1e-5.
+        name1: Name for first state (for error messages). Default is "state1".
+        name2: Name for second state (for error messages). Default is "state2".
 
     Returns:
         Sum of squared differences
 
     Raises:
-        Error if states differ by more than tolerance
+        Error if states differ by more than tolerance.
     """
     if state1.size() != state2.size():
         raise Error(
@@ -79,15 +79,13 @@ fn verify_and_warmup[
     Verify two functions produce the same result and warm up the code paths.
 
     Args:
-        func1: First function to test
-        func2: Second function to test
-        name1: Name for first function
-        name2: Name for second function
-        tolerance: Maximum allowed difference
-        verbose: Print verification status
+        name1: Name for first function.
+        name2: Name for second function.
+        tolerance: Maximum allowed difference. Default is 1e-5.
+        verbose: Print verification status. Default is True.
 
     Returns:
-        Sum of squared differences
+        Sum of squared differences.
     """
     if verbose:
         print("  Verifying " + name1 + " vs " + name2 + "...", end="")

@@ -120,7 +120,7 @@ fn encode_value_simd_specialized(
     iqft_simd_specialized(state, targets, swap=swap)
     return state^
 
-fn main() raises:
+fn test_main() raises:
     from butterfly.utils.visualization import print_state
 
     var n = 3

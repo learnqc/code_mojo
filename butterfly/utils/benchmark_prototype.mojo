@@ -46,7 +46,7 @@ fn compare_states(
         )
 
 
-fn main() raises:
+fn test_main() raises:
     alias NAME = "benchmark_prototype"
     alias DESCRIPTION = "Agnostic Benchmark Verification Prototype"
 

@@ -332,12 +332,14 @@ struct BenchmarkRunner(Movable):
 
         Args:
             params: Parameter dictionary.
-            name: Benchmark name.
+            name: Benchmark name. Default is "benchmark".
             func: Function to benchmark.
             input: Input to the function.
-            iters: Number of iterations.
-            decimals: Decimal places for timing.
-            thread_samples: Number of thread samples to take during execution.
+            iters: Number of iterations. Default is 5.
+            decimals: Decimal places for timing. Default is 3.
+            warmup_iters: Number of warmup iterations. Default is 0.
+            trials: Number of trials. Default is 1.
+            thread_samples: Number of thread samples to take during execution. Default is 3.
         """
         from butterfly.utils.thread_monitor import (
             sample_current_threads,

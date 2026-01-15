@@ -398,7 +398,7 @@ struct Circuit[StateType: AnyType](Copyable, Movable):
                 var cl_tr = tr[
                     ClassicalTransformation[StateType]
                 ].copy()
-                var targets = List[Int]()
+                # var targets = List[Int]()
                 if len(cl_tr.targets) == 0:
                     targets = List[Int](capacity=other.num_qubits)
                     for i in range(other.num_qubits):

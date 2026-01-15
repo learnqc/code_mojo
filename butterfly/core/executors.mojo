@@ -728,9 +728,9 @@ fn apply_fused_pair_grid(
         return True
 
     if (t0_is_h and t1_is_p) or (t0_is_p and t1_is_h):
-        var th = t0.target
-        var tp = t1.target
-        var theta = Float64(0.0)
+        # var th = t0.target
+        # var tp = t1.target
+        var theta: FloatType
         if t0_is_h:
             th = t0.target
             tp = t1.target
@@ -1110,7 +1110,7 @@ fn execute_grid_fused(
                 sub_circuit.transformations.append(tr.copy())
             execute_grid(state, sub_circuit, ctx)
 
-fn main() raises:
+fn test_main() raises:
     from butterfly.algos.value_encoding_circuit import encode_value_circuit
     var n = 3
     var v = 4.7

@@ -113,7 +113,7 @@ fn measure(
     )
 
 
-fn replace_quantum_with_classical(mut circuit: Circuit) -> Int:
+fn replace_quantum_with_classical(mut circuit: QuantumCircuit) -> Int:
     return classical_for_types(
         circuit,
         List[Int](TransformationKind.SWAP, TransformationKind.QUBIT_REVERSAL),
