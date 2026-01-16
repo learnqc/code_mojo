@@ -7,7 +7,7 @@ version = "0.1.0"
 
 [tasks]
 # Package tasks
-package = "mkdir -p dist && mojo package butterfly && mv butterfly.mojopkg dist/ && echo '✓ Package created in dist/butterfly.mojopkg'"
+package = "mkdir -p dist && mojo package butterfly -o dist/butterfly.mojopkg && echo '✓ Package created in dist/butterfly.mojopkg'"
 package-test = "mkdir -p dist && mojo package butterfly && mv butterfly.mojopkg dist/ && mojo run -I dist/ dist/example_usage.mojo && echo '✓ Package tested in dist/butterfly.mojopkg'"
 
 # Benchmark tasks

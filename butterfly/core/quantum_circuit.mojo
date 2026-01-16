@@ -1,4 +1,5 @@
 from butterfly.core.circuit import (
+    Register,
     Circuit,
     ClassicalTransformation,
     MeasurementTransformation,
@@ -15,7 +16,7 @@ from butterfly.core.state import (
 from butterfly.core.state import QuantumState
 from collections import List
 
-
+alias QuantumRegister = Register
 alias QuantumCircuit = Circuit[QuantumState]
 alias ClassicalTransform = ClassicalTransformation[QuantumState]
 alias MeasurementTransform = MeasurementTransformation[QuantumState]
