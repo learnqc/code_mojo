@@ -1,4 +1,3 @@
-
 from algorithm import parallelize
 from butterfly.core.state import QuantumState, simd_width
 from butterfly.core.quantum_circuit import (
@@ -47,6 +46,8 @@ from butterfly.core.transformations_grid import (
     transform_row_simd,
     c_transform_row_h_simd,
     c_transform_row_p_simd,
+    transform_column_fused_hp_simd_tiled,
+    L2_TILE_COLS,
 )
 from butterfly.core.transformations_unitary import (
     apply_unitary,
@@ -74,7 +75,7 @@ fn sort_targets(mut targets: List[Int]):
                 targets[i] = targets[j]
                 targets[j] = tmp
 
- 
+
 fn execute_scalar(
     mut state: QuantumState,
     circuit: QuantumCircuit,
@@ -128,9 +129,15 @@ fn execute_scalar(
             if swap_tr.b < 0 or swap_tr.b >= state.size():
                 raise Error("Target out of bounds: " + String(swap_tr.b))
             if swap_tr.a != swap_tr.b:
-                c_transform_scalar(state, swap_tr.a, swap_tr.b, X, GateKind.X, 0, ctx)
-                c_transform_scalar(state, swap_tr.b, swap_tr.a, X, GateKind.X, 0, ctx)
-                c_transform_scalar(state, swap_tr.a, swap_tr.b, X, GateKind.X, 0, ctx)
+                c_transform_scalar(
+                    state, swap_tr.a, swap_tr.b, X, GateKind.X, 0, ctx
+                )
+                c_transform_scalar(
+                    state, swap_tr.b, swap_tr.a, X, GateKind.X, 0, ctx
+                )
+                c_transform_scalar(
+                    state, swap_tr.a, swap_tr.b, X, GateKind.X, 0, ctx
+                )
         elif tr.isa[QubitReversalTransformation]():
             var qrev_tr = tr[QubitReversalTransformation].copy()
             var targets = qrev_tr.targets.copy()
@@ -179,6 +186,7 @@ fn execute_scalar(
         else:
             var cl_tr = tr[ClassicalTransform].copy()
             cl_tr.apply(state, cl_tr.targets)
+
 
 fn execute_scalar_parallel(
     mut state: QuantumState,
@@ -355,18 +363,30 @@ fn execute_simd_parallel(
             if gate_tr.gate_info.arg:
                 gate_arg = gate_tr.gate_info.arg.value()
             if gate_tr.kind == ControlKind.NO_CONTROL:
-                if gate_tr.gate_info.kind == GateKind.H and ctx.simd_use_specialized_h:
+                if (
+                    gate_tr.gate_info.kind == GateKind.H
+                    and ctx.simd_use_specialized_h
+                ):
                     transform_h_simd_parallel(state, gate_tr.target, ctx)
-                elif gate_tr.gate_info.kind == GateKind.P and ctx.simd_use_specialized_p:
+                elif (
+                    gate_tr.gate_info.kind == GateKind.P
+                    and ctx.simd_use_specialized_p
+                ):
                     transform_p_simd_parallel(
                         state,
                         gate_tr.target,
                         Float64(gate_arg),
                         ctx,
                     )
-                elif gate_tr.gate_info.kind == GateKind.X and ctx.simd_use_specialized_x:
+                elif (
+                    gate_tr.gate_info.kind == GateKind.X
+                    and ctx.simd_use_specialized_x
+                ):
                     transform_x_simd_parallel(state, gate_tr.target, ctx)
-                elif gate_tr.gate_info.kind == GateKind.RY and ctx.simd_use_specialized_ry:
+                elif (
+                    gate_tr.gate_info.kind == GateKind.RY
+                    and ctx.simd_use_specialized_ry
+                ):
                     transform_ry_simd_parallel(
                         state,
                         gate_tr.target,
@@ -381,7 +401,10 @@ fn execute_simd_parallel(
                         ctx,
                     )
             elif gate_tr.kind == ControlKind.SINGLE_CONTROL:
-                if gate_tr.gate_info.kind == GateKind.P and ctx.simd_use_specialized_cp:
+                if (
+                    gate_tr.gate_info.kind == GateKind.P
+                    and ctx.simd_use_specialized_cp
+                ):
                     c_transform_p_simd_parallel(
                         state,
                         gate_tr.controls[0],
@@ -389,14 +412,20 @@ fn execute_simd_parallel(
                         Float64(gate_arg),
                         ctx,
                     )
-                elif gate_tr.gate_info.kind == GateKind.X and ctx.simd_use_specialized_cx:
+                elif (
+                    gate_tr.gate_info.kind == GateKind.X
+                    and ctx.simd_use_specialized_cx
+                ):
                     c_transform_x_simd_parallel(
                         state,
                         gate_tr.controls[0],
                         gate_tr.target,
                         ctx,
                     )
-                elif gate_tr.gate_info.kind == GateKind.RY and ctx.simd_use_specialized_cry:
+                elif (
+                    gate_tr.gate_info.kind == GateKind.RY
+                    and ctx.simd_use_specialized_cry
+                ):
                     c_transform_ry_simd_parallel(
                         state,
                         gate_tr.controls[0],
@@ -646,9 +675,82 @@ fn apply_fused_pair_grid(
     var t0 = pair.first.copy()
     var t1 = pair.second.copy()
 
-    if t0.kind == ControlKind.MULTI_CONTROL or t1.kind == ControlKind.MULTI_CONTROL:
+    if (
+        t0.kind == ControlKind.MULTI_CONTROL
+        or t1.kind == ControlKind.MULTI_CONTROL
+    ):
         return False
-    if t0.target >= col_bits or t1.target >= col_bits:
+
+    # Check if this is a cross-row HP fusion (both targets >= col_bits)
+    var t0_is_cross_row = t0.target >= col_bits
+    var t1_is_cross_row = t1.target >= col_bits
+
+    # Handle cross-row HP fusion with tiled kernel
+    if t0_is_cross_row and t1_is_cross_row:
+        if (
+            t0.kind != ControlKind.NO_CONTROL
+            or t1.kind != ControlKind.NO_CONTROL
+        ):
+            return False  # Only uncontrolled cross-row fusion for now
+
+        var t0_is_h = t0.gate_info.kind == GateKind.H
+        var t0_is_p = t0.gate_info.kind == GateKind.P
+        var t1_is_h = t1.gate_info.kind == GateKind.H
+        var t1_is_p = t1.gate_info.kind == GateKind.P
+
+        if (t0_is_h and t1_is_p) or (t0_is_p and t1_is_h):
+            var target_h: Int
+            var target_p: Int
+            var theta: FloatType
+            if t0_is_h:
+                target_h = t0.target - col_bits
+                target_p = t1.target - col_bits
+                theta = Float64(t1.gate_info.arg.value())
+            else:
+                target_h = t1.target - col_bits
+                target_p = t0.target - col_bits
+                theta = Float64(t0.gate_info.arg.value())
+
+            var re_ptr = state.re.unsafe_ptr()
+            var im_ptr = state.im.unsafe_ptr()
+            alias chunk_size = simd_width
+            var tile_size = max(L2_TILE_COLS, chunk_size)
+            tile_size = (tile_size // chunk_size) * chunk_size
+            var num_tiles = (row_size + tile_size - 1) // tile_size
+
+            @__copy_capture(
+                re_ptr, im_ptr, tile_size, target_h, target_p, theta
+            )
+            @parameter
+            fn process_tile_hp(tile_idx: Int):
+                var col_start = tile_idx * tile_size
+                var col_end = min(col_start + tile_size, row_size)
+                col_end = (col_end // chunk_size) * chunk_size
+                if col_end <= col_start:
+                    return
+                transform_column_fused_hp_simd_tiled[chunk_size](
+                    re_ptr,
+                    im_ptr,
+                    num_rows,
+                    row_size,
+                    col_start,
+                    col_end,
+                    target_h,
+                    target_p,
+                    theta,
+                )
+
+            if use_parallel:
+                parallelize[process_tile_hp](num_tiles)
+            else:
+                for tile_idx in range(num_tiles):
+                    process_tile_hp(tile_idx)
+            return True
+
+        return False  # Cross-row but not HP fusion
+
+    # Row-local operations: both targets must be < col_bits
+    if t0_is_cross_row or t1_is_cross_row:
         return False
     if t0.kind == ControlKind.SINGLE_CONTROL and t0.controls[0] >= col_bits:
         return False
@@ -694,11 +796,13 @@ fn apply_fused_pair_grid(
     var t1_is_p = t1.gate_info.kind == GateKind.P
 
     if t0_is_h and t1_is_h:
+
         @parameter
         fn process_row_hh(row: Int):
             transform_row_fused_hh_simd[simd_width](
                 state, row, row_size, t0.target, t1.target
             )
+
         if use_parallel:
             parallelize[process_row_hh](num_rows)
         else:
@@ -709,6 +813,7 @@ fn apply_fused_pair_grid(
     if t0_is_p and t1_is_p:
         var theta0 = Float64(t0.gate_info.arg.value())
         var theta1 = Float64(t1.gate_info.arg.value())
+
         @parameter
         fn process_row_pp(row: Int):
             transform_row_fused_pp_simd[simd_width](
@@ -720,6 +825,7 @@ fn apply_fused_pair_grid(
                 theta0,
                 theta1,
             )
+
         if use_parallel:
             parallelize[process_row_pp](num_rows)
         else:
@@ -739,11 +845,13 @@ fn apply_fused_pair_grid(
             th = t1.target
             tp = t0.target
             theta = Float64(t0.gate_info.arg.value())
+
         @parameter
         fn process_row_hp(row: Int):
             transform_row_fused_hp_simd[simd_width](
                 state, row, row_size, th, tp, theta
             )
+
         if use_parallel:
             parallelize[process_row_hp](num_rows)
         else:
@@ -871,7 +979,9 @@ fn execute_row_local_group[
     for tr in transformations:
         if tr.isa[GateTransformation]():
             prepared.append(
-                GridPreparedTransformation(tr[GateTransformation].copy(), col_bits)
+                GridPreparedTransformation(
+                    tr[GateTransformation].copy(), col_bits
+                )
             )
     var prepared_ptr = prepared.unsafe_ptr()
     var num_prepared = len(prepared)
@@ -902,11 +1012,9 @@ fn execute_row_local_group[
                         var can_fuse = False
                         var treat_uncontrolled = False
                         if (
-                            (not p[].is_controlled or p[].row_control_bit >= 0)
-                            and (
-                                not p2[].is_controlled
-                                or p2[].row_control_bit >= 0
-                            )
+                            not p[].is_controlled or p[].row_control_bit >= 0
+                        ) and (
+                            not p2[].is_controlled or p2[].row_control_bit >= 0
                         ):
                             can_fuse = True
                             treat_uncontrolled = True
@@ -1001,9 +1109,7 @@ fn execute_row_local_group[
                                     and p[].is_h_gate
                                     and p2[].is_p_gate
                                 ):
-                                    transform_row_fused_st_hp_simd[
-                                        simd_width
-                                    ](
+                                    transform_row_fused_st_hp_simd[simd_width](
                                         state,
                                         row,
                                         row_size,
@@ -1087,9 +1193,7 @@ fn execute_grid_fused(
     var num_rows = 1 << (n - col_bits)
     var row_size = 1 << col_bits
 
-    var groups = analyze_for_grid_fusion(
-        circuit.transformations, col_bits
-    )
+    var groups = analyze_for_grid_fusion(circuit.transformations, col_bits)
 
     var groups_ptr = groups.unsafe_ptr()
     for i in range(len(groups)):
@@ -1110,8 +1214,10 @@ fn execute_grid_fused(
                 sub_circuit.transformations.append(tr.copy())
             execute_grid(state, sub_circuit, ctx)
 
+
 fn test_main() raises:
     from butterfly.algos.value_encoding_circuit import encode_value_circuit
+
     var n = 3
     var v = 4.7
     var circuit = encode_value_circuit(n, v)
@@ -1122,4 +1228,5 @@ fn test_main() raises:
     execute_scalar(state, circuit)
     print_state(state)
     from butterfly.utils.circuit_print import print_circuit_ascii
+
     print_circuit_ascii(circuit)

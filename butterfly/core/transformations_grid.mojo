@@ -555,6 +555,146 @@ fn transform_column_simd_tiled[
                 )
 
 
+fn transform_column_fused_hp_simd_tiled[
+    chunk_size: Int
+](
+    re_ptr: UnsafePointer[FloatType, MutAnyOrigin],
+    im_ptr: UnsafePointer[FloatType, MutAnyOrigin],
+    num_rows: Int,
+    row_size: Int,
+    col_start: Int,
+    col_end: Int,
+    target_h: Int,  # Cross-row qubit for H (relative to col_bits)
+    target_p: Int,  # Cross-row qubit for P (relative to col_bits)
+    theta: FloatType,
+):
+    """Tiled fused H+P column operation for cross-row targets.
+
+    Applies H on target_h and P on target_p in a single traversal.
+    Both targets must be in the row-bits region (>= col_bits for the full qubit index).
+    """
+    var stride_h = 1 << target_h
+    var stride_p = 1 << target_p
+    var cos_t = cos(theta)
+    var sin_t = sin(theta)
+
+    # Determine iteration pattern based on which stride is larger
+    if target_h < target_p:
+        # H operates on smaller stride, P on larger
+        for k in range(num_rows // (2 * stride_p)):
+            for row_idx in range(k * 2 * stride_p, k * 2 * stride_p + stride_p):
+                # Four row indices: base, base+stride_h, base+stride_p, base+stride_h+stride_p
+                var base0 = (
+                    row_idx & ~(stride_h - 1)
+                ) * row_size  # row with h_bit=0, p_bit=0
+                var base_h = (
+                    (row_idx & ~(stride_h - 1)) | stride_h
+                ) * row_size  # h_bit=1, p_bit=0
+                var base_p = (
+                    (row_idx | stride_p) & ~(stride_h - 1)
+                ) * row_size  # h_bit=0, p_bit=1
+                var base_hp = (
+                    (row_idx | stride_p) | stride_h
+                ) * row_size  # h_bit=1, p_bit=1
+
+                # Skip if row_idx has h_bit set (we handle pairs starting at h_bit=0)
+                if (row_idx >> target_h) & 1:
+                    continue
+
+                for col_base in range(col_start, col_end, chunk_size):
+                    var idx0 = base0 + col_base
+                    var idx_h = base_h + col_base
+                    var idx_p = base_p + col_base
+                    var idx_hp = base_hp + col_base
+
+                    # Load all 4 amplitudes
+                    var r00 = re_ptr.load[width=chunk_size](idx0)
+                    var i00 = im_ptr.load[width=chunk_size](idx0)
+                    var r10 = re_ptr.load[width=chunk_size](idx_h)
+                    var i10 = im_ptr.load[width=chunk_size](idx_h)
+                    var r01 = re_ptr.load[width=chunk_size](idx_p)
+                    var i01 = im_ptr.load[width=chunk_size](idx_p)
+                    var r11 = re_ptr.load[width=chunk_size](idx_hp)
+                    var i11 = im_ptr.load[width=chunk_size](idx_hp)
+
+                    # Apply H on h_bit: |0⟩→(|0⟩+|1⟩)/√2, |1⟩→(|0⟩-|1⟩)/√2
+                    var new_r00 = (r00 + r10) * sq_half_re
+                    var new_i00 = (i00 + i10) * sq_half_re
+                    var new_r10 = (r00 - r10) * sq_half_re
+                    var new_i10 = (i00 - i10) * sq_half_re
+                    var new_r01 = (r01 + r11) * sq_half_re
+                    var new_i01 = (i01 + i11) * sq_half_re
+                    var new_r11 = (r01 - r11) * sq_half_re
+                    var new_i11 = (i01 - i11) * sq_half_re
+
+                    # Apply P on p_bit (for p_bit=1 states): multiply by e^{i*theta}
+                    var p_r01 = new_r01 * cos_t - new_i01 * sin_t
+                    var p_i01 = new_r01 * sin_t + new_i01 * cos_t
+                    var p_r11 = new_r11 * cos_t - new_i11 * sin_t
+                    var p_i11 = new_r11 * sin_t + new_i11 * cos_t
+
+                    # Store results
+                    re_ptr.store(idx0, new_r00)
+                    im_ptr.store(idx0, new_i00)
+                    re_ptr.store(idx_h, new_r10)
+                    im_ptr.store(idx_h, new_i10)
+                    re_ptr.store(idx_p, p_r01)
+                    im_ptr.store(idx_p, p_i01)
+                    re_ptr.store(idx_hp, p_r11)
+                    im_ptr.store(idx_hp, p_i11)
+    else:
+        # P operates on smaller stride, H on larger - just swap the order
+        for k in range(num_rows // (2 * stride_h)):
+            for row_idx in range(k * 2 * stride_h, k * 2 * stride_h + stride_h):
+                if (row_idx >> target_p) & 1:
+                    continue
+
+                for col_base in range(col_start, col_end, chunk_size):
+                    var base0 = row_idx * row_size
+                    var base_p = (row_idx + stride_p) * row_size
+                    var base_h = (row_idx + stride_h) * row_size
+                    var base_hp = (row_idx + stride_p + stride_h) * row_size
+
+                    var idx0 = base0 + col_base
+                    var idx_p = base_p + col_base
+                    var idx_h = base_h + col_base
+                    var idx_hp = base_hp + col_base
+
+                    var r00 = re_ptr.load[width=chunk_size](idx0)
+                    var i00 = im_ptr.load[width=chunk_size](idx0)
+                    var r01 = re_ptr.load[width=chunk_size](idx_p)
+                    var i01 = im_ptr.load[width=chunk_size](idx_p)
+                    var r10 = re_ptr.load[width=chunk_size](idx_h)
+                    var i10 = im_ptr.load[width=chunk_size](idx_h)
+                    var r11 = re_ptr.load[width=chunk_size](idx_hp)
+                    var i11 = im_ptr.load[width=chunk_size](idx_hp)
+
+                    # Apply H on h_bit
+                    var new_r00 = (r00 + r10) * sq_half_re
+                    var new_i00 = (i00 + i10) * sq_half_re
+                    var new_r10 = (r00 - r10) * sq_half_re
+                    var new_i10 = (i00 - i10) * sq_half_re
+                    var new_r01 = (r01 + r11) * sq_half_re
+                    var new_i01 = (i01 + i11) * sq_half_re
+                    var new_r11 = (r01 - r11) * sq_half_re
+                    var new_i11 = (i01 - i11) * sq_half_re
+
+                    # Apply P on p_bit
+                    var p_r01 = new_r01 * cos_t - new_i01 * sin_t
+                    var p_i01 = new_r01 * sin_t + new_i01 * cos_t
+                    var p_r11 = new_r11 * cos_t - new_i11 * sin_t
+                    var p_i11 = new_r11 * sin_t + new_i11 * cos_t
+
+                    re_ptr.store(idx0, new_r00)
+                    im_ptr.store(idx0, new_i00)
+                    re_ptr.store(idx_p, p_r01)
+                    im_ptr.store(idx_p, p_i01)
+                    re_ptr.store(idx_h, new_r10)
+                    im_ptr.store(idx_h, new_i10)
+                    re_ptr.store(idx_hp, p_r11)
+                    im_ptr.store(idx_hp, p_i11)
+
+
 fn transform_h_grid[
     simd_width: Int = 8
 ](
