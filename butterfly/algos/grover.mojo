@@ -1,6 +1,11 @@
-from butterfly.core.quantum_circuit import QuantumCircuit, QuantumRegister
+from butterfly.core.quantum_circuit import QuantumCircuit, QuantumRegister, ClassicalTransform
+from butterfly.core.circuit import GateTransformation
 from butterfly.core.types import pi, FloatType, Amplitude
 from butterfly.core.gates import P, X
+from butterfly.core.state import QuantumState
+from utils.variant import Variant
+
+alias Oracle = Variant[QuantumCircuit, ClassicalTransform]
 
 @always_inline
 fn is_bit_not_set(mask: Int, i: Int) -> Bool:
@@ -50,6 +55,9 @@ fn diffuser_circuit(n: Int) -> QuantumCircuit:
 
     return qc^
 
+fn classical_oracle(mut state: QuantumState, targets: List[Int]) raises:
+    for i in range(len(targets)):
+        state[targets[i]] = -state[targets[i]]
 
 fn phase_oracle_match(n: Int, items: List[Int]) -> QuantumCircuit:
     """
@@ -90,22 +98,19 @@ fn phase_oracle_match(n: Int, items: List[Int]) -> QuantumCircuit:
 #     return qc^
 
 
-fn grover_iterate_circuit(oracle: QuantumCircuit) -> QuantumCircuit:
-    """
-    Single Grover iteration: Oracle -> Standard Diffuser.
-    """
-    var n = oracle.num_qubits
-    var q = QuantumRegister("q", n)
-    var qc = QuantumCircuit(q)
+fn grover_iterate_circuit(oracle: Variant[QuantumCircuit, ClassicalTransform], num_qubits: Int) -> QuantumCircuit:
 
-    # oracle
-    _ =qc.append_circuit(oracle, q)
+    var n = num_qubits  # Always use the provided number of qubits
+    var qc = QuantumCircuit(n)
 
-    # diffusion
-    _ = qc.append_circuit(diffuser_circuit(n), q)
+    if oracle.isa[QuantumCircuit]():
+        _ = qc.append_circuit(oracle[QuantumCircuit], QuantumRegister("q", n))
+    if oracle.isa[ClassicalTransform]():
+        var tr = oracle[ClassicalTransform].copy()
+        qc.add_classical(tr.name, tr.targets, tr.apply)
+    _ = qc.append_circuit(diffuser_circuit(n), QuantumRegister("q", n))
 
     return qc^
-
 
 fn grover_circuit(
     items: List[Int],
@@ -119,10 +124,14 @@ fn grover_circuit(
     Otherwise, uses a gate-based oracle.
     Note: Does NOT include initial preparation.
     """
-    var oracle: QuantumCircuit
+    var oracle: Oracle
     if use_shortcut:
         # oracle = diagonal_oracle(num_qubits, items)
-        oracle = phase_oracle_match(num_qubits, items)
+        oracle = ClassicalTransform(
+            "sign_flip_oracle",
+            items,
+            classical_oracle,
+        )
     else:
         oracle = phase_oracle_match(num_qubits, items)
 
@@ -138,12 +147,15 @@ fn grover_circuit(
 fn append_grover_to_register(
     mut qc: QuantumCircuit,
     register: QuantumRegister,
-    oracle: QuantumCircuit,
+    oracle: Oracle,
     iterations: Int,
 ):
     """
     Append Grover iterations (Oracle + Diffuser) to a specific register.
     """
-    var step = grover_iterate_circuit(oracle)
+
+    step = grover_iterate_circuit(oracle, register.length)
+
     for _ in range(iterations):
         _ = qc.append_circuit(step, register)
+   

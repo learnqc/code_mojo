@@ -1,4 +1,5 @@
-from butterfly.core.quantum_circuit import QuantumCircuit, QuantumRegister
+from butterfly.core.quantum_circuit import QuantumCircuit, QuantumRegister, ClassicalTransform
+from butterfly.core.circuit import GateTransformation
 from butterfly.algos.grover import grover_circuit
 from butterfly.core.executors import execute
 from butterfly.core.state import QuantumState
@@ -28,7 +29,7 @@ fn test_grover_gates() raises:
     var iterations = 2
     _ = qc.append_circuit(
         grover_circuit(items, n, iterations, use_shortcut=False),
-        qc.registers[0].copy(),
+        q,
     )
 
     var state = QuantumState(n)
@@ -54,7 +55,7 @@ fn test_grover_shortcut() raises:
     var iterations = 2
     _ = qc.append_circuit(
         grover_circuit(items, n, iterations, use_shortcut=True),
-        qc.registers[0].copy(),
+        q,
     )
 
     var state = QuantumState(n)

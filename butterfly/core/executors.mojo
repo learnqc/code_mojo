@@ -12,6 +12,7 @@ from butterfly.core.circuit import (
     FusedPairTransformation,
     UnitaryTransformation,
     ControlledUnitaryTransformation,
+    ClassicalTransformation,
     SwapTransformation,
     QubitReversalTransformation,
 )
@@ -124,6 +125,9 @@ fn execute_scalar(
                     gate_tr.gate_info.gate,
                     ctx,
                 )
+        elif tr.isa[ClassicalTransformation[QuantumState]]():
+            var classical_tr = tr[ClassicalTransformation[QuantumState]].copy()
+            classical_tr.apply(state, classical_tr.targets)
         elif tr.isa[SwapTransformation]():
             var swap_tr = tr[SwapTransformation].copy()
             if swap_tr.a < 0 or swap_tr.a >= state.size():
@@ -246,6 +250,7 @@ fn execute_simd(
     ctx: ExecContext = ExecContext(),
 ) raises:
     for tr in circuit.transformations:
+        # Debug: check which transformations are being processed
         if tr.isa[FusedPairTransformation]():
             var pair_tr = tr[FusedPairTransformation].copy()
             apply_fused_pair(state, pair_tr)
@@ -285,6 +290,9 @@ fn execute_simd(
                     gate_tr.target,
                     gate_tr.gate_info.gate,
                 )
+        elif tr.isa[ClassicalTransform]():
+            var classical_tr = tr[ClassicalTransform].copy()
+            classical_tr.apply(state, classical_tr.targets)
         elif tr.isa[SwapTransformation]():
             var swap_tr = tr[SwapTransformation].copy()
             if swap_tr.a < 0 or swap_tr.a >= state.size():
@@ -341,8 +349,7 @@ fn execute_simd(
                 meas_tr.seed,
             )
         else:
-            var cl_tr = tr[ClassicalTransform].copy()
-            cl_tr.apply(state, cl_tr.targets)
+            print("Unknown transformation type - not ClassicalTransform!")
 
 
 fn execute_simd_parallel(
@@ -451,6 +458,9 @@ fn execute_simd_parallel(
                     gate_tr.gate_info.gate,
                     ctx,
                 )
+        elif tr.isa[ClassicalTransformation[QuantumState]]():
+            var classical_tr = tr[ClassicalTransformation[QuantumState]].copy()
+            classical_tr.apply(state, classical_tr.targets)
         elif tr.isa[SwapTransformation]():
             var swap_tr = tr[SwapTransformation].copy()
             if swap_tr.a < 0 or swap_tr.a >= state.size():
@@ -591,6 +601,9 @@ fn execute_grid(
                     gate_tr.target,
                     gate_tr.gate_info.gate,
                 )
+        elif tr.isa[ClassicalTransformation[QuantumState]]():
+            var classical_tr = tr[ClassicalTransformation[QuantumState]].copy()
+            classical_tr.apply(state, classical_tr.targets)
         elif tr.isa[SwapTransformation]():
             var swap_tr = tr[SwapTransformation].copy()
             if swap_tr.a < 0 or swap_tr.a >= state.size():

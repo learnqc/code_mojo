@@ -275,6 +275,16 @@ struct Circuit[StateType: AnyType](Copyable, Movable):
             GateTransformation(controls, target, gate_info)
         )
 
+    fn add_classical(
+        mut self,
+        name: String,
+        targets: List[Int],
+        apply: fn(mut StateType, List[Int]) raises,
+    ):
+        self.transformations.append(
+            ClassicalTransformation[StateType](name, targets, apply)
+        )
+
     fn swap(
         mut self,
         a: Int,
@@ -386,6 +396,26 @@ struct Circuit[StateType: AnyType](Copyable, Movable):
                         c_unitary_tr.control + offset,
                         c_unitary_tr.m,
                         c_unitary_tr.name,
+                    )
+                )
+            elif tr.isa[ClassicalTransformation[StateType]]():
+                var cl_tr = tr[
+                    ClassicalTransformation[StateType]
+                ].copy()
+                # var targets = List[Int]()
+                if len(cl_tr.targets) == 0:
+                    targets = List[Int](capacity=other.num_qubits)
+                    for i in range(other.num_qubits):
+                        targets.append(i + offset)
+                else:
+                    targets = List[Int](capacity=len(cl_tr.targets))
+                    for t in cl_tr.targets:
+                        targets.append(t + offset)
+                self.transformations.append(
+                    ClassicalTransformation[StateType](
+                        cl_tr.name,
+                        targets,
+                        cl_tr.apply,
                     )
                 )
             elif tr.isa[MeasurementTransformation[StateType]]():
