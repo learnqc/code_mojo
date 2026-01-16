@@ -8,10 +8,18 @@ from butterfly.core.gates import *
 from butterfly.utils.context import ExecContext
 
 from butterfly.core.transformations_simd import c_transform_simd
-from butterfly.core.transformations_simd_parallel import c_transform_p_simd_parallel
+from butterfly.core.transformations_simd_parallel import (
+    c_transform_p_simd_parallel,
+)
 
 
 from math import cos, sin, pi
+
+# L2 cache tile size for column operations (number of column elements per tile)
+# Targets ~4KB per array per tile (256 * 8 bytes = 2KB re + 2KB im = 4KB)
+# This keeps working set in L2 cache during strided row traversal
+alias L2_TILE_COLS: Int = 256
+
 
 @always_inline
 fn c_transform_row_h_simd[
@@ -355,7 +363,15 @@ fn transform_row_simd[
                     r0 * g10_im + i0 * g10_re + r1 * g11_im + i1 * g11_re
                 )
 
-fn transform_column(mut state: QuantumState, num_rows: Int, row_size: Int, col: Int, gate: Gate, stride: Int):
+
+fn transform_column(
+    mut state: QuantumState,
+    num_rows: Int,
+    row_size: Int,
+    col: Int,
+    gate: Gate,
+    stride: Int,
+):
     var g00_re = gate[0][0].re
     var g00_im = gate[0][0].im
     var g01_re = gate[0][1].re
@@ -365,9 +381,7 @@ fn transform_column(mut state: QuantumState, num_rows: Int, row_size: Int, col: 
     var g11_re = gate[1][1].re
     var g11_im = gate[1][1].im
     for k in range(num_rows // (2 * stride)):
-        for row_idx in range(
-            k * 2 * stride, k * 2 * stride + stride
-        ):
+        for row_idx in range(k * 2 * stride, k * 2 * stride + stride):
             var idx0 = row_idx * row_size + col
             var idx1 = (row_idx + stride) * row_size + col
             var r0 = state.re[idx0]
@@ -375,34 +389,30 @@ fn transform_column(mut state: QuantumState, num_rows: Int, row_size: Int, col: 
             var r1 = state.re[idx1]
             var i1 = state.im[idx1]
             state.re[idx0] = (
-                g00_re * r0
-                - g00_im * i0
-                + g01_re * r1
-                - g01_im * i1
+                g00_re * r0 - g00_im * i0 + g01_re * r1 - g01_im * i1
             )
             state.im[idx0] = (
-                g00_re * i0
-                + g00_im * r0
-                + g01_re * i1
-                + g01_im * r1
+                g00_re * i0 + g00_im * r0 + g01_re * i1 + g01_im * r1
             )
             state.re[idx1] = (
-                g10_re * r0
-                - g10_im * i0
-                + g11_re * r1
-                - g11_im * i1
+                g10_re * r0 - g10_im * i0 + g11_re * r1 - g11_im * i1
             )
             state.im[idx1] = (
-                g10_re * i0
-                + g10_im * r0
-                + g11_re * i1
-                + g11_im * r1
+                g10_re * i0 + g10_im * r0 + g11_re * i1 + g11_im * r1
             )
 
-fn transform_column_simd[chunk_size: Int](re_ptr: UnsafePointer[FloatType, MutAnyOrigin],
-    im_ptr: UnsafePointer[FloatType, MutAnyOrigin], num_rows: Int, row_size: Int, 
-    col_base: Int, gate:Gate, stride: Int):
 
+fn transform_column_simd[
+    chunk_size: Int
+](
+    re_ptr: UnsafePointer[FloatType, MutAnyOrigin],
+    im_ptr: UnsafePointer[FloatType, MutAnyOrigin],
+    num_rows: Int,
+    row_size: Int,
+    col_base: Int,
+    gate: Gate,
+    stride: Int,
+):
     var g00_re = gate[0][0].re
     var g00_im = gate[0][0].im
     var g01_re = gate[0][1].re
@@ -412,55 +422,42 @@ fn transform_column_simd[chunk_size: Int](re_ptr: UnsafePointer[FloatType, MutAn
     var g11_re = gate[1][1].re
     var g11_im = gate[1][1].im
     for k in range(num_rows // (2 * stride)):
-        for row_idx in range(
-            k * 2 * stride, k * 2 * stride + stride
-        ):
+        for row_idx in range(k * 2 * stride, k * 2 * stride + stride):
             var idx0 = row_idx * row_size + col_base
-            var idx1 = (
-                row_idx + stride
-            ) * row_size + col_base
+            var idx1 = (row_idx + stride) * row_size + col_base
             var r0 = re_ptr.load[width=chunk_size](idx0)
             var i0 = im_ptr.load[width=chunk_size](idx0)
             var r1 = re_ptr.load[width=chunk_size](idx1)
             var i1 = im_ptr.load[width=chunk_size](idx1)
 
-            re_ptr.store(idx0,
-                g00_re * r0
-                - g00_im * i0
-                + g01_re * r1
-                - g01_im * i1
+            re_ptr.store(
+                idx0, g00_re * r0 - g00_im * i0 + g01_re * r1 - g01_im * i1
             )
-            im_ptr.store(idx0,
-                g00_re * i0
-                + g00_im * r0
-                + g01_re * i1
-                + g01_im * r1
+            im_ptr.store(
+                idx0, g00_re * i0 + g00_im * r0 + g01_re * i1 + g01_im * r1
             )
-            re_ptr.store(idx1,
-                g10_re * r0
-                - g10_im * i0
-                + g11_re * r1
-                - g11_im * i1
+            re_ptr.store(
+                idx1, g10_re * r0 - g10_im * i0 + g11_re * r1 - g11_im * i1
             )
-            im_ptr.store(idx1,
-                g10_re * i0
-                + g10_im * r0
-                + g11_re * i1
-                + g11_im * r1
+            im_ptr.store(
+                idx1, g10_re * i0 + g10_im * r0 + g11_re * i1 + g11_im * r1
             )
 
 
-fn transform_column_h_simd[chunk_size: Int](re_ptr: UnsafePointer[FloatType, MutAnyOrigin],
-    im_ptr: UnsafePointer[FloatType, MutAnyOrigin], num_rows: Int, row_size: Int, col_base: Int, stride: Int):
-
+fn transform_column_h_simd[
+    chunk_size: Int
+](
+    re_ptr: UnsafePointer[FloatType, MutAnyOrigin],
+    im_ptr: UnsafePointer[FloatType, MutAnyOrigin],
+    num_rows: Int,
+    row_size: Int,
+    col_base: Int,
+    stride: Int,
+):
     for k in range(num_rows // (2 * stride)):
-        for row_idx in range(
-            k * 2 * stride, k * 2 * stride + stride
-        ):
+        for row_idx in range(k * 2 * stride, k * 2 * stride + stride):
             var idx0 = row_idx * row_size + col_base
-            var idx1 = (
-                row_idx + stride
-            ) * row_size + col_base
+            var idx1 = (row_idx + stride) * row_size + col_base
             var r0 = re_ptr.load[width=chunk_size](idx0)
             var i0 = im_ptr.load[width=chunk_size](idx0)
             var r1 = re_ptr.load[width=chunk_size](idx1)
@@ -470,17 +467,120 @@ fn transform_column_h_simd[chunk_size: Int](re_ptr: UnsafePointer[FloatType, Mut
             re_ptr.store(idx1, (r0 - r1) * sq_half_re)
             im_ptr.store(idx1, (i0 - i1) * sq_half_re)
 
+
+fn transform_column_h_simd_tiled[
+    chunk_size: Int
+](
+    re_ptr: UnsafePointer[FloatType, MutAnyOrigin],
+    im_ptr: UnsafePointer[FloatType, MutAnyOrigin],
+    num_rows: Int,
+    row_size: Int,
+    col_start: Int,
+    col_end: Int,
+    stride: Int,
+):
+    """Tiled Hadamard column operation for better L2 cache locality.
+
+    Processes a tile of columns [col_start, col_end) across all rows.
+    By iterating rows in the outer loop and columns in the inner loop,
+    we improve cache reuse when row_size is large.
+    """
+    for k in range(num_rows // (2 * stride)):
+        for row_idx in range(k * 2 * stride, k * 2 * stride + stride):
+            var base0 = row_idx * row_size
+            var base1 = (row_idx + stride) * row_size
+            # Process all columns in this tile for this row pair
+            for col_base in range(col_start, col_end, chunk_size):
+                var idx0 = base0 + col_base
+                var idx1 = base1 + col_base
+                var r0 = re_ptr.load[width=chunk_size](idx0)
+                var i0 = im_ptr.load[width=chunk_size](idx0)
+                var r1 = re_ptr.load[width=chunk_size](idx1)
+                var i1 = im_ptr.load[width=chunk_size](idx1)
+                re_ptr.store(idx0, (r0 + r1) * sq_half_re)
+                im_ptr.store(idx0, (i0 + i1) * sq_half_re)
+                re_ptr.store(idx1, (r0 - r1) * sq_half_re)
+                im_ptr.store(idx1, (i0 - i1) * sq_half_re)
+
+
+fn transform_column_simd_tiled[
+    chunk_size: Int
+](
+    re_ptr: UnsafePointer[FloatType, MutAnyOrigin],
+    im_ptr: UnsafePointer[FloatType, MutAnyOrigin],
+    num_rows: Int,
+    row_size: Int,
+    col_start: Int,
+    col_end: Int,
+    gate: Gate,
+    stride: Int,
+):
+    """Tiled generic column operation for better L2 cache locality."""
+    var g00_re = gate[0][0].re
+    var g00_im = gate[0][0].im
+    var g01_re = gate[0][1].re
+    var g01_im = gate[0][1].im
+    var g10_re = gate[1][0].re
+    var g10_im = gate[1][0].im
+    var g11_re = gate[1][1].re
+    var g11_im = gate[1][1].im
+
+    for k in range(num_rows // (2 * stride)):
+        for row_idx in range(k * 2 * stride, k * 2 * stride + stride):
+            var base0 = row_idx * row_size
+            var base1 = (row_idx + stride) * row_size
+            for col_base in range(col_start, col_end, chunk_size):
+                var idx0 = base0 + col_base
+                var idx1 = base1 + col_base
+                var r0 = re_ptr.load[width=chunk_size](idx0)
+                var i0 = im_ptr.load[width=chunk_size](idx0)
+                var r1 = re_ptr.load[width=chunk_size](idx1)
+                var i1 = im_ptr.load[width=chunk_size](idx1)
+
+                re_ptr.store(
+                    idx0,
+                    g00_re * r0 - g00_im * i0 + g01_re * r1 - g01_im * i1,
+                )
+                im_ptr.store(
+                    idx0,
+                    g00_re * i0 + g00_im * r0 + g01_re * i1 + g01_im * r1,
+                )
+                re_ptr.store(
+                    idx1,
+                    g10_re * r0 - g10_im * i0 + g11_re * r1 - g11_im * i1,
+                )
+                im_ptr.store(
+                    idx1,
+                    g10_re * i0 + g10_im * r0 + g11_re * i1 + g11_im * r1,
+                )
+
+
 fn transform_h_grid[
     simd_width: Int = 8
-](mut state: QuantumState, col_bits: Int, target: Int, ctx: ExecContext = ExecContext()) raises:
+](
+    mut state: QuantumState,
+    col_bits: Int,
+    target: Int,
+    ctx: ExecContext = ExecContext(),
+) raises:
     transform_grid[simd_width](state, col_bits, target, H_Gate, ctx)
+
 
 fn transform_p_grid[
     simd_width: Int = 8
-](mut state: QuantumState, col_bits: Int, target: Int, theta: FloatType, ctx: ExecContext = ExecContext()) raises:
+](
+    mut state: QuantumState,
+    col_bits: Int,
+    target: Int,
+    theta: FloatType,
+    ctx: ExecContext = ExecContext(),
+) raises:
     transform_grid[simd_width](state, col_bits, target, P_Gate(theta), ctx)
 
-fn transform_grid[simd_width: Int = 8
+
+fn transform_grid[
+    simd_width: Int = 8,
+    tile_cols: Int = L2_TILE_COLS,
 ](
     mut state: QuantumState,
     col_bits: Int,
@@ -507,13 +607,16 @@ fn transform_grid[simd_width: Int = 8
             if with_simd and row_size >= simd_width:
                 if use_h:
                     transform_row_h_simd[simd_width](
-                        state, row, row_size, 1 << target)
+                        state, row, row_size, 1 << target
+                    )
                 elif use_p:
                     transform_row_p_simd[simd_width](
-                        state, row, row_size, target, gate_info.arg.value())
+                        state, row, row_size, target, gate_info.arg.value()
+                    )
                 else:
                     transform_row_simd[simd_width](
-                        state, row, row_size, target, gate_info.gate)
+                        state, row, row_size, target, gate_info.gate
+                    )
             else:
                 transform_row(state, row, row_size, target, gate_info.gate)
 
@@ -529,33 +632,59 @@ fn transform_grid[simd_width: Int = 8
         alias chunk_size = simd_width
 
         if with_simd and row_size >= chunk_size:
+            var re_ptr = state.re.unsafe_ptr()
+            var im_ptr = state.im.unsafe_ptr()
 
+            # Calculate number of L2 tiles (min tile size is chunk_size)
+            var tile_size = max(tile_cols, chunk_size)
+            # Ensure tile_size is aligned to chunk_size
+            tile_size = (tile_size // chunk_size) * chunk_size
+            var num_tiles = (row_size + tile_size - 1) // tile_size
+
+            @__copy_capture(re_ptr, im_ptr, tile_size)
             @parameter
-            fn process_column_simd(chunk_idx: Int):
-                var col_base = chunk_idx * chunk_size
-                var re_ptr = state.re.unsafe_ptr()
-                var im_ptr = state.im.unsafe_ptr()
+            fn process_tile(tile_idx: Int):
+                var col_start = tile_idx * tile_size
+                var col_end = min(col_start + tile_size, row_size)
+                # Ensure col_end is aligned to chunk_size
+                col_end = (col_end // chunk_size) * chunk_size
+                if col_end <= col_start:
+                    return
+
                 if use_h:
-                    transform_column_h_simd[chunk_size](
-                        re_ptr, im_ptr, num_rows, row_size, col_base, stride
+                    transform_column_h_simd_tiled[chunk_size](
+                        re_ptr,
+                        im_ptr,
+                        num_rows,
+                        row_size,
+                        col_start,
+                        col_end,
+                        stride,
                     )
                 else:
-                    # transform_column_p_simd[chunk_size](
-                    #     re_ptr, im_ptr, num_rows, row_size, col_base, stride
-                    # )
-                    transform_column_simd[chunk_size](
-                        re_ptr, im_ptr, num_rows, row_size, col_base, gate_info.gate, stride
+                    transform_column_simd_tiled[chunk_size](
+                        re_ptr,
+                        im_ptr,
+                        num_rows,
+                        row_size,
+                        col_start,
+                        col_end,
+                        gate_info.gate,
+                        stride,
                     )
 
             if use_parallel:
-                parallelize[process_column_simd](row_size // chunk_size)
+                parallelize[process_tile](num_tiles)
             else:
-                for chunk_idx in range(row_size // chunk_size):
-                    process_column_simd(chunk_idx)
+                for tile_idx in range(num_tiles):
+                    process_tile(tile_idx)
         else:
+
             @parameter
             fn process_column(col: Int):
-                transform_column(state, num_rows, row_size, col, gate_info.gate, stride)
+                transform_column(
+                    state, num_rows, row_size, col, gate_info.gate, stride
+                )
 
             if use_parallel:
                 parallelize[process_column](row_size)
@@ -563,10 +692,21 @@ fn transform_grid[simd_width: Int = 8
                 for col in range(row_size):
                     process_column(col)
 
+
 fn c_transform_p_grid[
     simd_width: Int = 8
-](mut state: QuantumState, col_bits: Int, control: Int, target: Int, theta: FloatType, ctx: ExecContext = ExecContext()) raises:
-    c_transform_grid[simd_width](state, col_bits, control, target, P_Gate(theta), ctx)
+](
+    mut state: QuantumState,
+    col_bits: Int,
+    control: Int,
+    target: Int,
+    theta: FloatType,
+    ctx: ExecContext = ExecContext(),
+) raises:
+    c_transform_grid[simd_width](
+        state, col_bits, control, target, P_Gate(theta), ctx
+    )
+
 
 fn c_transform_grid[
     simd_width: Int = 8
@@ -613,10 +753,17 @@ fn c_transform_grid[
             if with_simd and row_size >= simd_width:
                 if use_h:
                     c_transform_row_h_simd[simd_width](
-                        state, row, row_size, control, 1 << target)
+                        state, row, row_size, control, 1 << target
+                    )
                 elif use_p:
                     c_transform_row_p_simd[simd_width](
-                        state, row, row_size, control, target, gate_info.arg.value())
+                        state,
+                        row,
+                        row_size,
+                        control,
+                        target,
+                        gate_info.arg.value(),
+                    )
                 else:
                     pass
                     # c_transform_row_simd[simd_width](
@@ -660,7 +807,6 @@ fn c_transform_grid[
                         gate_arg,
                         ctx,
                     )
-                    
 
             # parallelize[process_column_simd](row_size // chunk_size)
             if use_p and use_parallel:
