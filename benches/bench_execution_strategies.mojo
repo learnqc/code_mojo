@@ -53,7 +53,9 @@ fn apply_scalar(input: Tuple[Int, FloatType, Int]) raises -> QuantumState:
     return apply_strategy(input, ExecutionStrategy.SCALAR)
 
 
-fn apply_scalar_parallel(input: Tuple[Int, FloatType, Int]) raises -> QuantumState:
+fn apply_scalar_parallel(
+    input: Tuple[Int, FloatType, Int]
+) raises -> QuantumState:
     return apply_strategy(input, ExecutionStrategy.SCALAR_PARALLEL)
 
 
@@ -80,7 +82,9 @@ fn apply_simd_generic(input: Tuple[Int, FloatType, Int]) raises -> QuantumState:
     return state^
 
 
-fn apply_simd_parallel(input: Tuple[Int, FloatType, Int]) raises -> QuantumState:
+fn apply_simd_parallel(
+    input: Tuple[Int, FloatType, Int]
+) raises -> QuantumState:
     return apply_strategy(input, ExecutionStrategy.SIMD_PARALLEL)
 
 
@@ -88,8 +92,20 @@ fn apply_grid(input: Tuple[Int, FloatType, Int]) raises -> QuantumState:
     return apply_strategy(input, ExecutionStrategy.GRID)
 
 
-fn apply_grid_parallel(input: Tuple[Int, FloatType, Int]) raises -> QuantumState:
+fn apply_grid_parallel(
+    input: Tuple[Int, FloatType, Int]
+) raises -> QuantumState:
     return apply_strategy(input, ExecutionStrategy.GRID_PARALLEL)
+
+
+fn apply_grid_fused(input: Tuple[Int, FloatType, Int]) raises -> QuantumState:
+    return apply_strategy(input, ExecutionStrategy.GRID_FUSED)
+
+
+fn apply_grid_parallel_fused(
+    input: Tuple[Int, FloatType, Int]
+) raises -> QuantumState:
+    return apply_strategy(input, ExecutionStrategy.GRID_PARALLEL_FUSED)
 
 
 fn compare_states(a: QuantumState, b: QuantumState, tolerance: Float64) raises:
@@ -114,7 +130,9 @@ fn main() raises:
         "simd_generic",
         "simd_parallel",
         "grid",
+        "grid_fused",
         "grid_parallel",
+        "grid_parallel_fused",
     )
     var runner = create_runner(NAME, DESCRIPTION, param_cols, bench_cols, 0)
 
@@ -133,13 +151,19 @@ fn main() raises:
     funcs_verify.append(FnType("simd_generic", apply_simd_generic))
     funcs_verify.append(FnType("simd_parallel", apply_simd_parallel))
     funcs_verify.append(FnType("grid", apply_grid))
+    funcs_verify.append(FnType("grid_fused", apply_grid_fused))
     funcs_verify.append(FnType("grid_parallel", apply_grid_parallel))
+    funcs_verify.append(
+        FnType("grid_parallel_fused", apply_grid_parallel_fused)
+    )
 
     var funcs = List[FnType]()
     funcs.append(FnType("simd", apply_simd))
     funcs.append(FnType("simd_parallel", apply_simd_parallel))
     funcs.append(FnType("grid", apply_grid))
+    funcs.append(FnType("grid_fused", apply_grid_fused))
     funcs.append(FnType("grid_parallel", apply_grid_parallel))
+    funcs.append(FnType("grid_parallel_fused", apply_grid_parallel_fused))
 
     for n in n_values:
         for stage in range(2):
@@ -148,8 +172,10 @@ fn main() raises:
             params["stage"] = "prep" if stage == 0 else "full"
 
             var input = (n, value, stage)
-            if n<= 20:
-                runner.verify(input, funcs_verify, compare_states, tolerance=1e-10)
+            if n <= 20:
+                runner.verify(
+                    input, funcs_verify, compare_states, tolerance=1e-10
+                )
                 runner.add_perf_results[Input, QuantumState](
                     params,
                     funcs_verify,
@@ -168,7 +194,7 @@ fn main() raises:
                     3,
                     warmup_iters,
                     trials,
-            )
+                )
 
     runner.print_table()
     runner.save_csv("benches/results/" + NAME, autosave=should_autosave())
