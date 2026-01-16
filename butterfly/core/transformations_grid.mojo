@@ -695,6 +695,164 @@ fn transform_column_fused_hp_simd_tiled[
                     im_ptr.store(idx_hp, p_i11)
 
 
+fn transform_column_fused_hh_simd_tiled[
+    chunk_size: Int
+](
+    re_ptr: UnsafePointer[FloatType, MutAnyOrigin],
+    im_ptr: UnsafePointer[FloatType, MutAnyOrigin],
+    num_rows: Int,
+    row_size: Int,
+    col_start: Int,
+    col_end: Int,
+    target_1: Int,  # First H qubit (relative to col_bits)
+    target_2: Int,  # Second H qubit (relative to col_bits)
+):
+    """Tiled fused H+H column operation for cross-row targets."""
+    var stride_1 = 1 << target_1
+    var stride_2 = 1 << target_2
+    var scale: FloatType = 0.5  # (1/√2)² = 0.5
+
+    # Ensure target_1 < target_2 for consistent iteration
+    var low = target_1
+    var high = target_2
+    var stride_low = stride_1
+    var stride_high = stride_2
+    if target_1 > target_2:
+        low = target_2
+        high = target_1
+        stride_low = stride_2
+        stride_high = stride_1
+
+    for k in range(num_rows // (2 * stride_high)):
+        for row_idx in range(
+            k * 2 * stride_high, k * 2 * stride_high + stride_high
+        ):
+            # Skip if low bit is set (we handle pairs starting at low_bit=0)
+            if (row_idx >> low) & 1:
+                continue
+
+            var base00 = row_idx * row_size
+            var base01 = (row_idx + stride_low) * row_size
+            var base10 = (row_idx + stride_high) * row_size
+            var base11 = (row_idx + stride_low + stride_high) * row_size
+
+            for col_base in range(col_start, col_end, chunk_size):
+                var idx00 = base00 + col_base
+                var idx01 = base01 + col_base
+                var idx10 = base10 + col_base
+                var idx11 = base11 + col_base
+
+                var r00 = re_ptr.load[width=chunk_size](idx00)
+                var i00 = im_ptr.load[width=chunk_size](idx00)
+                var r01 = re_ptr.load[width=chunk_size](idx01)
+                var i01 = im_ptr.load[width=chunk_size](idx01)
+                var r10 = re_ptr.load[width=chunk_size](idx10)
+                var i10 = im_ptr.load[width=chunk_size](idx10)
+                var r11 = re_ptr.load[width=chunk_size](idx11)
+                var i11 = im_ptr.load[width=chunk_size](idx11)
+
+                # Apply HH: each output is combination of all 4 inputs
+                # H⊗H: |00⟩→(|00⟩+|01⟩+|10⟩+|11⟩)/2
+                var s_re = r00 + r01 + r10 + r11
+                var s_im = i00 + i01 + i10 + i11
+                var d01_re = r00 - r01 + r10 - r11
+                var d01_im = i00 - i01 + i10 - i11
+                var d10_re = r00 + r01 - r10 - r11
+                var d10_im = i00 + i01 - i10 - i11
+                var d11_re = r00 - r01 - r10 + r11
+                var d11_im = i00 - i01 - i10 + i11
+
+                re_ptr.store(idx00, s_re * scale)
+                im_ptr.store(idx00, s_im * scale)
+                re_ptr.store(idx01, d01_re * scale)
+                im_ptr.store(idx01, d01_im * scale)
+                re_ptr.store(idx10, d10_re * scale)
+                im_ptr.store(idx10, d10_im * scale)
+                re_ptr.store(idx11, d11_re * scale)
+                im_ptr.store(idx11, d11_im * scale)
+
+
+fn transform_column_fused_pp_simd_tiled[
+    chunk_size: Int
+](
+    re_ptr: UnsafePointer[FloatType, MutAnyOrigin],
+    im_ptr: UnsafePointer[FloatType, MutAnyOrigin],
+    num_rows: Int,
+    row_size: Int,
+    col_start: Int,
+    col_end: Int,
+    target_1: Int,  # First P qubit (relative to col_bits)
+    target_2: Int,  # Second P qubit (relative to col_bits)
+    theta_1: FloatType,
+    theta_2: FloatType,
+):
+    """Tiled fused P+P column operation for cross-row targets."""
+    var stride_1 = 1 << target_1
+    var stride_2 = 1 << target_2
+    var cos_1 = cos(theta_1)
+    var sin_1 = sin(theta_1)
+    var cos_2 = cos(theta_2)
+    var sin_2 = sin(theta_2)
+    # Combined phase for |11⟩ state
+    var cos_12 = cos(theta_1 + theta_2)
+    var sin_12 = sin(theta_1 + theta_2)
+
+    var low = target_1
+    var high = target_2
+    var stride_low = stride_1
+    var stride_high = stride_2
+    var cos_low = cos_1
+    var sin_low = sin_1
+    var cos_high = cos_2
+    var sin_high = sin_2
+    if target_1 > target_2:
+        low = target_2
+        high = target_1
+        stride_low = stride_2
+        stride_high = stride_1
+        cos_low = cos_2
+        sin_low = sin_2
+        cos_high = cos_1
+        sin_high = sin_1
+
+    for k in range(num_rows // (2 * stride_high)):
+        for row_idx in range(
+            k * 2 * stride_high, k * 2 * stride_high + stride_high
+        ):
+            if (row_idx >> low) & 1:
+                continue
+
+            var base00 = row_idx * row_size
+            var base01 = (row_idx + stride_low) * row_size
+            var base10 = (row_idx + stride_high) * row_size
+            var base11 = (row_idx + stride_low + stride_high) * row_size
+
+            for col_base in range(col_start, col_end, chunk_size):
+                var idx00 = base00 + col_base
+                var idx01 = base01 + col_base
+                var idx10 = base10 + col_base
+                var idx11 = base11 + col_base
+
+                # |00⟩: no phase
+                # |01⟩: phase by theta_low
+                var r01 = re_ptr.load[width=chunk_size](idx01)
+                var i01 = im_ptr.load[width=chunk_size](idx01)
+                re_ptr.store(idx01, r01 * cos_low - i01 * sin_low)
+                im_ptr.store(idx01, r01 * sin_low + i01 * cos_low)
+
+                # |10⟩: phase by theta_high
+                var r10 = re_ptr.load[width=chunk_size](idx10)
+                var i10 = im_ptr.load[width=chunk_size](idx10)
+                re_ptr.store(idx10, r10 * cos_high - i10 * sin_high)
+                im_ptr.store(idx10, r10 * sin_high + i10 * cos_high)
+
+                # |11⟩: phase by theta_1 + theta_2
+                var r11 = re_ptr.load[width=chunk_size](idx11)
+                var i11 = im_ptr.load[width=chunk_size](idx11)
+                re_ptr.store(idx11, r11 * cos_12 - i11 * sin_12)
+                im_ptr.store(idx11, r11 * sin_12 + i11 * cos_12)
+
+
 fn transform_h_grid[
     simd_width: Int = 8
 ](

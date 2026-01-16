@@ -47,6 +47,8 @@ from butterfly.core.transformations_grid import (
     c_transform_row_h_simd,
     c_transform_row_p_simd,
     transform_column_fused_hp_simd_tiled,
+    transform_column_fused_hh_simd_tiled,
+    transform_column_fused_pp_simd_tiled,
     L2_TILE_COLS,
 )
 from butterfly.core.transformations_unitary import (
@@ -747,7 +749,89 @@ fn apply_fused_pair_grid(
                     process_tile_hp(tile_idx)
             return True
 
-        return False  # Cross-row but not HP fusion
+        # Cross-row HH fusion
+        if t0_is_h and t1_is_h:
+            var target_1 = t0.target - col_bits
+            var target_2 = t1.target - col_bits
+
+            var re_ptr = state.re.unsafe_ptr()
+            var im_ptr = state.im.unsafe_ptr()
+            alias chunk_size = simd_width
+            var tile_size = max(L2_TILE_COLS, chunk_size)
+            tile_size = (tile_size // chunk_size) * chunk_size
+            var num_tiles = (row_size + tile_size - 1) // tile_size
+
+            @__copy_capture(re_ptr, im_ptr, tile_size, target_1, target_2)
+            @parameter
+            fn process_tile_hh(tile_idx: Int):
+                var col_start = tile_idx * tile_size
+                var col_end = min(col_start + tile_size, row_size)
+                col_end = (col_end // chunk_size) * chunk_size
+                if col_end <= col_start:
+                    return
+                transform_column_fused_hh_simd_tiled[chunk_size](
+                    re_ptr,
+                    im_ptr,
+                    num_rows,
+                    row_size,
+                    col_start,
+                    col_end,
+                    target_1,
+                    target_2,
+                )
+
+            if use_parallel:
+                parallelize[process_tile_hh](num_tiles)
+            else:
+                for tile_idx in range(num_tiles):
+                    process_tile_hh(tile_idx)
+            return True
+
+        # Cross-row PP fusion
+        if t0_is_p and t1_is_p:
+            var target_1 = t0.target - col_bits
+            var target_2 = t1.target - col_bits
+            var theta_1 = Float64(t0.gate_info.arg.value())
+            var theta_2 = Float64(t1.gate_info.arg.value())
+
+            var re_ptr = state.re.unsafe_ptr()
+            var im_ptr = state.im.unsafe_ptr()
+            alias chunk_size = simd_width
+            var tile_size = max(L2_TILE_COLS, chunk_size)
+            tile_size = (tile_size // chunk_size) * chunk_size
+            var num_tiles = (row_size + tile_size - 1) // tile_size
+
+            @__copy_capture(
+                re_ptr, im_ptr, tile_size, target_1, target_2, theta_1, theta_2
+            )
+            @parameter
+            fn process_tile_pp(tile_idx: Int):
+                var col_start = tile_idx * tile_size
+                var col_end = min(col_start + tile_size, row_size)
+                col_end = (col_end // chunk_size) * chunk_size
+                if col_end <= col_start:
+                    return
+                transform_column_fused_pp_simd_tiled[chunk_size](
+                    re_ptr,
+                    im_ptr,
+                    num_rows,
+                    row_size,
+                    col_start,
+                    col_end,
+                    target_1,
+                    target_2,
+                    theta_1,
+                    theta_2,
+                )
+
+            if use_parallel:
+                parallelize[process_tile_pp](num_tiles)
+            else:
+                for tile_idx in range(num_tiles):
+                    process_tile_pp(tile_idx)
+            return True
+
+        return False  # Cross-row but not supported fusion
 
     # Row-local operations: both targets must be < col_bits
     if t0_is_cross_row or t1_is_cross_row:
