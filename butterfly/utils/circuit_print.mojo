@@ -157,7 +157,7 @@ fn circuit_to_ascii(circuit: Circuit) -> String:
         lines.append("q" + qlabel + ": ")
 
     for tr in circuit.transformations:
-        var label = ""
+        # var label = ""
         var gate_tr = GateTransformation([], 0, H_Gate)
         var is_gate = False
         var is_swap = False

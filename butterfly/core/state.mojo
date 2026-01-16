@@ -533,7 +533,8 @@ fn apply_measure(
         var is_match = True
         for j in range(len(targets)):
             var bit = (i >> targets[j]) & 1
-            var desired = 0
+            # var desired = 0
+            var desired: Int
             var opt_val = values[j]
             if opt_val:
                 desired = 1 if opt_val.value() else 0

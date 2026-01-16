@@ -281,13 +281,13 @@ fn apply_fused_pair(mut state: QuantumState, pair: FusedPairTransformation) rais
     if t1.kind == ControlKind.SINGLE_CONTROL:
         control1 = t1.controls[0]
     var bounds0 = gate_bounds(t0.target, t0.kind, control0)
-    var bounds1 = gate_bounds(t1.target, t1.kind, control1)
+    var bounds1: Tuple[Int, Int] = gate_bounds(t1.target, t1.kind, control1)
     var q_low = bounds0[0]
     if bounds1[0] < q_low:
         q_low = bounds1[0]
-    var q_high = bounds0[1]
-    if bounds1[1] > q_high:
-        q_high = bounds1[1]
+    # var q_high: Int = bounds0[1]
+    # if bounds1[1] > q_high:
+    #     q_high = bounds1[1]
 
     var m0 = gate_to_matrix4x4(t0.gate_info.gate, q_low, t0.target)
     if t0.kind == ControlKind.SINGLE_CONTROL:

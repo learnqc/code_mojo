@@ -1105,7 +1105,7 @@ def print_state_grid_colored_cells(
     if signed_y:
         row_idx_width = len(String(-(rows // 2)))
     if show_bin_labels and row_label_bits > 0 and show_row_labels:
-        var bin_width = len(String((1 << row_label_bits) - 1))
+        # var bin_width = len(String((1 << row_label_bits) - 1))
         row_idx_width = max(
             row_idx_width,
             row_label_bits + len(" -> ") + len(String(rows - 1)),
@@ -1150,7 +1150,7 @@ def print_state_grid_colored_cells(
             var idx = r * cols + c
             var amp = state[idx]
             var fg_code = get_color_code(amp.re, amp.im)
-            var bg_code = ""
+            # var bg_code = ""
             if use_bg:
                 bg_code = get_bg_color_code(amp.re, amp.im)
             var mag = sqrt(amp.re * amp.re + amp.im * amp.im)

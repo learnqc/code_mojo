@@ -51,7 +51,7 @@ fn parse_qubit_index(token: String) raises -> Int:
 
 fn parse_qasm3_string(qasm: String) raises -> QuantumCircuit:
     var lines = qasm.split("\n")
-    var n_qubits = -1
+    # var n_qubits = -1
     var circuit = QuantumCircuit(0)
     var has_circuit = False
 

@@ -633,11 +633,12 @@ fn c_transform_grid[
     else:
         # Operation across rows - parallelize by column
         var t_row = target - col_bits
-        var stride = 1 << t_row
+        stride: Int = 1 << t_row
         alias chunk_size = simd_width
 
         if with_simd and row_size >= chunk_size:
 
+            @__copy_capture(stride)
             @parameter
             fn process_column_simd(chunk_idx: Int):
                 # var col_base = chunk_idx * chunk_size
