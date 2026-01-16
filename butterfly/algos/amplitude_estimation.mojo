@@ -21,7 +21,7 @@ fn append_amplitude_estimation(
 
     # 2. Evaluations: Hadamards
     for i in range(n):
-        qc.h(c.start + i) #TODO
+        qc.h(c[i])
 
     # 3. Iterative controlled Grover iterations
     # Manually construct Q = A S0 A^dag O
@@ -40,7 +40,7 @@ fn append_amplitude_estimation(
     var step = grover_op^
 
     for i in range(n):
-        var ctrl_idx = c.start + (c.start + i if swap else c.start + n - 1 - i) #TODO
+        var ctrl_idx = c[i] if swap else c[n - 1 - i]
         for _ in range(1 << i):
             # c_append_circuit should be available in QuantumCircuit as verified
             _ = qc.c_append_circuit(ctrl_idx, step, q)

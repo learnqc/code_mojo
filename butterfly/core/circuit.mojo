@@ -216,6 +216,9 @@ struct Register(Copyable, Movable):
         self.start = start
         self.length = length
 
+    fn __getitem__(self, idx: Int) -> Int:
+        return self.start + idx
+        
 struct Circuit[StateType: AnyType](Copyable, Movable):
     var transformations: List[Transformation[StateType]]
     var num_qubits: Int

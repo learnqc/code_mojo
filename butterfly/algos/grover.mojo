@@ -119,14 +119,14 @@ fn grover_circuit(
     Otherwise, uses a gate-based oracle.
     Note: Does NOT include initial preparation.
     """
-    # var oracle: QuantumCircuit
-    # if use_shortcut:
-    #     # oracle = diagonal_oracle(num_qubits, items)
-    #     pass
-    # else:
-    #     oracle = phase_oracle_match(num_qubits, items)
+    var oracle: QuantumCircuit
+    if use_shortcut:
+        # oracle = diagonal_oracle(num_qubits, items)
+        oracle = phase_oracle_match(num_qubits, items)
+    else:
+        oracle = phase_oracle_match(num_qubits, items)
 
-    var oracle: QuantumCircuit = phase_oracle_match(num_qubits, items)
+    # var oracle: QuantumCircuit = phase_oracle_match(num_qubits, items)
     var q = QuantumRegister("q", num_qubits)
     var qc = QuantumCircuit(q)
 
