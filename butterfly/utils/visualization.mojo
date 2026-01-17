@@ -1112,13 +1112,15 @@ struct FrameIterator(Movable):
     var left_pad: Int
     var row_separators: Bool
     var max_rows: Int
+    var exp_bits: Int
+    var value_bits: Int
 
     fn frame_lines(self) raises -> List[String]:
         if self.step > self.total:
             return List[String]()
         var label = "init" if self.step == 0 else ""
-        return (
-            render_table_frame_lines(
+        if self.kind == 0:
+            return render_table_frame_lines(
                 self.state,
                 self.step,
                 self.total,
@@ -1130,8 +1132,8 @@ struct FrameIterator(Movable):
                 row_separators=self.row_separators,
                 max_rows=self.max_rows,
             )
-            if self.kind == 0
-            else render_grid_frame_lines(
+        if self.kind == 1:
+            return render_grid_frame_lines(
                 self.state,
                 self.step,
                 self.total,
@@ -1145,6 +1147,19 @@ struct FrameIterator(Movable):
                 self.show_step_label,
                 self.left_pad,
             )
+        return render_exp_marginal_table_lines(
+            self.state,
+            self.step,
+            self.total,
+            label,
+            self.exp_bits,
+            self.value_bits,
+            self.short,
+            self.use_color,
+            self.show_step_label,
+            self.left_pad,
+            row_separators=self.row_separators,
+            max_rows=self.max_rows,
         )
 
     fn frame_width(self) raises -> Int:
@@ -1179,6 +1194,8 @@ struct FrameIterator(Movable):
         left_pad: Int,
         row_separators: Bool,
         max_rows: Int,
+        exp_bits: Int,
+        value_bits: Int,
     ):
         self.circuit = circuit^
         self.state = state^
@@ -1197,6 +1214,8 @@ struct FrameIterator(Movable):
         self.left_pad = left_pad
         self.row_separators = row_separators
         self.max_rows = max_rows
+        self.exp_bits = exp_bits
+        self.value_bits = value_bits
 
     @staticmethod
     fn grid(
@@ -1228,6 +1247,8 @@ struct FrameIterator(Movable):
             show_step_label,
             left_pad,
             False,
+            0,
+            0,
             0,
         )
         return it^
@@ -1261,6 +1282,44 @@ struct FrameIterator(Movable):
             left_pad,
             row_separators,
             max_rows,
+            0,
+            0,
+        )
+        return it^
+
+    @staticmethod
+    fn exp_marginal_table(
+        var circuit: QuantumCircuit,
+        var state: State,
+        exp_bits: Int,
+        value_bits: Int,
+        short: Bool = True,
+        use_color: Bool = True,
+        show_step_label: Bool = True,
+        left_pad: Int = 0,
+        row_separators: Bool = False,
+        max_rows: Int = 0,
+    ) -> FrameIterator:
+        var it = FrameIterator(
+            circuit^,
+            state^,
+            0,
+            len(circuit.transformations),
+            2,
+            0,
+            False,
+            False,
+            False,
+            True,
+            False,
+            short,
+            use_color,
+            show_step_label,
+            left_pad,
+            row_separators,
+            max_rows,
+            exp_bits,
+            value_bits,
         )
         return it^
 
@@ -1324,6 +1383,33 @@ struct FrameSource(Movable):
         var it = FrameIterator.table(
             circuit^,
             state^,
+            short=short,
+            use_color=use_color,
+            show_step_label=show_step_label,
+            left_pad=left_pad,
+            row_separators=row_separators,
+            max_rows=max_rows,
+        )
+        return FrameSource(it^)
+
+    @staticmethod
+    fn exp_marginal_table(
+        var circuit: QuantumCircuit,
+        var state: State,
+        exp_bits: Int,
+        value_bits: Int,
+        short: Bool = True,
+        use_color: Bool = True,
+        show_step_label: Bool = True,
+        left_pad: Int = 0,
+        row_separators: Bool = False,
+        max_rows: Int = 0,
+    ) -> FrameSource:
+        var it = FrameIterator.exp_marginal_table(
+            circuit^,
+            state^,
+            exp_bits,
+            value_bits,
             short=short,
             use_color=use_color,
             show_step_label=show_step_label,
@@ -1631,6 +1717,59 @@ fn render_table_frame_lines(
         if row_separators:
             lines.append(pad + " " + "-" * 97)
     return lines^
+
+
+fn _exp_marginal_state(
+    state: State,
+    exp_bits: Int,
+    value_bits: Int,
+) -> State:
+    var total_bits = exp_bits + value_bits
+    var size = state.size()
+    if total_bits <= 0 or size != (1 << total_bits):
+        return State(List[FloatType](), List[FloatType]())
+    var exp_size = 1 << exp_bits
+    var re = List[FloatType](length=exp_size, fill=0.0)
+    var im = List[FloatType](length=exp_size, fill=0.0)
+    var mask = exp_size - 1
+    for idx in range(size):
+        var x = idx & mask
+        var amp = state[idx]
+        var prob = amp.re * amp.re + amp.im * amp.im
+        re[x] += prob
+    for i in range(exp_size):
+        if re[i] > 0.0:
+            re[i] = sqrt(re[i])
+    return State(re^, im^)
+
+
+fn render_exp_marginal_table_lines(
+    state: State,
+    step: Int,
+    total: Int,
+    label: String,
+    exp_bits: Int,
+    value_bits: Int,
+    short: Bool,
+    use_color: Bool,
+    show_step_label: Bool,
+    left_pad: Int,
+    row_separators: Bool = False,
+    max_rows: Int = 0,
+) raises -> List[String]:
+    var projected = _exp_marginal_state(state, exp_bits, value_bits)
+    return render_table_frame_lines(
+        projected,
+        step,
+        total,
+        label,
+        short,
+        use_color,
+        show_step_label,
+        left_pad,
+        row_separators=row_separators,
+        max_rows=max_rows,
+    )
 
 
 fn render_grid_frame_lines(
