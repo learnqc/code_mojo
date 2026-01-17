@@ -956,8 +956,11 @@ def print_state(
     short: Bool = True,
     use_color: Bool = True,
     left_pad: Int = 0,
+    max_rows: Int = 0,
 ):
-    rows = 16 if short else max(16, state.size())
+    var rows = 16 if short else max(16, state.size())
+    if max_rows > 0:
+        rows = max_rows
 
     var sub_re = List[FloatType]()
     var sub_im = List[FloatType]()
@@ -1108,6 +1111,7 @@ struct FrameIterator(Movable):
     var show_step_label: Bool
     var left_pad: Int
     var row_separators: Bool
+    var max_rows: Int
 
     fn frame_lines(self) raises -> List[String]:
         if self.step > self.total:
@@ -1124,6 +1128,7 @@ struct FrameIterator(Movable):
                 self.show_step_label,
                 self.left_pad,
                 row_separators=self.row_separators,
+                max_rows=self.max_rows,
             )
             if self.kind == 0
             else render_grid_frame_lines(
@@ -1173,6 +1178,7 @@ struct FrameIterator(Movable):
         show_step_label: Bool,
         left_pad: Int,
         row_separators: Bool,
+        max_rows: Int,
     ):
         self.circuit = circuit^
         self.state = state^
@@ -1190,6 +1196,7 @@ struct FrameIterator(Movable):
         self.show_step_label = show_step_label
         self.left_pad = left_pad
         self.row_separators = row_separators
+        self.max_rows = max_rows
 
     @staticmethod
     fn grid(
@@ -1221,6 +1228,7 @@ struct FrameIterator(Movable):
             show_step_label,
             left_pad,
             False,
+            0,
         )
         return it^
 
@@ -1233,6 +1241,7 @@ struct FrameIterator(Movable):
         show_step_label: Bool = True,
         left_pad: Int = 0,
         row_separators: Bool = False,
+        max_rows: Int = 0,
     ) -> FrameIterator:
         var it = FrameIterator(
             circuit^,
@@ -1251,6 +1260,7 @@ struct FrameIterator(Movable):
             show_step_label,
             left_pad,
             row_separators,
+            max_rows,
         )
         return it^
 
@@ -1309,6 +1319,7 @@ struct FrameSource(Movable):
         show_step_label: Bool = True,
         left_pad: Int = 0,
         row_separators: Bool = False,
+        max_rows: Int = 0,
     ) -> FrameSource:
         var it = FrameIterator.table(
             circuit^,
@@ -1318,6 +1329,7 @@ struct FrameSource(Movable):
             show_step_label=show_step_label,
             left_pad=left_pad,
             row_separators=row_separators,
+            max_rows=max_rows,
         )
         return FrameSource(it^)
 
@@ -1378,17 +1390,40 @@ fn animate_frame_source_pair(
     var step = 0
     var left_init = left.iter.state.copy()
     var right_init = right.iter.state.copy()
+    var last_left_lines = List[String]()
+    var last_right_lines = List[String]()
 
     @always_inline
-    fn render_pair(
+    fn render_pair_with_cache(
         step: Int,
         mut left_ref: FrameSource,
         mut right_ref: FrameSource,
+        mut last_left: List[String],
+        mut last_right: List[String],
+        gap: Int,
+        fixed_width: Int,
+        redraw_in_place: Bool,
+        total_left: Int,
+        total_right: Int,
     ) raises:
-        left_ref.iter.step = step
-        right_ref.iter.step = step
+        var left_step = step
+        var right_step = step
+        if left_step > total_left:
+            left_step = total_left
+        if right_step > total_right:
+            right_step = total_right
+        left_ref.iter.step = left_step
+        right_ref.iter.step = right_step
         var left_lines = left_ref.iter.frame_lines()
         var right_lines = right_ref.iter.frame_lines()
+        if len(left_lines) > 0:
+            last_left = left_lines.copy()
+        else:
+            left_lines = last_left.copy()
+        if len(right_lines) > 0:
+            last_right = right_lines.copy()
+        else:
+            right_lines = last_right.copy()
         var merged = _merge_frame_lines_fixed(
             left_lines,
             right_lines,
@@ -1401,7 +1436,18 @@ fn animate_frame_source_pair(
         for i in range(len(merged)):
             print(merged[i])
 
-    render_pair(step, left, right)
+    render_pair_with_cache(
+        step,
+        left,
+        right,
+        last_left_lines,
+        last_right_lines,
+        gap,
+        fixed_width,
+        redraw_in_place,
+        total_left,
+        total_right,
+    )
     while True:
         if step_on_input:
             var delta = wait_for_step_delta()
@@ -1453,7 +1499,18 @@ fn animate_frame_source_pair(
                                 )
                             execute(right.iter.state, sub_right, ExecContext())
                 step = target
-                render_pair(step, left, right)
+                render_pair_with_cache(
+                    step,
+                    left,
+                    right,
+                    last_left_lines,
+                    last_right_lines,
+                    gap,
+                    fixed_width,
+                    redraw_in_place,
+                    total_left,
+                    total_right,
+                )
                 continue
             if delta > 0:
                 if step >= total:
@@ -1463,7 +1520,18 @@ fn animate_frame_source_pair(
                 if step < total_right:
                     right.iter.advance()
                 step += 1
-                render_pair(step, left, right)
+                render_pair_with_cache(
+                    step,
+                    left,
+                    right,
+                    last_left_lines,
+                    last_right_lines,
+                    gap,
+                    fixed_width,
+                    redraw_in_place,
+                    total_left,
+                    total_right,
+                )
                 continue
         else:
             if step >= total:
@@ -1473,7 +1541,18 @@ fn animate_frame_source_pair(
             if step < total_right:
                 right.iter.advance()
             step += 1
-            render_pair(step, left, right)
+            render_pair_with_cache(
+                step,
+                left,
+                right,
+                last_left_lines,
+                last_right_lines,
+                gap,
+                fixed_width,
+                redraw_in_place,
+                total_left,
+                total_right,
+            )
             if delay_s > 0.0:
                 sleep(delay_s)
 
@@ -1489,6 +1568,7 @@ fn render_table_frame_lines(
     show_step_label: Bool,
     left_pad: Int = 0,
     row_separators: Bool = False,
+    max_rows: Int = 0,
 ) raises -> List[String]:
     var lines = List[String]()
     var pad = ""
@@ -1500,7 +1580,9 @@ fn render_table_frame_lines(
             header += ": " + label
         lines.append(pad + header)
 
-    rows = 16 if short else max(16, state.size())
+    var rows = 16 if short else max(16, state.size())
+    if max_rows > 0:
+        rows = max_rows
     var sub_re = List[FloatType]()
     var sub_im = List[FloatType]()
     limit = min(state.size(), rows)
@@ -2006,6 +2088,7 @@ def render_table_frame(
     show_step_label: Bool,
     redraw_in_place: Bool,
     left_pad: Int = 0,
+    max_rows: Int = 0,
 ):
     if redraw_in_place:
         print("\033c", end="")
@@ -2020,6 +2103,7 @@ def render_table_frame(
         short=short,
         use_color=use_color,
         left_pad=left_pad,
+        max_rows=max_rows,
     )
 
 
@@ -2245,6 +2329,7 @@ fn animate_execution_table(
     step_on_input: Bool = False,
     redraw_in_place: Bool = True,
     left_pad: Int = 0,
+    max_rows: Int = 0,
     ctx: ExecContext = ExecContext(),
 ) raises:
     """Execute and render the state table after each transformation."""
@@ -2296,6 +2381,7 @@ fn animate_execution_table(
             show_step_label,
             redraw_in_place,
             left_pad,
+            max_rows,
         )
         while True:
             var delta = wait_for_step_delta()
@@ -2349,6 +2435,7 @@ fn animate_execution_table(
                 show_step_label,
                 redraw_in_place,
                 left_pad,
+                max_rows,
             )
     else:
         var step = 0
@@ -2362,6 +2449,7 @@ fn animate_execution_table(
             show_step_label,
             redraw_in_place,
             left_pad,
+            max_rows,
         )
         if delay_s > 0.0:
             sleep(delay_s)
@@ -2381,6 +2469,7 @@ fn animate_execution_table(
                 show_step_label,
                 redraw_in_place,
                 left_pad,
+                max_rows,
             )
             if delay_s > 0.0:
                 sleep(delay_s)
