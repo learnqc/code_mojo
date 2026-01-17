@@ -49,7 +49,7 @@ fn test_qae_rotation() raises:
     # The state register is after that.
     # We need to sum probabilities over the state register for each evaluation outcome.
 
-    var max_prob = 0.0
+    var max_prob = FloatType(0.0)
     var best_y = 0
 
     var N_eval = 1 << precision
