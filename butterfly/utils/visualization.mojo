@@ -955,6 +955,7 @@ def print_state(
     prefix: Tuple[Int, Int] = (0, 0),
     short: Bool = True,
     use_color: Bool = True,
+    left_pad: Int = 0,
 ):
     rows = 16 if short else max(16, state.size())
 
@@ -968,6 +969,499 @@ def print_state(
     table = to_table(sub_state, prefix, 3)
 
     headers = [
+        "|" + "Out".center(len(table[0][0]) - 2, " "),
+        "Bin".center(len(table[0][1]) + 1, " "),
+        "Ampl".center(len(table[0][2]) + 1, " "),
+        "Mag".center(len(table[0][3]) + 1, " "),
+        "Dir".center(len(table[0][4]), " "),
+        "Ampl Bar".center(17, " "),
+        "Prob".center(len(table[0][6]) + 1, " "),
+        "Prob Bar".center(17, " "),
+    ]
+
+    var pad = ""
+    if left_pad > 0:
+        pad = " " * left_pad
+    print(pad + " " + "-" * 97)
+    var header_line = ""
+    for i in range(len(headers)):
+        header_line += headers[i] + "|"
+    print(pad + header_line)
+    print(pad + " " + "-" * 97)
+
+    real_color_code = get_color_code(1, 0)
+    reset_color_code = "\033[0m"
+
+    for i in range(len(table)):
+        print(pad)
+        var row_line = ""
+        for j in range(len(table[i])):
+            var cell = table[i][j].replace("￤", "|")
+            if use_color:
+                if j == 5:  # MagBar
+                    cell = (
+                        get_color_code(sub_state[i].re, sub_state[i].im)
+                        + cell
+                        + reset_color_code
+                    )
+                if j == 7:  # ProbBar
+                    cell = real_color_code + cell + reset_color_code
+            row_line += cell + " |"
+        print(pad + row_line)
+    print(pad)
+
+
+fn _visible_len(text: String) raises -> Int:
+    var length = 0
+    var i = 0
+    var n = len(text)
+    var esc = "\033"[0]
+    var bracket = "["[0]
+    var m_char = "m"[0]
+    while i < n:
+        if text[i] == esc:
+            i += 1
+            if i < n and text[i] == bracket:
+                i += 1
+                while i < n and text[i] != m_char:
+                    i += 1
+                if i < n:
+                    i += 1
+                continue
+        length += 1
+        i += 1
+    return length
+
+
+def _merge_frame_lines(
+    left_lines: List[String],
+    right_lines: List[String],
+    gap: Int,
+) -> List[String]:
+    var out = List[String]()
+    var max_lines = max(len(left_lines), len(right_lines))
+    var left_width = 0
+    for i in range(len(left_lines)):
+        var width = _visible_len(left_lines[i])
+        if width > left_width:
+            left_width = width
+    var gap_spaces = ""
+    for _ in range(max(0, gap)):
+        gap_spaces += " "
+    for i in range(max_lines):
+        var left = "" if i >= len(left_lines) else left_lines[i]
+        var right = "" if i >= len(right_lines) else right_lines[i]
+        var pad = left_width - _visible_len(left)
+        if pad < 0:
+            pad = 0
+        var padding = ""
+        for _ in range(pad):
+            padding += " "
+        out.append(left + padding + gap_spaces + right)
+    return out^
+
+
+def _merge_frame_lines_fixed(
+    left_lines: List[String],
+    right_lines: List[String],
+    gap: Int,
+    left_width: Int,
+) -> List[String]:
+    var out = List[String]()
+    var max_lines = max(len(left_lines), len(right_lines))
+    var fixed_width = left_width
+    if fixed_width <= 0:
+        for i in range(len(left_lines)):
+            var width = _visible_len(left_lines[i])
+            if width > fixed_width:
+                fixed_width = width
+    var gap_spaces = ""
+    for _ in range(max(0, gap)):
+        gap_spaces += " "
+    for i in range(max_lines):
+        var left = "" if i >= len(left_lines) else left_lines[i]
+        var right = "" if i >= len(right_lines) else right_lines[i]
+        var pad = fixed_width - _visible_len(left)
+        if pad < 0:
+            pad = 0
+        var padding = ""
+        for _ in range(pad):
+            padding += " "
+        out.append(left + padding + gap_spaces + right)
+    return out^
+
+
+struct FrameIterator(Movable):
+    var circuit: QuantumCircuit
+    var state: State
+    var step: Int
+    var total: Int
+    var kind: Int
+    var col_bits: Int
+    var use_log: Bool
+    var origin_bottom: Bool
+    var show_bin_labels: Bool
+    var use_bg: Bool
+    var show_chars: Bool
+    var short: Bool
+    var use_color: Bool
+    var show_step_label: Bool
+    var left_pad: Int
+    var row_separators: Bool
+
+    fn frame_lines(self) raises -> List[String]:
+        if self.step > self.total:
+            return List[String]()
+        var label = "init" if self.step == 0 else ""
+        return (
+            render_table_frame_lines(
+                self.state,
+                self.step,
+                self.total,
+                label,
+                self.short,
+                self.use_color,
+                self.show_step_label,
+                self.left_pad,
+                row_separators=self.row_separators,
+            )
+            if self.kind == 0
+            else render_grid_frame_lines(
+                self.state,
+                self.step,
+                self.total,
+                label,
+                self.col_bits,
+                self.use_log,
+                self.origin_bottom,
+                self.use_bg,
+                self.show_bin_labels,
+                self.show_chars,
+                self.show_step_label,
+                self.left_pad,
+            )
+        )
+
+    fn frame_width(self) raises -> Int:
+        var lines = self.frame_lines()
+        var width = 0
+        for i in range(len(lines)):
+            var w = _visible_len(lines[i])
+            if w > width:
+                width = w
+        return width
+
+    fn frame_height(self) raises -> Int:
+        var lines = self.frame_lines()
+        return len(lines)
+
+    fn __init__(
+        out self,
+        var circuit: QuantumCircuit,
+        var state: State,
+        step: Int,
+        total: Int,
+        kind: Int,
+        col_bits: Int,
+        use_log: Bool,
+        origin_bottom: Bool,
+        show_bin_labels: Bool,
+        use_bg: Bool,
+        show_chars: Bool,
+        short: Bool,
+        use_color: Bool,
+        show_step_label: Bool,
+        left_pad: Int,
+        row_separators: Bool,
+    ):
+        self.circuit = circuit^
+        self.state = state^
+        self.step = step
+        self.total = total
+        self.kind = kind
+        self.col_bits = col_bits
+        self.use_log = use_log
+        self.origin_bottom = origin_bottom
+        self.show_bin_labels = show_bin_labels
+        self.use_bg = use_bg
+        self.show_chars = show_chars
+        self.short = short
+        self.use_color = use_color
+        self.show_step_label = show_step_label
+        self.left_pad = left_pad
+        self.row_separators = row_separators
+
+    @staticmethod
+    fn grid(
+        var circuit: QuantumCircuit,
+        var state: State,
+        col_bits: Int,
+        use_log: Bool = False,
+        origin_bottom: Bool = False,
+        show_bin_labels: Bool = False,
+        use_bg: Bool = True,
+        show_chars: Bool = False,
+        show_step_label: Bool = True,
+        left_pad: Int = 0,
+    ) -> FrameIterator:
+        var it = FrameIterator(
+            circuit^,
+            state^,
+            0,
+            len(circuit.transformations),
+            1,
+            col_bits,
+            use_log,
+            origin_bottom,
+            show_bin_labels,
+            use_bg,
+            show_chars,
+            True,
+            True,
+            show_step_label,
+            left_pad,
+            False,
+        )
+        return it^
+
+    @staticmethod
+    fn table(
+        var circuit: QuantumCircuit,
+        var state: State,
+        short: Bool = True,
+        use_color: Bool = True,
+        show_step_label: Bool = True,
+        left_pad: Int = 0,
+        row_separators: Bool = False,
+    ) -> FrameIterator:
+        var it = FrameIterator(
+            circuit^,
+            state^,
+            0,
+            len(circuit.transformations),
+            0,
+            0,
+            False,
+            False,
+            False,
+            True,
+            False,
+            short,
+            use_color,
+            show_step_label,
+            left_pad,
+            row_separators,
+        )
+        return it^
+
+    fn next(mut self) raises -> Optional[List[String]]:
+        if self.step > self.total:
+            return None
+        var lines = self.frame_lines()
+        self.advance()
+        return lines^
+
+    fn advance(mut self) raises:
+        if self.step < self.total:
+            var tr = self.circuit.transformations[self.step]
+            var step_circuit = QuantumCircuit(self.circuit.num_qubits)
+            step_circuit.transformations.append(tr.copy())
+            execute(self.state, step_circuit, ExecContext())
+        self.step += 1
+
+
+struct FrameSource(Movable):
+    var iter: FrameIterator
+
+    @staticmethod
+    fn grid(
+        var circuit: QuantumCircuit,
+        var state: State,
+        col_bits: Int,
+        use_log: Bool = False,
+        origin_bottom: Bool = False,
+        show_bin_labels: Bool = False,
+        use_bg: Bool = True,
+        show_chars: Bool = False,
+        show_step_label: Bool = True,
+        left_pad: Int = 0,
+    ) -> FrameSource:
+        var it = FrameIterator.grid(
+            circuit^,
+            state^,
+            col_bits,
+            use_log=use_log,
+            origin_bottom=origin_bottom,
+            show_bin_labels=show_bin_labels,
+            use_bg=use_bg,
+            show_chars=show_chars,
+            show_step_label=show_step_label,
+            left_pad=left_pad,
+        )
+        return FrameSource(it^)
+
+    @staticmethod
+    fn table(
+        var circuit: QuantumCircuit,
+        var state: State,
+        short: Bool = True,
+        use_color: Bool = True,
+        show_step_label: Bool = True,
+        left_pad: Int = 0,
+        row_separators: Bool = False,
+    ) -> FrameSource:
+        var it = FrameIterator.table(
+            circuit^,
+            state^,
+            short=short,
+            use_color=use_color,
+            show_step_label=show_step_label,
+            left_pad=left_pad,
+            row_separators=row_separators,
+        )
+        return FrameSource(it^)
+
+    fn __init__(out self, var iter: FrameIterator):
+        self.iter = iter^
+
+    fn next_frame(mut self) raises -> Optional[List[String]]:
+        return self.iter.next()
+
+
+fn animate_frame_source_pair(
+    mut left: FrameSource,
+    mut right: FrameSource,
+    left_width: Int = 0,
+    gap: Int = 4,
+    delay_s: Float64 = 0.0,
+    redraw_in_place: Bool = True,
+    step_on_input: Bool = False,
+) raises:
+    """Animate two full-frame sources side-by-side."""
+    @always_inline
+    fn wait_for_step_delta() raises -> Int:
+        from python import Python
+
+        var sys = Python.import_module("sys")
+        var termios = Python.import_module("termios")
+        var tty = Python.import_module("tty")
+        var stdin = sys.stdin
+        var fd = stdin.fileno()
+        var old = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            var ch = String(stdin.read(1))
+            if ch == "\r" or ch == "\n" or ch == " ":
+                return 1
+            if ch == "\x7f":
+                return -1
+            if ch == "q" or ch == "Q" or ch == "\x03":
+                return 2
+            if ch == "\x1b":
+                var ch2 = String(stdin.read(1))
+                if ch2 == "[":
+                    var ch3 = String(stdin.read(1))
+                    if ch3 == "C":
+                        return 1
+                    if ch3 == "D":
+                        return -1
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        return 0
+
+    var fixed_width = left_width
+    if fixed_width <= 0:
+        fixed_width = left.iter.frame_width()
+    var history = List[List[String]]()
+    var idx = 0
+    var done = False
+    while True:
+        if idx >= len(history) and not done:
+            var left_opt = left.next_frame()
+            var right_opt = right.next_frame()
+            if left_opt is None and right_opt is None:
+                done = True
+            else:
+                var left_lines = List[String]()
+                var right_lines = List[String]()
+                if left_opt is not None:
+                    left_lines = left_opt.value().copy()
+                if right_opt is not None:
+                    right_lines = right_opt.value().copy()
+                var merged = _merge_frame_lines_fixed(
+                    left_lines,
+                    right_lines,
+                    gap,
+                    fixed_width,
+                )
+                history.append(merged^)
+        if len(history) == 0:
+            break
+        if idx < 0:
+            idx = 0
+        if idx >= len(history):
+            idx = len(history) - 1
+        if redraw_in_place:
+            print("\033c", end="")
+            print("\033[H", end="")
+        var frame = history[idx].copy()
+        for i in range(len(frame)):
+            print(frame[i])
+        if step_on_input:
+            while True:
+                var delta = wait_for_step_delta()
+                if delta == 0:
+                    continue
+                if delta == 2:
+                    return
+                if delta < 0:
+                    if idx > 0:
+                        idx -= 1
+                    break
+                if delta > 0:
+                    idx += 1
+                    break
+        else:
+            if delay_s > 0.0:
+                sleep(delay_s)
+            idx += 1
+        if done and idx >= len(history):
+            break
+
+
+
+fn render_table_frame_lines(
+    state: State,
+    step: Int,
+    total: Int,
+    label: String,
+    short: Bool,
+    use_color: Bool,
+    show_step_label: Bool,
+    left_pad: Int = 0,
+    row_separators: Bool = False,
+) raises -> List[String]:
+    var lines = List[String]()
+    var pad = ""
+    if left_pad > 0:
+        pad = " " * left_pad
+    if show_step_label:
+        var header = "Step " + String(step) + "/" + String(total)
+        if label != "":
+            header += ": " + label
+        lines.append(pad + header)
+
+    rows = 16 if short else max(16, state.size())
+    var sub_re = List[FloatType]()
+    var sub_im = List[FloatType]()
+    limit = min(state.size(), rows)
+    for i in range(limit):
+        sub_re.append(state[i].re)
+        sub_im.append(state[i].im)
+    var sub_state = State(sub_re^, sub_im^)
+    table = to_table(sub_state, (0, 0), 3)
+
+    headers = [
         "￤" + "Out".center(len(table[0][0]) - 2, " "),
         "Bin".center(len(table[0][1]) + 1, " "),
         "Ampl".center(len(table[0][2]) + 1, " "),
@@ -978,20 +1472,18 @@ def print_state(
         "Prob Bar".center(17, " "),
     ]
 
-    print(" ", end="")
-    print("-" * 97, end="\n")
+    lines.append(pad + " " + "-" * 97)
+    var header_line = ""
     for i in range(len(headers)):
-        print(headers[i], end="￤")
-    print()
-    print(" ", end="")
-    print("-" * 97, end="")
+        header_line += headers[i] + "￤"
+    lines.append(pad + header_line)
+    lines.append(pad + " " + "-" * 97)
 
     real_color_code = get_color_code(1, 0)
     reset_color_code = "\033[0m"
 
     for i in range(len(table)):
-        print("\n")
-
+        var row_line = ""
         for j in range(len(table[i])):
             var cell = table[i][j]
             if use_color:
@@ -1003,8 +1495,206 @@ def print_state(
                     )
                 if j == 7:  # ProbBar
                     cell = real_color_code + cell + reset_color_code
-            print(cell, end=" ￤")
-    print("\n")
+            row_line += cell + " ￤"
+        lines.append(pad + row_line)
+        if row_separators:
+            lines.append(pad + " " + "-" * 97)
+    return lines^
+
+
+fn render_grid_frame_lines(
+    state: State,
+    step: Int,
+    total: Int,
+    label: String,
+    var col_bits: Int,
+    use_log: Bool,
+    origin_bottom: Bool,
+    use_bg: Bool,
+    show_bin_labels: Bool,
+    show_chars: Bool,
+    show_step_label: Bool,
+    left_pad: Int = 0,
+) raises -> List[String]:
+    var lines = List[String]()
+    var pad = ""
+    if left_pad > 0:
+        pad = " " * left_pad
+    if show_step_label:
+        var header = "Step " + String(step) + "/" + String(total)
+        if label != "":
+            header += ": " + label
+        lines.append(pad + header)
+
+    @always_inline
+    fn make_cell(char: String, cell_width: Int) -> String:
+        var mid = cell_width // 2
+        var out = ""
+        for i in range(cell_width):
+            if i == mid:
+                out += char
+            else:
+                out += " "
+        return out
+
+    @always_inline
+    fn center_label(label: String, cell_width: Int) -> String:
+        if len(label) >= cell_width:
+            return label[:cell_width]
+        var left = (cell_width - len(label)) // 2
+        var right = cell_width - len(label) - left
+        return (" " * left) + label + (" " * right)
+
+    @always_inline
+    fn make_bg_cell(char: String, cell_width: Int, color_width: Int) -> String:
+        var pad_local = ""
+        var cw = color_width
+        if cw > cell_width:
+            cw = cell_width
+        for _ in range(cell_width - cw):
+            pad_local += " "
+        return center_label(char, cw) + pad_local
+
+    var size = state.size()
+    if size <= 0:
+        return lines^
+    var row_size = 1 << col_bits
+    if row_size <= 0 or row_size > size or (size % row_size) != 0:
+        row_size = size
+        col_bits = 0
+    var rows = size // row_size
+    var cols = row_size
+    var ref_amp: FloatType = 1.0
+    var col_label_bits = col_bits
+    if show_bin_labels and col_label_bits == 0:
+        var tmp_cols = cols
+        while tmp_cols > 1:
+            tmp_cols //= 2
+            col_label_bits += 1
+        if col_label_bits == 0:
+            col_label_bits = 0
+
+    var row_idx_width = len(String(rows - 1))
+    var show_row_labels = rows > 1
+    var row_label_bits = col_bits
+    if show_bin_labels and row_label_bits == 0:
+        var tmp_rows = rows
+        while tmp_rows > 1:
+            tmp_rows //= 2
+            row_label_bits += 1
+    if show_bin_labels and row_label_bits > 0 and show_row_labels:
+        row_idx_width = max(
+            row_idx_width,
+            row_label_bits + len(" -> ") + len(String(rows - 1)),
+        )
+    if not show_row_labels:
+        row_idx_width = 0
+
+    var cell_width = 3
+    var h_line = " " * (row_idx_width + 1) + "+"
+    for _ in range(cols):
+        h_line += "-" * cell_width + "+"
+    lines.append(pad + h_line)
+
+    var row_indices = List[Int]()
+    if origin_bottom:
+        for i in range(rows - 1, -1, -1):
+            row_indices.append(i)
+    else:
+        for i in range(rows):
+            row_indices.append(i)
+
+    for r in row_indices:
+        var r_str = String(r) if show_row_labels else ""
+        if show_bin_labels and row_label_bits > 0 and show_row_labels:
+            var bin = ""
+            for bit in reversed(range(row_label_bits)):
+                bin += "1" if ((r >> bit) & 1) == 1 else "0"
+            r_str = bin + " - " + String(r)
+        var row_pad = " " * (row_idx_width - len(r_str))
+        var line = row_pad + r_str + " |"
+        for c in range(cols):
+            var idx = r * cols + c
+            var amp = state[idx]
+            var fg_code = get_color_code(amp.re, amp.im)
+            if use_bg:
+                bg_code = get_bg_color_code(amp.re, amp.im)
+            var mag = sqrt(amp.re * amp.re + amp.im * amp.im)
+            var intensity = mag / ref_amp
+            if use_log:
+                intensity = log10(1.0 + mag) / log10(1.0 + ref_amp)
+            if use_bg:
+                intensity = quantize_intensity(intensity)
+                var bg_code_i = get_bg_color_code_intensity(
+                    amp.re, amp.im, intensity
+                )
+                if show_chars:
+                    var char = get_alpha_char(intensity)
+                    line += (
+                        bg_code_i
+                        + fg_code
+                        + make_bg_cell(char, cell_width, 2)
+                        + "\033[0m"
+                        + "|"
+                    )
+                else:
+                    line += (
+                        bg_code_i
+                        + make_bg_cell(" ", cell_width, 2)
+                        + "\033[0m"
+                        + "|"
+                    )
+            else:
+                intensity = quantize_intensity(intensity)
+                var char = get_alpha_char(intensity)
+                line += (
+                    fg_code
+                    + make_cell(char, cell_width)
+                    + "\033[0m"
+                    + "|"
+                )
+        lines.append(pad + line)
+        lines.append(pad + h_line)
+
+    var show_col_labels = cols > 1
+    var axis_pad = " " * (row_idx_width + 2)
+    var axis_line = axis_pad
+    var col_active = List[Bool](capacity=cols)
+    for c in range(cols):
+        var active = True
+        for r in range(rows):
+            var idx = r * cols + c
+            var amp = state[idx]
+            var mag = sqrt(amp.re * amp.re + amp.im * amp.im)
+            if mag > 0.01:
+                active = True
+                break
+        col_active.append(active)
+
+    if show_col_labels:
+        for c in range(cols):
+            var s = String(c)
+            var slot_width = cell_width + 1
+            if col_active[c]:
+                axis_line += center_label(s, cell_width) + " "
+            else:
+                axis_line += " " * slot_width
+        lines.append(pad + axis_line)
+
+    if show_bin_labels and col_label_bits > 0 and show_col_labels:
+        var col_bits_width = col_label_bits
+        var vert_line = " " * (row_idx_width + 2)
+        for _ in range(cols):
+            vert_line += center_label("|", cell_width) + " "
+        lines.append(pad + vert_line)
+
+        for bit in range(col_bits_width - 1, -1, -1):
+            var digits_line = " " * (row_idx_width + 2)
+            for c in range(cols):
+                var digit = "1" if ((c >> bit) & 1) == 1 else "0"
+                digits_line += center_label(digit, cell_width) + " "
+            lines.append(pad + digits_line)
+    return lines^
 
 
 def get_alpha_char(intensity: FloatType) -> String:
@@ -1041,6 +1731,7 @@ def print_state_grid_colored_cells(
     show_bin_labels: Bool = False,
     show_chars: Bool = False,
     show_all_labels: Bool = True,
+    left_pad: Int = 0,
 ):
     """
     Prints the quantum state as a 2D grid of colored cells.
@@ -1118,7 +1809,10 @@ def print_state_grid_colored_cells(
     for _ in range(cols):
         h_line += "-" * cell_width + "+"
 
-    print(h_line)
+    var left_pad_str = ""
+    if left_pad > 0:
+        left_pad_str = " " * left_pad
+    print(left_pad_str + h_line)
 
     var row_indices = List[Int]()
     if not signed_y:
@@ -1144,8 +1838,8 @@ def print_state_grid_colored_cells(
             for bit in reversed(range(row_label_bits)):
                 bin += "1" if ((r_val >> bit) & 1) == 1 else "0"
             r_str = bin + " - " + String(r_val)
-        var pad = " " * (row_idx_width - len(r_str))
-        var line = pad + r_str + " |"
+        var row_pad = " " * (row_idx_width - len(r_str))
+        var line = row_pad + r_str + " |"
         for c in range(cols):
             var idx = r * cols + c
             var amp = state[idx]
@@ -1171,8 +1865,8 @@ def print_state_grid_colored_cells(
                 intensity = quantize_intensity(intensity)
                 var char = get_alpha_char(intensity)
                 line += fg_code + make_cell(char, cell_width) + "\033[0m" + "|"
-        print(line)
-        print(h_line)
+        print(left_pad_str + line)
+        print(left_pad_str + h_line)
 
     var show_col_labels = cols > 1
     var axis_pad = " " * (row_idx_width + 2)
@@ -1197,21 +1891,21 @@ def print_state_grid_colored_cells(
                 axis_line += center_label(s, cell_width) + " "
             else:
                 axis_line += " " * slot_width
-        print(axis_line)
+        print(left_pad_str + axis_line)
 
     if show_bin_labels and col_label_bits > 0 and show_col_labels:
         var col_bits_width = col_label_bits
         var vert_line = " " * (row_idx_width + 2)
         for _ in range(cols):
             vert_line += center_label("|", cell_width) + " "
-        print(vert_line)
+        print(left_pad_str + vert_line)
 
         for bit in range(col_bits_width - 1, -1, -1):
             var digits_line = " " * (row_idx_width + 2)
             for c in range(cols):
                 var digit = "1" if ((c >> bit) & 1) == 1 else "0"
                 digits_line += center_label(digit, cell_width) + " "
-            print(digits_line)
+            print(left_pad_str + digits_line)
 
 
 def render_grid_frame(
@@ -1227,6 +1921,7 @@ def render_grid_frame(
     show_chars: Bool,
     show_step_label: Bool,
     redraw_in_place: Bool,
+    left_pad: Int = 0,
 ):
     if redraw_in_place:
         print("\033c", end="")
@@ -1235,7 +1930,10 @@ def render_grid_frame(
         var header = "Step " + String(step) + "/" + String(total)
         if label != "":
             header += ": " + label
-        print(header)
+        var left_pad_str = ""
+        if left_pad > 0:
+            left_pad_str = " " * left_pad
+        print(left_pad_str + header)
     print_state_grid_colored_cells(
         state,
         col_bits,
@@ -1245,6 +1943,7 @@ def render_grid_frame(
         show_bin_labels=show_bin_labels,
         show_chars=show_chars,
         show_all_labels=True,
+        left_pad=left_pad,
     )
 
 
@@ -1257,6 +1956,7 @@ def render_table_frame(
     use_color: Bool,
     show_step_label: Bool,
     redraw_in_place: Bool,
+    left_pad: Int = 0,
 ):
     if redraw_in_place:
         print("\033c", end="")
@@ -1266,7 +1966,12 @@ def render_table_frame(
         if label != "":
             header += ": " + label
         print(header)
-    print_state(state, short=short, use_color=use_color)
+    print_state(
+        state,
+        short=short,
+        use_color=use_color,
+        left_pad=left_pad,
+    )
 
 
 fn animate_execution(
@@ -1282,6 +1987,7 @@ fn animate_execution(
     delay_s: Float64 = 0.0,
     step_on_input: Bool = False,
     redraw_in_place: Bool = True,
+    left_pad: Int = 0,
     ctx: ExecContext = ExecContext(),
 ) raises:
     """Execute and render the state after each transformation."""
@@ -1434,6 +2140,7 @@ fn animate_execution(
                 show_chars,
                 show_step_label,
                 redraw_in_place,
+                left_pad,
             )
     else:
         var step = 0
@@ -1450,6 +2157,7 @@ fn animate_execution(
             show_chars,
             show_step_label,
             redraw_in_place,
+            left_pad,
         )
         if delay_s > 0.0:
             sleep(delay_s)
@@ -1472,6 +2180,7 @@ fn animate_execution(
                 show_chars,
                 show_step_label,
                 redraw_in_place,
+                left_pad,
             )
             if delay_s > 0.0:
                 sleep(delay_s)
@@ -1486,6 +2195,7 @@ fn animate_execution_table(
     delay_s: Float64 = 0.0,
     step_on_input: Bool = False,
     redraw_in_place: Bool = True,
+    left_pad: Int = 0,
     ctx: ExecContext = ExecContext(),
 ) raises:
     """Execute and render the state table after each transformation."""
@@ -1536,6 +2246,7 @@ fn animate_execution_table(
             use_color,
             show_step_label,
             redraw_in_place,
+            left_pad,
         )
         while True:
             var delta = wait_for_step_delta()
@@ -1588,6 +2299,7 @@ fn animate_execution_table(
                 use_color,
                 show_step_label,
                 redraw_in_place,
+                left_pad,
             )
     else:
         var step = 0
@@ -1600,6 +2312,7 @@ fn animate_execution_table(
             use_color,
             show_step_label,
             redraw_in_place,
+            left_pad,
         )
         if delay_s > 0.0:
             sleep(delay_s)
@@ -1618,6 +2331,345 @@ fn animate_execution_table(
                 use_color,
                 show_step_label,
                 redraw_in_place,
+                left_pad,
             )
+            if delay_s > 0.0:
+                sleep(delay_s)
+
+
+fn animate_execution_table_grid(
+    circuit: QuantumCircuit,
+    mut state: State,
+    col_bits: Int,
+    use_log: Bool = False,
+    origin_bottom: Bool = False,
+    show_bin_labels: Bool = False,
+    use_bg: Bool = True,
+    show_chars: Bool = False,
+    short: Bool = True,
+    use_color: Bool = True,
+    show_step_label: Bool = True,
+    delay_s: Float64 = 0.0,
+    step_on_input: Bool = False,
+    redraw_in_place: Bool = True,
+    table_left_pad: Int = 0,
+    grid_left_pad: Int = 20,
+    gap: Int = 4,
+    ctx: ExecContext = ExecContext(),
+) raises:
+    """Execute and render table + grid side-by-side."""
+    @always_inline
+    fn wait_for_step_delta() raises -> Int:
+        from python import Python
+
+        var sys = Python.import_module("sys")
+        var termios = Python.import_module("termios")
+        var tty = Python.import_module("tty")
+        var stdin = sys.stdin
+        var fd = stdin.fileno()
+        var old = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            var ch = String(stdin.read(1))
+            if ch == "\r" or ch == "\n" or ch == " ":
+                return 1
+            if ch == "\x7f":
+                return -1
+            if ch == "q" or ch == "Q" or ch == "\x03":
+                return 2
+            if ch == "\x1b":
+                var ch2 = String(stdin.read(1))
+                if ch2 == "[":
+                    var ch3 = String(stdin.read(1))
+                    if ch3 == "C":
+                        return 1
+                    if ch3 == "D":
+                        return -1
+                else:
+                    return 2
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        return 0
+
+    @always_inline
+    fn render_pair(step: Int, total: Int, label: String) raises:
+        if redraw_in_place:
+            print("\033c", end="")
+            print("\033[H", end="")
+        var table_lines = render_table_frame_lines(
+            state,
+            step,
+            total,
+            label,
+            short,
+            use_color,
+            show_step_label,
+            table_left_pad,
+            row_separators=False,
+        )
+        var grid_lines = render_grid_frame_lines(
+            state,
+            step,
+            total,
+            label,
+            col_bits,
+            use_log,
+            origin_bottom,
+            use_bg,
+            show_bin_labels,
+            show_chars,
+            False,
+            grid_left_pad,
+        )
+        if show_step_label:
+            var pad = ""
+            if grid_left_pad > 0:
+                pad = " " * grid_left_pad
+            var aligned = List[String](capacity=len(grid_lines) + 1)
+            aligned.append(pad)
+            for i in range(len(grid_lines)):
+                aligned.append(grid_lines[i])
+            grid_lines = aligned^
+        var merged = _merge_frame_lines(table_lines, grid_lines, gap)
+        for i in range(len(merged)):
+            print(merged[i])
+
+    var total = len(circuit.transformations)
+
+    if step_on_input:
+        var init_state = state.copy()
+        var step = 0
+        render_pair(step, total, "init")
+        while True:
+            var delta = wait_for_step_delta()
+            if delta == 0:
+                continue
+            if delta == 2:
+                break
+            var next = step + delta
+            if next < 0 or next > total:
+                continue
+            if delta > 0:
+                var tr = circuit.transformations[step]
+                var step_circuit = QuantumCircuit(circuit.num_qubits)
+                step_circuit.transformations.append(tr.copy())
+                execute(state, step_circuit, ctx)
+            else:
+                var times = step - next
+                if times < 0:
+                    times = 0
+                for _ in range(times):
+                    if step == 0:
+                        break
+                    var last_tr = circuit.transformations[step - 1]
+                    var single = QuantumCircuit(circuit.num_qubits)
+                    single.transformations.append(last_tr.copy())
+                    try:
+                        var inv_single = single.inverse()
+                        execute(state, inv_single, ctx)
+                        step -= 1
+                        continue
+                    except:
+                        state = init_state.copy()
+                        if next > 0:
+                            var sub_circuit = QuantumCircuit(circuit.num_qubits)
+                            for i in range(next):
+                                sub_circuit.transformations.append(
+                                    circuit.transformations[i].copy()
+                                )
+                            execute(state, sub_circuit, ctx)
+                        break
+            step = next
+            render_pair(step, total, "")
+    else:
+        var step = 0
+        render_pair(step, total, "init")
+        if delay_s > 0.0:
+            sleep(delay_s)
+        for i in range(total):
+            var tr = circuit.transformations[i]
+            var step_circuit = QuantumCircuit(circuit.num_qubits)
+            step_circuit.transformations.append(tr.copy())
+            execute(state, step_circuit, ctx)
+            step = i + 1
+            render_pair(step, total, "")
+            if delay_s > 0.0:
+                sleep(delay_s)
+
+
+fn animate_execution_grid_pair(
+    circuit_left: QuantumCircuit,
+    mut state_left: State,
+    circuit_right: QuantumCircuit,
+    mut state_right: State,
+    col_bits: Int,
+    use_log: Bool = False,
+    origin_bottom: Bool = False,
+    show_bin_labels: Bool = False,
+    use_bg: Bool = True,
+    show_chars: Bool = False,
+    show_step_label: Bool = True,
+    delay_s: Float64 = 0.0,
+    step_on_input: Bool = False,
+    redraw_in_place: Bool = True,
+    left_pad_left: Int = 0,
+    left_pad_right: Int = 0,
+    gap: Int = 4,
+    ctx_left: ExecContext = ExecContext(),
+    ctx_right: ExecContext = ExecContext(),
+) raises:
+    """Execute and render two grids side-by-side after each transformation."""
+    @always_inline
+    fn wait_for_step_delta() raises -> Int:
+        from python import Python
+
+        var sys = Python.import_module("sys")
+        var termios = Python.import_module("termios")
+        var tty = Python.import_module("tty")
+        var stdin = sys.stdin
+        var fd = stdin.fileno()
+        var old = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            var ch = String(stdin.read(1))
+            if ch == "\r" or ch == "\n" or ch == " ":
+                return 1
+            if ch == "\x7f":
+                return -1
+            if ch == "q" or ch == "Q" or ch == "\x03":
+                return 2
+            if ch == "\x1b":
+                var ch2 = String(stdin.read(1))
+                if ch2 == "[":
+                    var ch3 = String(stdin.read(1))
+                    if ch3 == "C":
+                        return 1
+                    if ch3 == "D":
+                        return -1
+                else:
+                    return 2
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        return 0
+
+    @always_inline
+    fn render_pair(
+        state_left_for_render: State,
+        state_right_for_render: State,
+        step: Int,
+        total: Int,
+        label: String,
+    ) raises:
+        if redraw_in_place:
+            print("\033c", end="")
+            print("\033[H", end="")
+        var left_lines = render_grid_frame_lines(
+            state_left_for_render,
+            step,
+            total,
+            label,
+            col_bits,
+            use_log,
+            origin_bottom,
+            use_bg,
+            show_bin_labels,
+            show_chars,
+            show_step_label,
+            left_pad_left,
+        )
+        var right_lines = render_grid_frame_lines(
+            state_right_for_render,
+            step,
+            total,
+            label,
+            col_bits,
+            use_log,
+            origin_bottom,
+            use_bg,
+            show_bin_labels,
+            show_chars,
+            show_step_label,
+            left_pad_right,
+        )
+        var merged = _merge_frame_lines(left_lines, right_lines, gap)
+        for i in range(len(merged)):
+            print(merged[i])
+
+    var total_left = len(circuit_left.transformations)
+    var total_right = len(circuit_right.transformations)
+    var total = max(total_left, total_right)
+
+    if step_on_input:
+        var init_left = state_left.copy()
+        var init_right = state_right.copy()
+        var step = 0
+        render_pair(state_left, state_right, step, total, "init")
+        while True:
+            var delta = wait_for_step_delta()
+            if delta == 0:
+                continue
+            if delta == 2:
+                break
+            var next = step + delta
+            if next < 0 or next > total:
+                continue
+            if delta > 0:
+                if step < total_left:
+                    var tr_left = circuit_left.transformations[step]
+                    var step_circuit_left = QuantumCircuit(circuit_left.num_qubits)
+                    step_circuit_left.transformations.append(tr_left.copy())
+                    execute(state_left, step_circuit_left, ctx_left)
+                if step < total_right:
+                    var tr_right = circuit_right.transformations[step]
+                    var step_circuit_right = QuantumCircuit(
+                        circuit_right.num_qubits
+                    )
+                    step_circuit_right.transformations.append(tr_right.copy())
+                    execute(state_right, step_circuit_right, ctx_right)
+            else:
+                state_left = init_left.copy()
+                state_right = init_right.copy()
+                if next > 0:
+                    for i in range(next):
+                        if i < total_left:
+                            var tr_left = circuit_left.transformations[i]
+                            var step_circuit_left = QuantumCircuit(
+                                circuit_left.num_qubits
+                            )
+                            step_circuit_left.transformations.append(
+                                tr_left.copy()
+                            )
+                            execute(state_left, step_circuit_left, ctx_left)
+                        if i < total_right:
+                            var tr_right = circuit_right.transformations[i]
+                            var step_circuit_right = QuantumCircuit(
+                                circuit_right.num_qubits
+                            )
+                            step_circuit_right.transformations.append(
+                                tr_right.copy()
+                            )
+                            execute(state_right, step_circuit_right, ctx_right)
+            step = next
+            render_pair(state_left, state_right, step, total, "")
+    else:
+        var step = 0
+        render_pair(state_left, state_right, step, total, "init")
+        if delay_s > 0.0:
+            sleep(delay_s)
+        for i in range(total):
+            if i < total_left:
+                var tr_left = circuit_left.transformations[i]
+                var step_circuit_left = QuantumCircuit(circuit_left.num_qubits)
+                step_circuit_left.transformations.append(tr_left.copy())
+                execute(state_left, step_circuit_left, ctx_left)
+            if i < total_right:
+                var tr_right = circuit_right.transformations[i]
+                var step_circuit_right = QuantumCircuit(
+                    circuit_right.num_qubits
+                )
+                step_circuit_right.transformations.append(tr_right.copy())
+                execute(state_right, step_circuit_right, ctx_right)
+            step = i + 1
+            render_pair(state_left, state_right, step, total, "")
             if delay_s > 0.0:
                 sleep(delay_s)
