@@ -1388,14 +1388,33 @@ fn animate_execution(
                 step_circuit.transformations.append(tr.copy())
                 execute(state, step_circuit, ctx)
             else:
-                state = init_state.copy()
-                if next > 0:
-                    var sub_circuit = QuantumCircuit(circuit.num_qubits)
-                    for i in range(next):
-                        sub_circuit.transformations.append(
-                            circuit.transformations[i].copy()
-                        )
-                    execute(state, sub_circuit, ctx)
+                # Step back by applying inverses of the last transformations.
+                var times = step - next
+                if times < 0:
+                    times = 0
+                for _ in range(times):
+                    if step == 0:
+                        break
+                    # Try to invert the single last transformation and execute it.
+                    var last_tr = circuit.transformations[step - 1]
+                    var single = QuantumCircuit(circuit.num_qubits)
+                    single.transformations.append(last_tr.copy())
+                    try:
+                        var inv_single = single.inverse()
+                        execute(state, inv_single, ctx)
+                        step -= 1
+                        continue
+                    except:
+                        # If inversion fails (e.g. measurement), fall back to full replay.
+                        state = init_state.copy()
+                        if next > 0:
+                            var sub_circuit = QuantumCircuit(circuit.num_qubits)
+                            for i in range(next):
+                                sub_circuit.transformations.append(
+                                    circuit.transformations[i].copy()
+                                )
+                            execute(state, sub_circuit, ctx)
+                        break
             step = next
             var label = "init"
             if step > 0:
@@ -1533,14 +1552,32 @@ fn animate_execution_table(
                 step_circuit.transformations.append(tr.copy())
                 execute(state, step_circuit, ctx)
             else:
-                state = init_state.copy()
-                if next > 0:
-                    var sub_circuit = QuantumCircuit(circuit.num_qubits)
-                    for i in range(next):
-                        sub_circuit.transformations.append(
-                            circuit.transformations[i].copy()
-                        )
-                    execute(state, sub_circuit, ctx)
+                # Step back by applying inverses of the last transformations.
+                var times = step - next
+                if times < 0:
+                    times = 0
+                for _ in range(times):
+                    if step == 0:
+                        break
+                    var last_tr = circuit.transformations[step - 1]
+                    var single = QuantumCircuit(circuit.num_qubits)
+                    single.transformations.append(last_tr.copy())
+                    try:
+                        var inv_single = single.inverse()
+                        execute(state, inv_single, ctx)
+                        step -= 1
+                        continue
+                    except:
+                        # If inversion fails (e.g. measurement), fall back to full replay.
+                        state = init_state.copy()
+                        if next > 0:
+                            var sub_circuit = QuantumCircuit(circuit.num_qubits)
+                            for i in range(next):
+                                sub_circuit.transformations.append(
+                                    circuit.transformations[i].copy()
+                                )
+                            execute(state, sub_circuit, ctx)
+                        break
             step = next
             render_table_frame(
                 state,
