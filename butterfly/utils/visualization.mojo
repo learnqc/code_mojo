@@ -1372,61 +1372,110 @@ fn animate_frame_source_pair(
     var fixed_width = left_width
     if fixed_width <= 0:
         fixed_width = left.iter.frame_width()
-    var history = List[List[String]]()
-    var idx = 0
-    var done = False
-    while True:
-        if idx >= len(history) and not done:
-            var left_opt = left.next_frame()
-            var right_opt = right.next_frame()
-            if left_opt is None and right_opt is None:
-                done = True
-            else:
-                var left_lines = List[String]()
-                var right_lines = List[String]()
-                if left_opt is not None:
-                    left_lines = left_opt.value().copy()
-                if right_opt is not None:
-                    right_lines = right_opt.value().copy()
-                var merged = _merge_frame_lines_fixed(
-                    left_lines,
-                    right_lines,
-                    gap,
-                    fixed_width,
-                )
-                history.append(merged^)
-        if len(history) == 0:
-            break
-        if idx < 0:
-            idx = 0
-        if idx >= len(history):
-            idx = len(history) - 1
+    var total_left = left.iter.total
+    var total_right = right.iter.total
+    var total = max(total_left, total_right)
+    var step = 0
+    var left_init = left.iter.state.copy()
+    var right_init = right.iter.state.copy()
+
+    @always_inline
+    fn render_pair(
+        step: Int,
+        mut left_ref: FrameSource,
+        mut right_ref: FrameSource,
+    ) raises:
+        left_ref.iter.step = step
+        right_ref.iter.step = step
+        var left_lines = left_ref.iter.frame_lines()
+        var right_lines = right_ref.iter.frame_lines()
+        var merged = _merge_frame_lines_fixed(
+            left_lines,
+            right_lines,
+            gap,
+            fixed_width,
+        )
         if redraw_in_place:
             print("\033c", end="")
             print("\033[H", end="")
-        var frame = history[idx].copy()
-        for i in range(len(frame)):
-            print(frame[i])
+        for i in range(len(merged)):
+            print(merged[i])
+
+    render_pair(step, left, right)
+    while True:
         if step_on_input:
-            while True:
-                var delta = wait_for_step_delta()
-                if delta == 0:
+            var delta = wait_for_step_delta()
+            if delta == 0:
+                continue
+            if delta == 2:
+                return
+            if delta < 0:
+                if step == 0:
                     continue
-                if delta == 2:
-                    return
-                if delta < 0:
-                    if idx > 0:
-                        idx -= 1
-                    break
-                if delta > 0:
-                    idx += 1
-                    break
+                var target = step - 1
+                var ok = True
+                if target < total_left:
+                    try:
+                        var last_tr = left.iter.circuit.transformations[target]
+                        var single = QuantumCircuit(left.iter.circuit.num_qubits)
+                        single.transformations.append(last_tr.copy())
+                        var inv_single = single.inverse()
+                        execute(left.iter.state, inv_single, ExecContext())
+                    except:
+                        ok = False
+                if target < total_right:
+                    try:
+                        var last_tr = right.iter.circuit.transformations[target]
+                        var single = QuantumCircuit(right.iter.circuit.num_qubits)
+                        single.transformations.append(last_tr.copy())
+                        var inv_single = single.inverse()
+                        execute(right.iter.state, inv_single, ExecContext())
+                    except:
+                        ok = False
+                if not ok:
+                    left.iter.state = left_init.copy()
+                    right.iter.state = right_init.copy()
+                    if target > 0:
+                        if target <= total_left:
+                            var sub_left = QuantumCircuit(left.iter.circuit.num_qubits)
+                            for i in range(target):
+                                sub_left.transformations.append(
+                                    left.iter.circuit.transformations[i].copy()
+                                )
+                            execute(left.iter.state, sub_left, ExecContext())
+                        if target <= total_right:
+                            var sub_right = QuantumCircuit(
+                                right.iter.circuit.num_qubits
+                            )
+                            for i in range(target):
+                                sub_right.transformations.append(
+                                    right.iter.circuit.transformations[i].copy()
+                                )
+                            execute(right.iter.state, sub_right, ExecContext())
+                step = target
+                render_pair(step, left, right)
+                continue
+            if delta > 0:
+                if step >= total:
+                    continue
+                if step < total_left:
+                    left.iter.advance()
+                if step < total_right:
+                    right.iter.advance()
+                step += 1
+                render_pair(step, left, right)
+                continue
         else:
+            if step >= total:
+                break
+            if step < total_left:
+                left.iter.advance()
+            if step < total_right:
+                right.iter.advance()
+            step += 1
+            render_pair(step, left, right)
             if delay_s > 0.0:
                 sleep(delay_s)
-            idx += 1
-        if done and idx >= len(history):
-            break
 
 
 
