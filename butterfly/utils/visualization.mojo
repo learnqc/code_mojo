@@ -1751,6 +1751,10 @@ fn render_grid_frame_lines(
             if use_bg:
                 bg_code = get_bg_color_code(amp.re, amp.im)
             var mag = sqrt(amp.re * amp.re + amp.im * amp.im)
+            if mag < 1e-6:
+                mag = 0.0
+            if mag < 1e-6:
+                mag = 0.0
             var intensity = mag / ref_amp
             if use_log:
                 intensity = log10(1.0 + mag) / log10(1.0 + ref_amp)
@@ -1797,6 +1801,10 @@ fn render_grid_frame_lines(
             var idx = r * cols + c
             var amp = state[idx]
             var mag = sqrt(amp.re * amp.re + amp.im * amp.im)
+            if mag < 1e-6:
+                mag = 0.0
+            if mag < 1e-6:
+                mag = 0.0
             if mag > 0.01:
                 active = True
                 break
