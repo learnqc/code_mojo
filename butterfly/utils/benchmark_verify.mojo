@@ -6,6 +6,7 @@ serving as both validation and warmup.
 """
 
 from butterfly.core.state import QuantumState
+from butterfly.core.types import Float64, FloatType
 from butterfly.core.quantum_circuit import QuantumCircuit
 from butterfly.utils.visualization import print_state
 from collections import List
@@ -14,10 +15,10 @@ from collections import List
 fn verify_states_equal(
     state1: QuantumState,
     state2: QuantumState,
-    tolerance: Float64 = 1e-5,
+    tolerance: FloatType = 1e-5,
     name1: String = "state1",
     name2: String = "state2",
-) raises -> Float64:
+) raises -> FloatType:
     """
     Verify two quantum states are approximately equal.
 
@@ -42,11 +43,11 @@ fn verify_states_equal(
             + String(state2.size())
         )
 
-    var diff_sum = 0.0
+    var diff_sum: FloatType = 0.0
     for idx in range(state1.size()):
         var diff_re = state1.re[idx] - state2.re[idx]
         var diff_im = state1.im[idx] - state2.im[idx]
-        diff_sum += diff_re * diff_re + diff_im * diff_im
+        diff_sum = diff_sum + diff_re * diff_re + diff_im * diff_im
 
     if diff_sum > tolerance:
         print_state(state1)
@@ -72,9 +73,9 @@ fn verify_and_warmup[
 ](
     name1: String,
     name2: String,
-    tolerance: Float64 = 1e-5,
+    tolerance: FloatType = 1e-5,
     verbose: Bool = True,
-) raises -> Float64:
+) raises -> FloatType:
     """
     Verify two functions produce the same result and warm up the code paths.
 

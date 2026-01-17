@@ -98,7 +98,7 @@ fn apply_qiskit_transpile(input: Tuple[Int, FloatType, Int]) raises -> Int:
     var runner = Python.import_module("benches.qiskit_runner")
     runner.transpile_value_encoding(
         Int(input[0]),
-        Float64(input[1]),
+        FloatType(input[1]),
         "full",
         Int(input[2]),
     )
@@ -113,14 +113,14 @@ fn apply_qiskit_run_cached(input: Tuple[Int, FloatType, Int]) raises -> Int:
     var runner = Python.import_module("benches.qiskit_runner")
     runner.run_cached_statevector(
         Int(input[0]),
-        Float64(input[1]),
+        FloatType(input[1]),
         "full",
         Int(input[2]),
     )
     return 0
 
 
-fn compare_states(a: QuantumState, b: QuantumState, tolerance: Float64) raises:
+fn compare_states(a: QuantumState, b: QuantumState, tolerance: FloatType) raises:
     if a.size() != b.size():
         raise Error("Verification failed: State sizes differ")
     for i in range(a.size()):

@@ -76,7 +76,7 @@ fn c_transform_row_p_simd[
     row_size: Int,
     control: Int,
     target: Int,
-    theta: Float64,
+    theta: FloatType,
 ):
     """Controlled Phase where both bits are within the row index."""
     var offset = row * row_size
@@ -219,7 +219,7 @@ fn transform_row_p_simd[
     row: Int,
     row_size: Int,
     target: Int,
-    theta: Float64,
+    theta: FloatType,
 ):
     var offset = row * row_size
     var re_ptr = state.re.unsafe_ptr() + offset
@@ -891,7 +891,7 @@ fn transform_grid[
     var with_simd = simd_width > 0
     var use_parallel = ctx.grid_use_parallel
 
-    var n = Int(log2(Float64(len(state))))
+    var n = Int(log2(FloatType(len(state))))
     var num_rows = 1 << (n - col_bits)
     var row_size = 1 << col_bits
 
@@ -1021,7 +1021,7 @@ fn c_transform_grid[
     var with_simd = simd_width > 0
     var use_parallel = ctx.grid_use_parallel
 
-    var n = Int(log2(Float64(len(state))))
+    var n = Int(log2(FloatType(len(state))))
     var num_rows = 1 << (n - col_bits)
     var row_size = 1 << col_bits
 

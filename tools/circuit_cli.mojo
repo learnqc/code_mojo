@@ -40,21 +40,21 @@ fn parse_angle(expr: String) raises -> FloatType:
             sign = -1.0
             s = String(s[1:])
         if s == "pi":
-            return FloatType(sign * Float64(pi))
+            return FloatType(sign * FloatType(pi))
         if s.endswith("*pi"):
             var coeff_str = String(s[: len(s) - 3])
-            var coeff = Float64(coeff_str)
-            return FloatType(sign * coeff * Float64(pi))
+            var coeff = FloatType(coeff_str)
+            return FloatType(sign * coeff * FloatType(pi))
         if s.startswith("pi/"):
             var denom_str = String(s[3:])
-            var denom = Float64(denom_str)
-            return FloatType(sign * Float64(pi) / denom)
+            var denom = FloatType(denom_str)
+            return FloatType(sign * FloatType(pi) / denom)
         if s.find("/pi") >= 0:
             var parts = s.split("/pi")
             if len(parts) == 2:
-                var coeff = Float64(String(parts[0]))
-                return FloatType(sign * coeff / Float64(pi))
-    return FloatType(Float64(trimmed))
+                var coeff = FloatType(String(parts[0]))
+                return FloatType(sign * coeff / FloatType(pi))
+    return FloatType(FloatType(trimmed))
 
 
 fn split_tokens(line: String) -> List[String]:

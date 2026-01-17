@@ -98,7 +98,7 @@ fn test_qae_rotation() raises:
     # So the estimated phase is 0.5 +/- theta/pi instead of theta/pi.
     # sin(0.5*pi + x) = cos(x). So we use cos^2 derived from the measured phase.
 
-    var y_frac = Float64(best_y) / Float64(N_eval)
+    var y_frac = FloatType(best_y) / FloatType(N_eval)
     var estimate = math.cos(y_frac * pi) ** 2
 
     print("Most probable outcome y:", best_y)

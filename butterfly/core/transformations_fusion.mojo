@@ -223,8 +223,8 @@ fn apply_fused_pair(mut state: QuantumState, pair: FusedPairTransformation) rais
     var t1 = pair.second.copy()
 
     if is_cp_gate(t0) and is_cp_gate(t1) and t0.controls[0] == t1.controls[0]:
-        var arg0 = Float64(t0.gate_info.arg.value())
-        var arg1 = Float64(t1.gate_info.arg.value())
+        var arg0 = FloatType(t0.gate_info.arg.value())
+        var arg1 = FloatType(t1.gate_info.arg.value())
         if t0.target > t1.target:
             transform_fused_shared_c_pp_sparse[simd_width](
                 state,
@@ -250,8 +250,8 @@ fn apply_fused_pair(mut state: QuantumState, pair: FusedPairTransformation) rais
         return
 
     if is_p_gate(t0) and is_p_gate(t1):
-        var arg0 = Float64(t0.gate_info.arg.value())
-        var arg1 = Float64(t1.gate_info.arg.value())
+        var arg0 = FloatType(t0.gate_info.arg.value())
+        var arg1 = FloatType(t1.gate_info.arg.value())
         if t0.target > t1.target:
             transform_fused_pp_sparse[simd_width](
                 state, t0.target, t1.target, arg0, arg1
@@ -264,13 +264,13 @@ fn apply_fused_pair(mut state: QuantumState, pair: FusedPairTransformation) rais
 
     if is_h_gate(t0) and is_p_gate(t1):
         transform_fused_hp_sparse[simd_width](
-            state, t0.target, t1.target, Float64(t1.gate_info.arg.value())
+            state, t0.target, t1.target, FloatType(t1.gate_info.arg.value())
         )
         return
 
     if is_p_gate(t0) and is_h_gate(t1):
         transform_fused_hp_sparse[simd_width](
-            state, t1.target, t0.target, Float64(t0.gate_info.arg.value())
+            state, t1.target, t0.target, FloatType(t0.gate_info.arg.value())
         )
         return
 

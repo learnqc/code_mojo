@@ -181,7 +181,7 @@ fn transform_x_simd_parallel(
 fn transform_ry_simd_parallel(
     mut state: QuantumState,
     target: Int,
-    theta: Float64,
+    theta: FloatType,
     ctx: ExecContext = ExecContext(),
 ):
     """Parallelized vectorized RY gate."""
@@ -256,7 +256,7 @@ fn transform_ry_simd_parallel(
 fn transform_p_simd_parallel(
     mut state: QuantumState,
     target: Int,
-    theta: Float64,
+    theta: FloatType,
     ctx: ExecContext = ExecContext(),
 ):
     """Parallelized vectorized Phase gate (ref baseline)."""
@@ -264,8 +264,8 @@ fn transform_p_simd_parallel(
     var stride = 1 << target
     var ptr_re = state.re_ptr()
     var ptr_im = state.im_ptr()
-    var cos_t = cos(theta)
-    var sin_t = sin(theta)
+    var cos_t = FloatType(cos(theta))
+    var sin_t = FloatType(sin(theta))
 
     var num_work_items = get_num_chunks(ctx)
     var total_blocks = l // (2 * stride)
@@ -610,7 +610,7 @@ fn c_transform_ry_simd_parallel(
     mut state: QuantumState,
     control: Int,
     target: Int,
-    theta: Float64,
+    theta: FloatType,
     ctx: ExecContext = ExecContext(),
 ):
     """Parallelized controlled RY gate using vectorized mask."""
@@ -699,7 +699,7 @@ fn c_transform_p_simd_parallel(
     mut state: QuantumState,
     control: Int,
     target: Int,
-    theta: Float64,
+    theta: FloatType,
     ctx: ExecContext = ExecContext(),
 ):
     """Specialized CP gate with v2-style chunking and parallelization."""

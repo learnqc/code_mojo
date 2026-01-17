@@ -19,13 +19,13 @@ fn transform_simd(
         transform_h_simd(state, target)
         return
     if gate_kind == GateKind.P and ctx.simd_use_specialized_p:
-        transform_p_simd(state, target, Float64(gate_arg))
+        transform_p_simd(state, target, FloatType(gate_arg))
         return
     if gate_kind == GateKind.X and ctx.simd_use_specialized_x:
         transform_x_simd(state, target)
         return
     if gate_kind == GateKind.RY and ctx.simd_use_specialized_ry:
-        transform_ry_simd(state, target, Float64(gate_arg))
+        transform_ry_simd(state, target, FloatType(gate_arg))
         return
 
     var l = state.size()
@@ -157,7 +157,7 @@ fn transform_x_simd(mut state: QuantumState, target: Int):
                 ptr_im[idx + stride] = u_im
 
 
-fn transform_ry_simd(mut state: QuantumState, target: Int, theta: Float64):
+fn transform_ry_simd(mut state: QuantumState, target: Int, theta: FloatType):
     """Single-threaded SIMD RY transform."""
     var l = state.size()
     var stride = 1 << target
@@ -201,7 +201,7 @@ fn transform_ry_simd(mut state: QuantumState, target: Int, theta: Float64):
                 ptr_im[idx + stride] = u_im * sin_t + v_im * cos_t
 
 
-fn transform_p_simd(mut state: QuantumState, target: Int, theta: Float64):
+fn transform_p_simd(mut state: QuantumState, target: Int, theta: FloatType):
     """Single-threaded SIMD Phase transform."""
     var l = state.size()
     var stride = 1 << target
@@ -300,7 +300,7 @@ fn c_transform_p_simd(
     mut state: QuantumState,
     control: Int,
     target: Int,
-    theta: Float64,
+    theta: FloatType,
 ):
     """Single-threaded SIMD controlled Phase transform."""
     var c_stride = 1 << control
@@ -380,13 +380,13 @@ fn c_transform_simd(
 ):
     """Generic SIMD controlled single-qubit transform using a control mask."""
     if gate_kind == GateKind.P and ctx.simd_use_specialized_cp:
-        c_transform_p_simd(state, control, target, Float64(gate_arg))
+        c_transform_p_simd(state, control, target, FloatType(gate_arg))
         return
     if gate_kind == GateKind.X and ctx.simd_use_specialized_cx:
         c_transform_x_simd(state, control, target)
         return
     if gate_kind == GateKind.RY and ctx.simd_use_specialized_cry:
-        c_transform_ry_simd(state, control, target, Float64(gate_arg))
+        c_transform_ry_simd(state, control, target, FloatType(gate_arg))
         return
 
     var l = state.size()
@@ -506,7 +506,7 @@ fn c_transform_ry_simd(
     mut state: QuantumState,
     control: Int,
     target: Int,
-    theta: Float64,
+    theta: FloatType,
 ):
     """Single-threaded SIMD controlled RY transform."""
     var l = state.size()

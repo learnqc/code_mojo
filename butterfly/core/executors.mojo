@@ -384,7 +384,7 @@ fn execute_simd_parallel(
                     transform_p_simd_parallel(
                         state,
                         gate_tr.target,
-                        Float64(gate_arg),
+                        FloatType(gate_arg),
                         ctx,
                     )
                 elif (
@@ -399,7 +399,7 @@ fn execute_simd_parallel(
                     transform_ry_simd_parallel(
                         state,
                         gate_tr.target,
-                        Float64(gate_arg),
+                        FloatType(gate_arg),
                         ctx,
                     )
                 else:
@@ -418,7 +418,7 @@ fn execute_simd_parallel(
                         state,
                         gate_tr.controls[0],
                         gate_tr.target,
-                        Float64(gate_arg),
+                        FloatType(gate_arg),
                         ctx,
                     )
                 elif (
@@ -439,7 +439,7 @@ fn execute_simd_parallel(
                         state,
                         gate_tr.controls[0],
                         gate_tr.target,
-                        Float64(gate_arg),
+                        FloatType(gate_arg),
                         ctx,
                     )
                 else:
@@ -584,7 +584,7 @@ fn execute_grid(
                         col_bits,
                         gate_tr.controls[0],
                         gate_tr.target,
-                        Float64(gate_tr.gate_info.arg.value()),
+                        FloatType(gate_tr.gate_info.arg.value()),
                         ctx,
                     )
                 else:
@@ -720,11 +720,11 @@ fn apply_fused_pair_grid(
             if t0_is_h:
                 target_h = t0.target - col_bits
                 target_p = t1.target - col_bits
-                theta = Float64(t1.gate_info.arg.value())
+                theta = FloatType(t1.gate_info.arg.value())
             else:
                 target_h = t1.target - col_bits
                 target_p = t0.target - col_bits
-                theta = Float64(t0.gate_info.arg.value())
+                theta = FloatType(t0.gate_info.arg.value())
 
             var re_ptr = state.re.unsafe_ptr()
             var im_ptr = state.im.unsafe_ptr()
@@ -804,8 +804,8 @@ fn apply_fused_pair_grid(
         if t0_is_p and t1_is_p:
             var target_1 = t0.target - col_bits
             var target_2 = t1.target - col_bits
-            var theta_1 = Float64(t0.gate_info.arg.value())
-            var theta_2 = Float64(t1.gate_info.arg.value())
+            var theta_1 = FloatType(t0.gate_info.arg.value())
+            var theta_2 = FloatType(t1.gate_info.arg.value())
 
             var re_ptr = state.re.unsafe_ptr()
             var im_ptr = state.im.unsafe_ptr()
@@ -861,8 +861,8 @@ fn apply_fused_pair_grid(
         and t1.gate_info.kind == GateKind.P
         and t0.controls[0] == t1.controls[0]
     ):
-        var theta0 = Float64(t0.gate_info.arg.value())
-        var theta1 = Float64(t1.gate_info.arg.value())
+        var theta0 = FloatType(t0.gate_info.arg.value())
+        var theta1 = FloatType(t1.gate_info.arg.value())
 
         @parameter
         fn process_row_shared_cp(row: Int):
@@ -908,8 +908,8 @@ fn apply_fused_pair_grid(
         return True
 
     if t0_is_p and t1_is_p:
-        var theta0 = Float64(t0.gate_info.arg.value())
-        var theta1 = Float64(t1.gate_info.arg.value())
+        var theta0 = FloatType(t0.gate_info.arg.value())
+        var theta1 = FloatType(t1.gate_info.arg.value())
 
         @parameter
         fn process_row_pp(row: Int):
@@ -937,11 +937,11 @@ fn apply_fused_pair_grid(
         if t0_is_h:
             th = t0.target
             tp = t1.target
-            theta = Float64(t1.gate_info.arg.value())
+            theta = FloatType(t1.gate_info.arg.value())
         else:
             th = t1.target
             tp = t0.target
-            theta = Float64(t0.gate_info.arg.value())
+            theta = FloatType(t0.gate_info.arg.value())
 
         @parameter
         fn process_row_hp(row: Int):
@@ -966,7 +966,7 @@ struct GridPreparedTransformation(Copyable, Movable):
     var gate: Gate
     var gate_kind: Int
     var gate_arg: FloatType
-    var theta: Float64
+    var theta: FloatType
     var is_h_gate: Bool
     var is_x_gate: Bool
     var is_z_gate: Bool
@@ -990,7 +990,7 @@ struct GridPreparedTransformation(Copyable, Movable):
         self.is_z_gate = gt.gate_info.kind == GateKind.Z
         self.is_p_gate = gt.gate_info.kind == GateKind.P
         if self.is_p_gate and gt.gate_info.arg:
-            self.theta = Float64(gt.gate_info.arg.value())
+            self.theta = FloatType(gt.gate_info.arg.value())
         self.row_control_bit = -1
         if self.is_controlled and self.control >= col_bits:
             self.row_control_bit = self.control
@@ -1316,7 +1316,7 @@ fn test_main() raises:
     from butterfly.algos.value_encoding_circuit import encode_value_circuit
 
     var n = 3
-    var v = 4.7
+    var v: FloatType = 4.7
     var circuit = encode_value_circuit(n, v)
 
     from butterfly.utils.visualization import print_state

@@ -124,7 +124,7 @@ fn test_main() raises:
     from butterfly.utils.visualization import print_state
 
     var n = 3
-    var v = 4.7
+    var v: FloatType = 4.7
 
     swap = False
     var state = prep_simd(n, v, swap)

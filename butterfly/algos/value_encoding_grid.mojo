@@ -1,5 +1,5 @@
 from butterfly.core.state import QuantumState, bit_reverse_state
-from butterfly.core.types import FloatType
+from butterfly.core.types import FloatType, pi
 from butterfly.core.transformations_grid import (
     transform_h_grid,
     transform_p_grid,
@@ -7,7 +7,6 @@ from butterfly.core.transformations_grid import (
 )
 from butterfly.utils.context import ExecContext
 from collections import List
-from math import pi
 
 
 fn iqft_grid(

@@ -5,9 +5,9 @@ No Python dependencies - uses native Mojo collections and I/O.
 """
 
 from time import perf_counter_ns
-from collections import Dict, List
 from pathlib import Path
 from butterfly.utils.benchmark_utils import get_timestamp_string
+from butterfly.core.types import FloatType
 from benchmark import run, Unit
 
 
@@ -376,10 +376,10 @@ struct BenchmarkRunner(Movable):
         mut self,
         values: List[Return],
         names: List[String],
-        comparator: fn (Return, Return, Float64) raises,
+        comparator: fn (Return, Return, FloatType) raises,
         baseline_idx: Int = 0,
         stop_on_failure: Bool = True,
-        tolerance: Float64 = 1e-5,
+        tolerance: FloatType = 1e-5,
     ) raises:
         """Verify a list of pre-computed values against a baseline."""
         if len(values) == 0:
@@ -519,10 +519,10 @@ struct BenchmarkRunner(Movable):
         input: Input,
         f1: fn (Input) raises -> Return,
         f2: fn (Input) raises -> Return,
-        compare: fn (Return, Return, Float64) raises,
+        compare: fn (Return, Return, FloatType) raises,
         name1: String = "func1",
         name2: String = "func2",
-        tolerance: Float64 = 1e-5,
+        tolerance: FloatType = 1e-5,
     ) raises:
         """Verify two functions using a user-provided comparison hook."""
         # self.log_progress("Verifying " + name1 + " vs " + name2 + "...")
@@ -795,7 +795,7 @@ struct BenchmarkRunner(Movable):
                             if val_str == "":
                                 continue
                             try:
-                                var val = Float64(String(val_str))
+                                var val = Float64(Float64(String(val_str)))
                                 var key = param_key + "|" + bench
                                 if key in sums:
                                     sums[key] = sums[key] + val
@@ -970,7 +970,7 @@ struct BenchmarkRunner(Movable):
                     if len(val_str) > 0:
                         try:
                             # Simple float parsing
-                            var val = Float64(String(val_str))
+                            var val = Float64(Float64(String(val_str)))
                             self.add_result(params, bench_name, val)
                         except:
                             # Skip if not a valid number

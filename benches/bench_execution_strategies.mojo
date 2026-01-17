@@ -108,7 +108,7 @@ fn apply_grid_parallel_fused(
     return apply_strategy(input, ExecutionStrategy.GRID_PARALLEL_FUSED)
 
 
-fn compare_states(a: QuantumState, b: QuantumState, tolerance: Float64) raises:
+fn compare_states(a: QuantumState, b: QuantumState, tolerance: FloatType) raises:
     if a.size() != b.size():
         raise Error("Verification failed: State sizes differ")
     for i in range(a.size()):

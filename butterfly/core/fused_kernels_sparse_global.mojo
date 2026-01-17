@@ -66,7 +66,7 @@ fn transform_fused_hh_sparse[
 @always_inline
 fn transform_fused_hp_sparse[
     simd_width: Int
-](mut state: QuantumState, th: Int, tp: Int, theta: Float64):
+](mut state: QuantumState, th: Int, tp: Int, theta: FloatType):
     """Specialized global sparse kernel for H + P fusion."""
     var size = state.size()
     var ptr_re = state.re.unsafe_ptr()
@@ -126,8 +126,8 @@ fn transform_fused_pp_sparse[
     mut state: QuantumState,
     t1: Int,
     t2: Int,
-    theta1: Float64,
-    theta2: Float64,
+    theta1: FloatType,
+    theta2: FloatType,
 ):
     """Specialized global sparse kernel for P + P fusion."""
     var size = state.size()
@@ -187,8 +187,8 @@ fn transform_fused_shared_c_pp_sparse[
     control: Int,
     t1: Int,
     t2: Int,
-    theta1: Float64,
-    theta2: Float64,
+    theta1: FloatType,
+    theta2: FloatType,
 ):
     """Specialized global sparse kernel for CP + CP sharing a control bit."""
     var size = state.size()

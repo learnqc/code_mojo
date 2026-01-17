@@ -1,8 +1,10 @@
 from complex import ComplexSIMD
 from sys.info import simd_width_of
+from sys import is_defined
 import math
 
-alias Type = DType.float64
+
+comptime Type = DType.float32 if is_defined["FLOAT32"]() else DType.float64
 alias FloatType = Scalar[Type]
 
 alias simd_width = simd_width_of[Type]()

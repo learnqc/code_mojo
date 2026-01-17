@@ -7,7 +7,7 @@ from butterfly.utils.context import ExecContext
 from math import pi
 
 
-fn test_cross_row_hp() raises -> Float64:
+fn test_cross_row_hp() raises -> FloatType:
     """Test cross-row H+P fusion."""
     var n = 12
     var col_bits = 6
@@ -30,7 +30,7 @@ fn test_cross_row_hp() raises -> Float64:
     )
 
 
-fn test_cross_row_hh() raises -> Float64:
+fn test_cross_row_hh() raises -> FloatType:
     """Test cross-row H+H fusion."""
     var n = 12
     var col_bits = 6
@@ -53,7 +53,7 @@ fn test_cross_row_hh() raises -> Float64:
     )
 
 
-fn test_cross_row_pp() raises -> Float64:
+fn test_cross_row_pp() raises -> FloatType:
     """Test cross-row P+P fusion."""
     var n = 12
     var col_bits = 6

@@ -921,12 +921,12 @@ def to_table(
         )
 
         var angle = atan2(amp.im, amp.re)
-        var angle_deg: Float64 = 0.0
+        var angle_deg: FloatType = 0.0
         if amp.re != 0 or amp.im != 0:
             angle_deg = abs(
                 round(
-                    angle.cast[DType.float64]()
-                    / (2.0 * pi.cast[DType.float64]())
+                    angle
+                    / (2.0 * pi)
                     * 360.0,
                     2,
                 )

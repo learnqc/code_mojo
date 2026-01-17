@@ -24,12 +24,12 @@ fn qasm_from_circuit(circuit: QuantumCircuit) raises -> String:
         if gt.kind == 0 and gt.gate_info.kind == GateKind.H:
             lines.append("h q[" + String(gt.target) + "];")
         elif gt.kind == 0 and gt.gate_info.kind == GateKind.P:
-            var angle = Float64(gt.gate_info.arg.value())
+            var angle = FloatType(gt.gate_info.arg.value())
             lines.append(
                 "p(" + String(angle) + ") q[" + String(gt.target) + "];"
             )
         elif gt.kind == 1 and gt.gate_info.kind == GateKind.P:
-            var angle = Float64(gt.gate_info.arg.value())
+            var angle = FloatType(gt.gate_info.arg.value())
             lines.append(
                 "cp("
                 + String(angle)

@@ -1,5 +1,5 @@
 from python import Python, PythonObject
-
+from butterfly.core.types import FloatType
 
 fn _get_state() raises -> PythonObject:
     var sys = Python.import_module("sys")
@@ -101,13 +101,13 @@ fn get_global_config_int(key: String, default: Int = 0) raises -> Int:
 
 
 fn get_global_config_float(
-    key: String, default: Float64 = 0.0
-) raises -> Float64:
+    key: String, default: FloatType = 0.0
+) raises -> FloatType:
     var val = get_global_config_value(key, "")
     if val == "":
         return default
     try:
-        return Float64(val)
+        return FloatType(Float64(val))
     except:
         return default
 

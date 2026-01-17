@@ -295,8 +295,8 @@ fn transform_p_scalar(
     """Scalar Phase transform."""
     var l = state.size()
     var stride = 1 << target
-    var cos_t = cos(Float64(theta))
-    var sin_t = sin(Float64(theta))
+    var cos_t = cos(FloatType(theta))
+    var sin_t = sin(FloatType(theta))
     var threads = ctx.threads
     if threads > 0:
         var total_blocks = l // (2 * stride)
@@ -345,8 +345,8 @@ fn transform_ry_scalar(
     """Scalar RY transform."""
     var l = state.size()
     var stride = 1 << target
-    var cos_t = cos(Float64(theta) / 2)
-    var sin_t = sin(Float64(theta) / 2)
+    var cos_t = cos(FloatType(theta) / 2)
+    var sin_t = sin(FloatType(theta) / 2)
     var threads = ctx.threads
     if threads > 0:
         var total_blocks = l // (2 * stride)
@@ -461,8 +461,8 @@ fn c_transform_p_scalar(
 ):
     """Scalar controlled Phase transform."""
     var stride = 1 << target
-    var cos_t = cos(Float64(theta))
-    var sin_t = sin(Float64(theta))
+    var cos_t = cos(FloatType(theta))
+    var sin_t = sin(FloatType(theta))
     var l = state.size()
     var threads = ctx.threads
     if threads > 0:
@@ -514,8 +514,8 @@ fn c_transform_ry_scalar(
 ):
     """Scalar controlled RY transform."""
     var stride = 1 << target
-    var cos_t = cos(Float64(theta) / 2)
-    var sin_t = sin(Float64(theta) / 2)
+    var cos_t = cos(FloatType(theta) / 2)
+    var sin_t = sin(FloatType(theta) / 2)
     var l = state.size()
     var threads = ctx.threads
     if threads > 0:
@@ -657,8 +657,8 @@ fn process_p_pair_scalar(
     ptr_re: UnsafePointer[FloatType, MutAnyOrigin],
     ptr_im: UnsafePointer[FloatType, MutAnyOrigin],
     idx: Int,
-    cos_t: Float64,
-    sin_t: Float64,
+    cos_t: FloatType,
+    sin_t: FloatType,
 ):
     var v_re = ptr_re[idx]
     var v_im = ptr_im[idx]

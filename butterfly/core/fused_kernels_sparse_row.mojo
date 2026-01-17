@@ -131,7 +131,7 @@ fn transform_row_fused_hp_ptr[
     row_size: Int,
     th: Int,
     tp: Int,
-    theta: Float64,
+    theta: FloatType,
 ):
     """Specialized row-local kernel for H + P fusion."""
     var row_off = row * row_size
@@ -242,7 +242,7 @@ fn transform_row_fused_hp_simd[
     row_size: Int,
     th: Int,
     tp: Int,
-    theta: Float64,
+    theta: FloatType,
 ):
     transform_row_fused_hp_ptr[simd_width](
         state.re.unsafe_ptr(),
@@ -264,7 +264,7 @@ fn transform_row_fused_st_hp_ptr[
     row: Int,
     row_size: Int,
     target: Int,
-    theta: Float64,
+    theta: FloatType,
 ):
     """Row-local kernel for H + P on the same target."""
     var row_off = row * row_size
@@ -331,7 +331,7 @@ fn transform_row_fused_st_hp_simd[
     row: Int,
     row_size: Int,
     target: Int,
-    theta: Float64,
+    theta: FloatType,
 ):
     transform_row_fused_st_hp_ptr[simd_width](
         state.re.unsafe_ptr(),
@@ -352,8 +352,8 @@ fn transform_row_fused_pp_ptr[
     row_size: Int,
     t1: Int,
     t2: Int,
-    theta1: Float64,
-    theta2: Float64,
+    theta1: FloatType,
+    theta2: FloatType,
 ):
     """Specialized row-local kernel for P + P fusion."""
     var row_off = row * row_size
@@ -442,8 +442,8 @@ fn transform_row_fused_pp_simd[
     row_size: Int,
     t1: Int,
     t2: Int,
-    theta1: Float64,
-    theta2: Float64,
+    theta1: FloatType,
+    theta2: FloatType,
 ):
     transform_row_fused_pp_ptr[simd_width](
         state.re.unsafe_ptr(),
@@ -468,8 +468,8 @@ fn transform_row_fused_shared_c_pp_ptr[
     control: Int,
     t1: Int,
     t2: Int,
-    theta1: Float64,
-    theta2: Float64,
+    theta1: FloatType,
+    theta2: FloatType,
 ):
     """Row-local kernel for CP + CP sharing a control bit."""
     var row_off = row * row_size
@@ -568,8 +568,8 @@ fn transform_row_fused_shared_c_pp_simd[
     control: Int,
     t1: Int,
     t2: Int,
-    theta1: Float64,
-    theta2: Float64,
+    theta1: FloatType,
+    theta2: FloatType,
 ):
     transform_row_fused_shared_c_pp_ptr[simd_width](
         state.re.unsafe_ptr(),

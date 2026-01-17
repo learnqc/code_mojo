@@ -5,8 +5,8 @@ Provides cross-platform thread count monitoring for performance analysis.
 Currently supports macOS via ps command.
 """
 
-from collections import List
 from time import perf_counter_ns, sleep
+from butterfly.core.types import FloatType
 
 
 fn get_current_pid() -> Int:
@@ -93,7 +93,7 @@ struct ThreadStats(ImplicitlyCopyable, Movable):
 
     var min_threads: Int
     var max_threads: Int
-    var avg_threads: Float64
+    var avg_threads: FloatType
     var sample_count: Int
 
     fn __init__(out self):
@@ -106,7 +106,7 @@ struct ThreadStats(ImplicitlyCopyable, Movable):
         out self,
         min_threads: Int,
         max_threads: Int,
-        avg_threads: Float64,
+        avg_threads: FloatType,
         sample_count: Int,
     ):
         self.min_threads = min_threads
@@ -152,7 +152,7 @@ fn compute_thread_stats(snapshots: List[ThreadSnapshot]) -> ThreadStats:
                 max_threads = count
             total += count
 
-    var avg_threads = Float64(total) / Float64(len(snapshots))
+    var avg_threads = FloatType(total) / FloatType(len(snapshots))
 
     return ThreadStats(min_threads, max_threads, avg_threads, len(snapshots))
 

@@ -4,8 +4,7 @@ from time import perf_counter_ns, sleep
 import benchmark
 from benchmark import keep, run, Unit
 from butterfly.utils.benchmark_runner import create_runner
-from collections import Dict, List
-
+from butterfly.core.types import FloatType
 
 # --- State Test Functions ---
 
@@ -28,13 +27,13 @@ fn get_state_v2(n: Int) raises -> State:
 
 
 fn compare_states(
-    val1: State, val2: State, tolerance: Float64
+    val1: State, val2: State, tolerance: FloatType
 ) raises:
     """Specialized comparison for State."""
     if val1.size() != val2.size():
         raise Error("Verification failed: State sizes differ")
 
-    var diff_sum = 0.0
+    var diff_sum: FloatType = 0.0
     for i in range(val1.size()):
         var dr = val1.re[i] - val2.re[i]
         var di = val1.im[i] - val2.im[i]
@@ -67,7 +66,7 @@ fn test_main() raises:
             compare=compare_states,
             name1="state_v1",
             name2="state_v2",
-            tolerance=1e-10,
+            tolerance=FloatType(1e-10),
         )
 
     # Run benchmark sweep

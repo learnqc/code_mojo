@@ -1,7 +1,5 @@
 from butterfly.core.quantum_circuit import QuantumCircuit, bit_reverse
-from butterfly.core.types import FloatType
-
-from math import pi
+from butterfly.core.types import FloatType, pi
 
 
 fn iqft_circuit(mut qc: QuantumCircuit, targets: List[Int], swap: Bool = False):

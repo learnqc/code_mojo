@@ -25,7 +25,7 @@ alias Complex = ComplexSIMD[Type, 1]  # SIMD-optimized complex numbers
 alias Gate = InlineArray[InlineArray[Complex, 2], 2]  # Efficient 2x2 matrices
 ```
 
-- **Float64 precision** for accurate quantum simulations
+- **FloatType precision** for accurate quantum simulations
 - **SIMD vectorization** for performance
 - **InlineArray** for memory-efficient gate matrices
 

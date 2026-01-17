@@ -1,5 +1,5 @@
 from collections import Dict
-
+from butterfly.core.types import FloatType
 
 struct Config(Movable):
     """Simple config loader with in-memory cache."""
@@ -72,12 +72,12 @@ struct Config(Movable):
         except:
             return default
 
-    fn get_float(self, key: String, default: Float64 = 0.0) raises -> Float64:
+    fn get_float(self, key: String, default: FloatType = 0.0) raises -> FloatType:
         var val = self.get_value(key, "")
         if val == "":
             return default
         try:
-            return Float64(val)
+            return FloatType(Float64(val))
         except:
             return default
 
