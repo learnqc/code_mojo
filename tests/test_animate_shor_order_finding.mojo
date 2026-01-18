@@ -51,8 +51,8 @@ fn test_animate_shor_order_finding() raises:
         left_source,
         right_source,
         gap=6,
-        delay_s=0.25,
-        step_on_input=False,
+        delay_s=0.5,
+        step_on_input=True,
     )
 
     var final_state = QuantumState(exp_bits + value_bits)

@@ -79,6 +79,28 @@ fn apply_modexp(
     state.invalidate_buffers()
 
 
+fn modexp_circuit(
+    n_exp: Int,
+    n_value: Int,
+    a: Int,
+    modulus: Int,
+) raises -> QuantumCircuit:
+    var qc = QuantumCircuit(n_exp + n_value)
+    var exp = QuantumRegister("exp", n_exp)
+    var value = QuantumRegister("value", n_value, n_exp)
+    for i in range(exp.length):
+        qc.h(exp[i])
+    # Initialize |1> in the value register.
+    qc.x(value[0])
+    var targets = List[Int](capacity=4)
+    targets.append(exp.length)
+    targets.append(value.length)
+    targets.append(a)
+    targets.append(modulus)
+    qc.add_classical("MOD_EXP", targets, apply_modexp)
+    return qc^
+
+
 fn exponent_marginal_probs(
     state: QuantumState,
     n_exp: Int,
@@ -147,7 +169,8 @@ fn estimate_order_from_measurement(
         return None
     var denom = 1 << n_exp
     var max_r = max_den if max_den > 0 else modulus
-    var (p, q) = continued_fraction_best(measured, denom, max_r)
+    var (_, q): Tuple[Int, Int] 
+    (_, q)= continued_fraction_best(measured, denom, max_r)
     if q <= 0:
         return None
     if modpow(a, q, modulus) == 1:
@@ -257,18 +280,13 @@ fn append_order_finding(
     if exp.start != 0 or value.start != exp.length:
         raise Error("Order finding expects contiguous exp+value registers")
 
-    for i in range(exp.length):
-        qc.h(exp[i])
-
-    # Initialize |1> in the value register.
-    qc.x(value[0])
-
-    var targets = List[Int](capacity=4)
-    targets.append(exp.length)
-    targets.append(value.length)
-    targets.append(a)
-    targets.append(modulus)
-    qc.add_classical("MOD_EXP", targets, apply_modexp)
+    var modexp = modexp_circuit(
+        exp.length,
+        value.length,
+        a,
+        modulus,
+    )
+    _ = qc.append_circuit(modexp, QuantumRegister("q", exp.length + value.length))
 
     var iqft = QuantumCircuit(exp.length)
     _ = iqft_circuit(iqft, [exp.length - 1 - j for j in range(exp.length)], swap=swap)
