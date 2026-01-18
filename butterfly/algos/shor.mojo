@@ -36,6 +36,23 @@ fn modpow(base: Int, exp: Int, modulus: Int) -> Int:
     return modexp(base, exp, modulus)
 
 
+fn egcd(a: Int, b: Int) -> Tuple[Int, Int, Int]:
+    if b == 0:
+        return (a, 1, 0)
+    var (g, x1, y1) = egcd(b, a % b)
+    return (g, y1, x1 - (a // b) * y1)
+
+
+fn modinv(a: Int, modulus: Int) -> Int:
+    var (g, x, _) = egcd(a, modulus)
+    if g != 1:
+        return 0
+    var inv = x % modulus
+    if inv < 0:
+        inv += modulus
+    return inv
+
+
 fn apply_modexp(
     mut state: QuantumState,
     targets: List[Int],
@@ -79,6 +96,50 @@ fn apply_modexp(
     state.invalidate_buffers()
 
 
+fn apply_modexp_inverse(
+    mut state: QuantumState,
+    targets: List[Int],
+) raises:
+    if len(targets) < 4:
+        raise Error("MOD_EXP_INV expects 4 parameters: n_exp, n_value, a, N")
+    var n_exp = targets[0]
+    var n_value = targets[1]
+    var a = targets[2]
+    var modulus = targets[3]
+    if n_exp <= 0 or n_value <= 0:
+        raise Error("MOD_EXP_INV expects positive register sizes")
+    if modulus <= 1:
+        raise Error("MOD_EXP_INV expects modulus > 1")
+    if gcd(a, modulus) != 1:
+        raise Error("MOD_EXP_INV expects a and modulus to be coprime")
+
+    var total = n_exp + n_value
+    var size = state.size()
+    if size != (1 << total):
+        raise Error("State size mismatch for MOD_EXP_INV")
+
+    var out_re = List[FloatType](length=size, fill=0.0)
+    var out_im = List[FloatType](length=size, fill=0.0)
+    var x_mask = (1 << n_exp) - 1
+    var y_mask = (1 << n_value) - 1
+
+    for idx in range(size):
+        var x = idx & x_mask
+        var y = (idx >> n_exp) & y_mask
+        var y_out = y
+        if y < modulus:
+            var ax = modexp(a, x, modulus)
+            var inv_ax = modinv(ax, modulus)
+            y_out = (y * inv_ax) % modulus
+        var out_idx = x | (y_out << n_exp)
+        out_re[out_idx] = state.re[idx]
+        out_im[out_idx] = state.im[idx]
+
+    state.re = out_re^
+    state.im = out_im^
+    state.invalidate_buffers()
+
+
 fn modexp_circuit(
     n_exp: Int,
     n_value: Int,
@@ -97,7 +158,12 @@ fn modexp_circuit(
     targets.append(value.length)
     targets.append(a)
     targets.append(modulus)
-    qc.add_classical("MOD_EXP", targets, apply_modexp)
+    qc.add_classical(
+        "MOD_EXP",
+        targets,
+        apply_modexp,
+        apply_modexp_inverse,
+    )
     return qc^
 
 

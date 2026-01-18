@@ -1549,25 +1549,19 @@ fn animate_frame_source_pair(
                 if target < total_left:
                     try:
                         var last_tr = left.iter.circuit.transformations[target]
-                        if last_tr.isa[ClassicalTransformation[State]]():
-                            ok = False
-                        else:
-                            var single = QuantumCircuit(left.iter.circuit.num_qubits)
-                            single.transformations.append(last_tr.copy())
-                            var inv_single = single.inverse()
-                            execute(left.iter.state, inv_single, ExecContext())
+                        var single = QuantumCircuit(left.iter.circuit.num_qubits)
+                        single.transformations.append(last_tr.copy())
+                        var inv_single = single.inverse()
+                        execute(left.iter.state, inv_single, ExecContext())
                     except:
                         ok = False
                 if target < total_right:
                     try:
                         var last_tr = right.iter.circuit.transformations[target]
-                        if last_tr.isa[ClassicalTransformation[State]]():
-                            ok = False
-                        else:
-                            var single = QuantumCircuit(right.iter.circuit.num_qubits)
-                            single.transformations.append(last_tr.copy())
-                            var inv_single = single.inverse()
-                            execute(right.iter.state, inv_single, ExecContext())
+                        var single = QuantumCircuit(right.iter.circuit.num_qubits)
+                        single.transformations.append(last_tr.copy())
+                        var inv_single = single.inverse()
+                        execute(right.iter.state, inv_single, ExecContext())
                     except:
                         ok = False
                 if not ok:
@@ -2389,17 +2383,6 @@ fn animate_execution(
                         break
                     # Try to invert the single last transformation and execute it.
                     var last_tr = circuit.transformations[step - 1]
-                    if last_tr.isa[ClassicalTransformation[State]]():
-                        # Force replay for non-invertible classical transforms.
-                        state = init_state.copy()
-                        if next > 0:
-                            var sub_circuit = QuantumCircuit(circuit.num_qubits)
-                            for i in range(next):
-                                sub_circuit.transformations.append(
-                                    circuit.transformations[i].copy()
-                                )
-                            execute(state, sub_circuit, ctx)
-                        break
                     var single = QuantumCircuit(circuit.num_qubits)
                     single.transformations.append(last_tr.copy())
                     try:
@@ -2570,16 +2553,6 @@ fn animate_execution_table(
                     if step == 0:
                         break
                     var last_tr = circuit.transformations[step - 1]
-                    if last_tr.isa[ClassicalTransformation[State]]():
-                        state = init_state.copy()
-                        if next > 0:
-                            var sub_circuit = QuantumCircuit(circuit.num_qubits)
-                            for i in range(next):
-                                sub_circuit.transformations.append(
-                                    circuit.transformations[i].copy()
-                                )
-                            execute(state, sub_circuit, ctx)
-                        break
                     var single = QuantumCircuit(circuit.num_qubits)
                     single.transformations.append(last_tr.copy())
                     try:
@@ -2774,16 +2747,6 @@ fn animate_execution_table_grid(
                     if step == 0:
                         break
                     var last_tr = circuit.transformations[step - 1]
-                    if last_tr.isa[ClassicalTransformation[State]]():
-                        state = init_state.copy()
-                        if next > 0:
-                            var sub_circuit = QuantumCircuit(circuit.num_qubits)
-                            for i in range(next):
-                                sub_circuit.transformations.append(
-                                    circuit.transformations[i].copy()
-                                )
-                            execute(state, sub_circuit, ctx)
-                        break
                     var single = QuantumCircuit(circuit.num_qubits)
                     single.transformations.append(last_tr.copy())
                     try:
