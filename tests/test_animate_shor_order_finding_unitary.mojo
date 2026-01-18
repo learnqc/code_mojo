@@ -1,4 +1,4 @@
-from butterfly.algos.shor import modexp_circuit
+from butterfly.algos.shor_unitary import order_finding_unitary_circuit
 from butterfly.core.state import QuantumState
 from butterfly.utils.visualization import (
     FrameSource,
@@ -7,23 +7,16 @@ from butterfly.utils.visualization import (
 
 
 fn main() raises:
-    test_animate_shor_modexp()
+    test_animate_shor_order_finding_unitary()
 
 
-fn test_animate_shor_modexp() raises:
-    # Visualize only the modular exponentiation encoding (no IQFT).
-    var modulus = 21
+fn test_animate_shor_order_finding_unitary() raises:
+    var modulus = 15
     var a = 2
-    var value_bits = 0
-    var tmp = modulus - 1
-    while tmp > 0:
-        value_bits += 1
-        tmp >>= 1
-    if value_bits == 0:
-        value_bits = 1
-    var exp_bits = value_bits * 2
+    var value_bits = 4
+    var exp_bits = 4
 
-    var qc = modexp_circuit(exp_bits, value_bits, a, modulus)
+    var qc = order_finding_unitary_circuit(exp_bits, value_bits, a, modulus)
     var state = QuantumState(exp_bits + value_bits)
 
     var left_source = FrameSource.grid(
@@ -37,9 +30,11 @@ fn test_animate_shor_modexp() raises:
         show_chars=False,
         show_step_label=True,
     )
-    var right_source = FrameSource.table(
+    var right_source = FrameSource.exp_marginal_table(
         qc.copy(),
         state,
+        exp_bits,
+        value_bits,
         show_step_label=True,
         row_separators=True,
         max_rows=16,
@@ -49,6 +44,6 @@ fn test_animate_shor_modexp() raises:
         left_source,
         right_source,
         gap=6,
-        delay_s=0.5,
-        step_on_input=True,
+        delay_s=0.25,
+        step_on_input=False,
     )

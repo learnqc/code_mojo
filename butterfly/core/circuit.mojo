@@ -144,16 +144,19 @@ struct ClassicalTransformation[StateType: AnyType](Copyable, Movable):
     var name: String
     var targets: List[Int]
     var apply: fn(mut StateType, List[Int]) raises
+    var inverse_apply: Optional[fn(mut StateType, List[Int]) raises]
 
     fn __init__(
         out self,
         name: String,
         targets: List[Int],
         apply: fn(mut StateType, List[Int]) raises,
+        inverse_apply: Optional[fn(mut StateType, List[Int]) raises] = None,
     ):
         self.name = name
         self.targets = targets.copy()
         self.apply = apply
+        self.inverse_apply = inverse_apply
 
 
 struct MeasurementTransformation[StateType: AnyType](Copyable, Movable):
@@ -280,9 +283,15 @@ struct Circuit[StateType: AnyType](Copyable, Movable):
         name: String,
         targets: List[Int],
         apply: fn(mut StateType, List[Int]) raises,
+        inverse_apply: Optional[fn(mut StateType, List[Int]) raises] = None,
     ):
         self.transformations.append(
-            ClassicalTransformation[StateType](name, targets, apply)
+            ClassicalTransformation[StateType](
+                name,
+                targets,
+                apply,
+                inverse_apply,
+            )
         )
 
     fn swap(
@@ -416,6 +425,7 @@ struct Circuit[StateType: AnyType](Copyable, Movable):
                         cl_tr.name,
                         targets,
                         cl_tr.apply,
+                        cl_tr.inverse_apply,
                     )
                 )
             elif tr.isa[MeasurementTransformation[StateType]]():
@@ -451,6 +461,7 @@ struct Circuit[StateType: AnyType](Copyable, Movable):
                         cl_tr.name,
                         targets,
                         cl_tr.apply,
+                        cl_tr.inverse_apply,
                     )
                 )
         return True
@@ -902,9 +913,20 @@ fn _invert_transformation[StateType: AnyType](
         # Bit reversal is its own inverse
         return tr
 
+    elif tr.isa[ClassicalTransformation[StateType]]():
+        var cl_tr = tr[ClassicalTransformation[StateType]].copy()
+        if cl_tr.inverse_apply:
+            return ClassicalTransformation[StateType](
+                cl_tr.name + "_inv",
+                cl_tr.targets,
+                cl_tr.inverse_apply.value(),
+                cl_tr.apply,
+            )
+        # Fall through: treat as self-inverse when no inverse is provided.
+        return tr
+
     else:
         # For any other transformation types, assume they are self-inverse
-        # This includes ClassicalTransformation[StateType]
         return tr
 
 

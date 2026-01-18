@@ -17,11 +17,17 @@ fn main() raises:
 
 
 fn test_animate_shor_order_finding() raises:
-    # Shor order-finding demo for N=15 with a=2.
-    var modulus = 15
+    # Shor order-finding demo for N with a=2.
+    var modulus = 21
     var a = 2
-    var value_bits = 4  # Enough to hold 0..15
-    var exp_bits = 4  # Small demo size
+    var value_bits = 0
+    var tmp = modulus - 1
+    while tmp > 0:
+        value_bits += 1
+        tmp >>= 1
+    if value_bits == 0:
+        value_bits = 1
+    var exp_bits = value_bits * 2
 
     var qc = order_finding_circuit(exp_bits, value_bits, a, modulus)
     var state = QuantumState(exp_bits + value_bits)
