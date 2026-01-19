@@ -24,3 +24,6 @@ bench-exec-strategies-package-dev = "pixi run package && mojo run -I dist/ bench
 mojo = "==0.25.7"
 qiskit = ">=2.2.3,<3"
 qiskit-aer = ">=0.17.2,<0.18"
+max = ">=25.7.0,<26"
+openai = ">=2.15.0,<3"
+max-core = ">=25.7.0,<26"

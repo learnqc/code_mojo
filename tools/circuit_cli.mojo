@@ -35,25 +35,25 @@ fn parse_angle(expr: String) raises -> FloatType:
     var trimmed = String(expr.strip())
     if trimmed.find("pi") >= 0:
         var s = trimmed.replace(" ", "")
-        var sign = 1.0
+        var sign = FloatType(1.0)
         if s.startswith("-"):
-            sign = -1.0
+            sign = FloatType(-1.0)
             s = String(s[1:])
         if s == "pi":
-            return FloatType(sign * FloatType(pi))
+            return sign * pi
         if s.endswith("*pi"):
             var coeff_str = String(s[: len(s) - 3])
             var coeff = FloatType(coeff_str)
-            return FloatType(sign * coeff * FloatType(pi))
+            return sign * coeff * pi
         if s.startswith("pi/"):
             var denom_str = String(s[3:])
             var denom = FloatType(denom_str)
-            return FloatType(sign * FloatType(pi) / denom)
+            return sign * pi / denom
         if s.find("/pi") >= 0:
             var parts = s.split("/pi")
             if len(parts) == 2:
                 var coeff = FloatType(String(parts[0]))
-                return FloatType(sign * coeff / FloatType(pi))
+                return sign * coeff / pi
     return FloatType(FloatType(trimmed))
 
 
