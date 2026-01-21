@@ -12,6 +12,12 @@ from butterfly.utils.visualization import (
     print_state_grid_colored_cells,
 )
 
+from tools.tool_spec import tools_summary
+from tools.openai_provider import (
+    OpenAIProvider,
+    parse_openai_args,
+    tools_openai_object,
+)
 
 struct Session:
     var has_circuit: Bool
@@ -166,332 +172,9 @@ fn apply_gate(mut session: Session, name: String, args: List[String]) raises:
     session.circuit = circuit^
 
 
-alias MAX_TOOL_PARAMS: Int = 3
-alias TOOL_COUNT: Int = 6
-
-
-struct ParamSpec(Copyable, ImplicitlyCopyable, Movable):
-    var name: String
-    var dtype: String
-    var description: String
-    var required: Bool
-    var minimum: Int
-    var has_minimum: Bool
-    var items_type: String
-    var has_items: Bool
-
-    fn __init__(out self):
-        self.name = ""
-        self.dtype = ""
-        self.description = ""
-        self.required = False
-        self.minimum = 0
-        self.has_minimum = False
-        self.items_type = ""
-        self.has_items = False
-
-    fn __init__(
-        out self,
-        name: String,
-        dtype: String,
-        description: String,
-        required: Bool,
-        minimum: Int = 0,
-        has_minimum: Bool = False,
-        items_type: String = "",
-        has_items: Bool = False,
-    ):
-        self.name = name
-        self.dtype = dtype
-        self.description = description
-        self.required = required
-        self.minimum = minimum
-        self.has_minimum = has_minimum
-        self.items_type = items_type
-        self.has_items = has_items
-
-
-struct ToolSpec(Copyable, ImplicitlyCopyable, Movable):
-    var name: String
-    var description: String
-    var params: InlineArray[ParamSpec, MAX_TOOL_PARAMS]
-    var param_count: Int
-
-    fn __init__(out self):
-        self.name = ""
-        self.description = ""
-        self.params = build_param_array()
-        self.param_count = 0
-
-    fn __init__(
-        out self,
-        name: String,
-        description: String,
-        params: InlineArray[ParamSpec, MAX_TOOL_PARAMS],
-        param_count: Int,
-    ):
-        self.name = name
-        self.description = description
-        self.params = params
-        self.param_count = param_count
-
-
-fn build_param_array() -> InlineArray[ParamSpec, MAX_TOOL_PARAMS]:
-    var params = InlineArray[ParamSpec, MAX_TOOL_PARAMS](
-        ParamSpec(),
-        ParamSpec(),
-        ParamSpec(),
-    )
-    return params^
-
-
-fn tool_specs() -> InlineArray[ToolSpec, TOOL_COUNT]:
-    var tools = InlineArray[ToolSpec, TOOL_COUNT](
-        ToolSpec(),
-        ToolSpec(),
-        ToolSpec(),
-        ToolSpec(),
-        ToolSpec(),
-        ToolSpec(),
-    )
-
-    var params = build_param_array()
-    params[0] = ParamSpec(
-        "qubits",
-        "integer",
-        "Number of qubits to create.",
-        True,
-        minimum=1,
-        has_minimum=True,
-    )
-    tools[0] = ToolSpec(
-            "create_circuit",
-            "Create or reset a circuit with N qubits.",
-            params,
-            1,
-        )
-
-    params = build_param_array()
-    params[0] = ParamSpec(
-        "gate",
-        "string",
-        "Gate name, e.g. h, x, rz, cx, mcp.",
-        True,
-    )
-    params[1] = ParamSpec(
-        "args",
-        "array",
-        "Gate arguments as strings.",
-        True,
-        items_type="string",
-        has_items=True,
-    )
-    tools[1] = ToolSpec(
-            "add_gate",
-            "Add a gate to the circuit.",
-            params,
-            2,
-        )
-
-    params = build_param_array()
-    tools[2] = ToolSpec(
-            "show_circuit",
-            "Display the circuit as ASCII.",
-            params,
-            0,
-        )
-
-    params = build_param_array()
-    tools[3] = ToolSpec(
-            "show_state",
-            "Display the current circuit state as a table.",
-            params,
-            0,
-        )
-
-    params = build_param_array()
-    params[0] = ParamSpec(
-        "col_bits",
-        "integer",
-        "Number of column bits for the grid.",
-        True,
-        minimum=1,
-        has_minimum=True,
-    )
-    params[1] = ParamSpec(
-        "log",
-        "boolean",
-        "Use log scale for amplitudes.",
-        True,
-    )
-    params[2] = ParamSpec(
-        "bin",
-        "boolean",
-        "Show binary axis labels.",
-        True,
-    )
-    tools[4] = ToolSpec(
-            "show_grid",
-            "Display the state grid with layout options.",
-            params,
-            3,
-        )
-
-    params = build_param_array()
-    tools[5] = ToolSpec(
-            "list_tools",
-            "List available tools and their descriptions.",
-            params,
-            0,
-        )
-
-    return tools^
-
-
-fn build_parameters_schema(
-    params: InlineArray[ParamSpec, MAX_TOOL_PARAMS],
-    param_count: Int,
-) raises -> PythonObject:
-    var builtins = Python.import_module("builtins")
-    var props = builtins.dict()
-    var required = builtins.list()
-
-    for i in range(param_count):
-        var p = params[i]
-        var prop = builtins.dict()
-        prop.__setitem__("type", value=p.dtype)
-        prop.__setitem__("description", value=p.description)
-        if p.has_minimum:
-            prop.__setitem__("minimum", value=p.minimum)
-        if p.has_items:
-            var items = builtins.dict()
-            items.__setitem__("type", value=p.items_type)
-            prop.__setitem__("items", value=items)
-        props.__setitem__(p.name, value=prop)
-        if p.required:
-            required.append(p.name)
-
-    var schema = builtins.dict()
-    schema.__setitem__("type", value="object")
-    schema.__setitem__("properties", value=props)
-    schema.__setitem__("required", value=required)
-    schema.__setitem__("additionalProperties", value=False)
-    return schema
-
-
-fn tools_openai_object() raises -> PythonObject:
-    var builtins = Python.import_module("builtins")
-    var tools = builtins.list()
-    var specs = tool_specs()
-    for i in range(TOOL_COUNT):
-        var spec = specs[i]
-        var func = builtins.dict()
-        func.__setitem__("name", value=spec.name)
-        func.__setitem__("description", value=spec.description)
-        func.__setitem__(
-            "parameters",
-            value=build_parameters_schema(spec.params, spec.param_count),
-        )
-        var tool = builtins.dict()
-        tool.__setitem__("type", value="function")
-        tool.__setitem__("function", value=func)
-        tools.append(tool)
-    return tools
-
-
-fn tools_json_schema() raises -> String:
-    var builtins = Python.import_module("builtins")
-    var json = Python.import_module("json")
-    var tools = builtins.list()
-    var specs = tool_specs()
-    for i in range(TOOL_COUNT):
-        var spec = specs[i]
-        var obj = builtins.dict()
-        obj.__setitem__("name", value=spec.name)
-        obj.__setitem__("description", value=spec.description)
-        obj.__setitem__(
-            "parameters",
-            value=build_parameters_schema(spec.params, spec.param_count),
-        )
-        tools.append(obj)
-    return String(json.dumps(tools))
-
-
-fn tools_summary() -> String:
-    var specs = tool_specs()
-    var text = "Available tools:\n"
-    for i in range(TOOL_COUNT):
-        var spec = specs[i]
-        text += "- " + spec.name + ": " + spec.description
-        if i + 1 < TOOL_COUNT:
-            text += "\n"
-    return text
-
-
-struct OpenAIProvider:
-    var base_url: String
-    var model: String
-    var api_key: String
-
-    fn __init__(out self, base_url: String, model: String, api_key: String):
-        self.base_url = base_url
-        self.model = model
-        self.api_key = api_key
-
-    fn chat(
-        self,
-        messages: PythonObject,
-        tools: PythonObject,
-        require_tools: Bool,
-    ) raises -> PythonObject:
-        var json = Python.import_module("json")
-        var urllib = Python.import_module("urllib.request")
-        var builtins = Python.import_module("builtins")
-
-        var payload = builtins.dict()
-        payload.__setitem__("model", value=self.model)
-        payload.__setitem__("messages", value=messages)
-        payload.__setitem__("tools", value=tools)
-        if require_tools:
-            payload.__setitem__("tool_choice", value="required")
-
-        var headers = builtins.dict()
-        headers.__setitem__("Content-Type", value="application/json")
-        headers.__setitem__(
-            "Authorization", value="Bearer " + self.api_key
-        )
-
-        var data = json.dumps(payload).encode("utf-8")
-        var url = self.base_url.rstrip("/") + "/chat/completions"
-        var req = urllib.Request(
-            url,
-            data=data,
-            headers=headers,
-            method="POST",
-        )
-        var raw = ""
-        try:
-            var resp = urllib.urlopen(req, timeout=60)
-            raw = String(resp.read().decode("utf-8"))
-        except:
-            raise Error("HTTP error from OpenAI.")
-        var response = json.loads(raw)
-        var choices = response.__getitem__("choices")
-        var first = choices.__getitem__(0)
-        return first.__getitem__("message")
-
-
 fn py_list_len(obj: PythonObject) raises -> Int:
     var builtins = Python.import_module("builtins")
     return Int(builtins.len(obj))
-
-
-fn py_list_to_strings(obj: PythonObject) raises -> List[String]:
-    var n = py_list_len(obj)
-    var out = List[String](capacity=n)
-    for i in range(n):
-        out.append(String(obj.__getitem__(i)))
-    return out^
 
 
 fn sanitize_token(token: String) -> String:
@@ -522,44 +205,70 @@ fn looks_like_index(token: String) -> Bool:
     return String(t) != ""
 
 
-fn py_get_bool(obj: PythonObject, default: Bool) raises -> Bool:
-    if obj is None:
-        return default
-    var val = String(obj).lower()
-    if val == "true" or val == "1":
+fn parse_bool_from_string(value: String, default: Bool) -> Bool:
+    var val = value.lower()
+    if val == "true" or val == "1" or val == "yes" or val == "on":
         return True
-    if val == "false" or val == "0":
+    if val == "false" or val == "0" or val == "no" or val == "off":
         return False
     return default
 
 
-fn py_get_int(obj: PythonObject, default: Int) raises -> Int:
-    if obj is None:
-        return default
-    try:
-        return Int(String(obj))
-    except:
-        return default
+fn parse_args_list(raw: String) -> List[String]:
+    var parts = raw.split(" ")
+    var out = List[String]()
+    for i in range(len(parts)):
+        var token = String(parts[i]).strip()
+        if String(token) != "":
+            out.append(String(token))
+    return out^
+
+
+fn get_arg(
+    args: List[Tuple[String, String]],
+    key: String,
+) -> Optional[String]:
+    for i in range(len(args)):
+        var (k, v) = args[i]
+        if k == key:
+            return Optional[String](v)
+    return None
+
+
+fn get_arg_list(
+    args: List[Tuple[String, String]],
+    key: String,
+) -> List[String]:
+    var out = List[String]()
+    var raw = get_arg(args, key)
+    if raw:
+        return parse_args_list(raw.value())
+    return out^
 
 
 fn execute_tool(
     mut session: Session,
     name: String,
-    args: PythonObject,
+    args: List[Tuple[String, String]],
 ) raises -> Tuple[String, Bool]:
     if name == "create_circuit":
-        var qubits_obj = args.get("qubits")
-        if qubits_obj is None:
-            qubits_obj = args.get("N")
-        var qubits = py_get_int(qubits_obj, 0)
+        var qubits_val = get_arg(args, "qubits")
+        if not qubits_val:
+            qubits_val = get_arg(args, "N")
+        var qubits = 0
+        if qubits_val:
+            qubits = require_int_flexible(qubits_val.value())
         if qubits <= 0:
             raise Error("Invalid qubit count.")
         session.circuit = QuantumCircuit(qubits)
         session.has_circuit = True
         return ("Created circuit with " + String(qubits) + " qubits.", False)
     if name == "add_gate":
-        var gate = String(args.__getitem__("gate")).lower()
-        var arg_list = py_list_to_strings(args.__getitem__("args"))
+        var gate_val = get_arg(args, "gate")
+        if not gate_val:
+            raise Error("Missing gate name.")
+        var gate = gate_val.value().lower()
+        var arg_list = get_arg_list(args, "args")
         for i in range(len(arg_list)):
             arg_list[i] = sanitize_token(arg_list[i])
         if (gate == "p" or gate == "rx" or gate == "ry" or gate == "rz") and len(arg_list) == 2:
@@ -583,9 +292,18 @@ fn execute_tool(
     if name == "show_grid":
         if not ensure_circuit(session):
             return ("No circuit.", False)
-        var col_bits = py_get_int(args.get("col_bits"), 2)
-        var use_log = py_get_bool(args.get("log"), True)
-        var show_bin = py_get_bool(args.get("bin"), True)
+        var col_bits = 2
+        var col_bits_val = get_arg(args, "col_bits")
+        if col_bits_val:
+            col_bits = require_int_flexible(col_bits_val.value())
+        var use_log = True
+        var log_val = get_arg(args, "log")
+        if log_val:
+            use_log = parse_bool_from_string(log_val.value(), True)
+        var show_bin = True
+        var bin_val = get_arg(args, "bin")
+        if bin_val:
+            show_bin = parse_bool_from_string(bin_val.value(), True)
         var state = compute_state(session)
         print_state_grid_colored_cells(
             state,
@@ -720,7 +438,8 @@ fn main() raises:
             var func = call.__getitem__("function")
             var name = String(func.__getitem__("name"))
             var args_str = String(func.__getitem__("arguments"))
-            var args = json.loads(args_str)
+            var args_obj = json.loads(args_str)
+            var args = parse_openai_args(args_obj)
             var call_id = String(call.__getitem__("id"))
             var (content, should_print) = execute_tool(session, name, args)
             if should_print:
