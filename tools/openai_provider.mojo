@@ -135,3 +135,59 @@ struct OpenAIProvider:
         var choices = response.__getitem__("choices")
         var first = choices.__getitem__(0)
         return first.__getitem__("message")
+
+
+fn build_openai_messages() raises -> PythonObject:
+    var builtins = Python.import_module("builtins")
+    var messages = builtins.list()
+    return messages
+
+
+fn append_openai_system_message(messages: PythonObject, text: String) raises:
+    var builtins = Python.import_module("builtins")
+    var msg = builtins.dict()
+    msg.__setitem__("role", value="system")
+    msg.__setitem__("content", value=text)
+    messages.append(msg)
+
+
+fn append_openai_user_message(messages: PythonObject, text: String) raises:
+    var builtins = Python.import_module("builtins")
+    var msg = builtins.dict()
+    msg.__setitem__("role", value="user")
+    msg.__setitem__("content", value=text)
+    messages.append(msg)
+
+
+fn append_openai_tool_message(
+    messages: PythonObject,
+    tool_call_id: String,
+    content: String,
+) raises:
+    var builtins = Python.import_module("builtins")
+    var msg = builtins.dict()
+    msg.__setitem__("role", value="tool")
+    msg.__setitem__("tool_call_id", value=tool_call_id)
+    msg.__setitem__("content", value=content)
+    messages.append(msg)
+
+
+fn extract_openai_tool_calls(message: PythonObject) raises -> PythonObject:
+    return message.get("tool_calls")
+
+
+fn get_openai_tool_call_name(call: PythonObject) raises -> String:
+    var func = call.__getitem__("function")
+    return String(func.__getitem__("name"))
+
+
+fn get_openai_tool_call_args_json(call: PythonObject) raises -> String:
+    var func = call.__getitem__("function")
+    return String(func.__getitem__("arguments"))
+
+
+fn get_openai_tool_call_id(call: PythonObject) raises -> String:
+    var call_id = call.get("id")
+    if call_id is None:
+        return "tool-call"
+    return String(call_id)

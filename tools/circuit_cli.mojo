@@ -1,61 +1,24 @@
 from collections import List
 
-from butterfly.core.executors import execute
 from butterfly.core.quantum_circuit import (
     QuantumCircuit,
     bit_reverse,
     measure,
     permute_qubits,
 )
-from butterfly.core.state import QuantumState
-from butterfly.core.types import FloatType, pi
-from butterfly.utils.context import ExecContext, ExecutionStrategy
+from butterfly.utils.context import ExecutionStrategy
 from butterfly.utils.circuit_print import print_circuit_ascii
 from butterfly.utils.visualization import (
     print_state,
     print_state_grid_colored_cells,
 )
-
-struct Session:
-    var has_circuit: Bool
-    var circuit: QuantumCircuit
-    var num_qubits: Int
-    var strategy: Int
-    var threads: Int
-
-    fn __init__(out self):
-        self.has_circuit = False
-        self.circuit = QuantumCircuit(0)
-        self.num_qubits = 0
-        self.strategy = ExecutionStrategy.SCALAR
-        self.threads = 0
-
-
-fn parse_angle(expr: String) raises -> FloatType:
-    var trimmed = String(expr.strip())
-    if trimmed.find("pi") >= 0:
-        var s = trimmed.replace(" ", "")
-        var sign = FloatType(1.0)
-        if s.startswith("-"):
-            sign = FloatType(-1.0)
-            s = String(s[1:])
-        if s == "pi":
-            return sign * pi
-        if s.endswith("*pi"):
-            var coeff_str = String(s[: len(s) - 3])
-            var coeff = FloatType(coeff_str)
-            return sign * coeff * pi
-        if s.startswith("pi/"):
-            var denom_str = String(s[3:])
-            var denom = FloatType(denom_str)
-            return sign * pi / denom
-        if s.find("/pi") >= 0:
-            var parts = s.split("/pi")
-            if len(parts) == 2:
-                var coeff = FloatType(String(parts[0]))
-                return sign * coeff / pi
-    return FloatType(FloatType(trimmed))
-
+from tools.circuit_core import (
+    Session,
+    apply_gate,
+    compute_state,
+    compute_state_for_circuit,
+    ensure_circuit,
+)
 
 fn split_tokens(line: String) -> List[String]:
     var raw = line.split(" ")
@@ -79,34 +42,6 @@ fn require_int(token: String) raises -> Int:
     if parsed:
         return parsed.value()
     raise Error("Invalid integer: " + token)
-
-
-fn ensure_circuit(session: Session) -> Bool:
-    if not session.has_circuit:
-        print("Error: create a circuit first (create <n>).")
-        return False
-    return True
-
-
-fn compute_state(session: Session) raises -> QuantumState:
-    var state = QuantumState(session.num_qubits)
-    var ctx = ExecContext()
-    ctx.execution_strategy = session.strategy
-    ctx.threads = session.threads
-    execute(state, session.circuit, ctx)
-    return state^
-
-
-fn compute_state_for_circuit(
-    session: Session,
-    circuit: QuantumCircuit,
-) raises -> QuantumState:
-    var state = QuantumState(session.num_qubits)
-    var ctx = ExecContext()
-    ctx.execution_strategy = session.strategy
-    ctx.threads = session.threads
-    execute(state, circuit, ctx)
-    return state^
 
 
 fn render_grid_in_place(
@@ -248,14 +183,13 @@ fn apply_command(mut session: Session, line: String) raises -> Bool:
             print("Invalid qubit count: " + args[0])
             return True
         session.circuit = QuantumCircuit(n)
-        session.num_qubits = n
         session.has_circuit = True
         print("Created circuit with " + String(n) + " qubits.")
         return True
     if cmd == "reset" or cmd == "clear":
         if not ensure_circuit(session):
             return True
-        session.circuit = QuantumCircuit(session.num_qubits)
+        session.circuit = QuantumCircuit(session.circuit.num_qubits)
         print("Circuit cleared.")
         return True
     if cmd == "strategy":
@@ -367,7 +301,7 @@ fn apply_command(mut session: Session, line: String) raises -> Bool:
                 return True
             try:
                 for i in range(total):
-                    var sub_circuit = QuantumCircuit(session.num_qubits)
+                    var sub_circuit = QuantumCircuit(session.circuit.num_qubits)
                     for j in range(i + 1):
                         sub_circuit.transformations.append(
                             session.circuit.transformations[j].copy()
