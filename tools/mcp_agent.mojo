@@ -32,6 +32,7 @@ fn ensure_ascii(label: String, value: String) raises -> Bool:
 
 
 fn mcp_request(base_url: String, payload: PythonObject) raises -> PythonObject:
+    var os = Python.import_module("os")
     var json = Python.import_module("json")
     var urllib = Python.import_module("urllib.request")
     var builtins = Python.import_module("builtins")
@@ -133,7 +134,6 @@ fn build_messages() raises -> PythonObject:
 fn main() raises:
     from sys import argv
 
-    var os = Python.import_module("os")
     var json = Python.import_module("json")
 
     var base_url = String(os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"))

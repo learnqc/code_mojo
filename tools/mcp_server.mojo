@@ -308,7 +308,7 @@ fn main() raises:
     var socket = Python.import_module("socket")
 
     var host = String(os.getenv("MCP_HOST", "127.0.0.1"))
-    var port = Int(os.getenv("MCP_PORT", "8765"))
+    var port = Int(String(os.getenv("MCP_PORT", "8765")))
     for i in range(len(argv())):
         var arg = String(argv()[i])
         if arg == "--host" and i + 1 < len(argv()):

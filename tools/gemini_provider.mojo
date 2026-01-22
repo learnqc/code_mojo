@@ -1,5 +1,7 @@
 from collections import List
 from python import Python, PythonObject
+from sys import is_defined
+from sys.param_env import env_get_int
 
 from tools.tool_spec import (
     MAX_TOOL_PARAMS,
@@ -191,6 +193,9 @@ struct GeminiProvider:
         var json = Python.import_module("json")
         var urllib = Python.import_module("urllib.request")
         var builtins = Python.import_module("builtins")
+        var os = Python.import_module("os")
+        var os = Python.import_module("os")
+        var os = Python.import_module("os")
 
         var url = self.base_url.rstrip("/") + "/models?key=" + self.api_key
         var py_globals = builtins.dict()
@@ -259,7 +264,6 @@ struct GeminiProvider:
         var json = Python.import_module("json")
         var urllib = Python.import_module("urllib.request")
         var builtins = Python.import_module("builtins")
-        var os = Python.import_module("os")
 
         var contents = builtins.list()
         var system_text = ""
@@ -306,8 +310,13 @@ struct GeminiProvider:
         )
         if self.api_key == "":
             raise Error("GEMINI_API_KEY is not set.")
-        var debug = String(os.getenv("GEMINI_DEBUG", ""))
-        if debug == "1":
+        comptime gemini_debug = (
+            env_get_int["GEMINI_DEBUG"]() != 0
+            if is_defined["GEMINI_DEBUG"]()
+            else False
+        )
+        var debug = gemini_debug
+        if debug:
             print("Gemini URL: " + url)
             print("Gemini payload: " + String(json.dumps(payload)))
         var raw = ""

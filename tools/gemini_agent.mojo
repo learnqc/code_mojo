@@ -55,7 +55,6 @@ fn main() raises:
     from sys import argv
 
     var os = Python.import_module("os")
-
     var base_url = String(
         os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta")
     )

@@ -151,17 +151,16 @@ fn main() raises:
     from sys import argv
 
     var os = Python.import_module("os")
-
-    var base_url = String(
+    var base_url: String = String(
         os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta")
     )
-    var model = String(os.getenv("GEMINI_MODEL", "gemini-3-flash-preview"))
-    var api_key = String(os.getenv("GEMINI_API_KEY", ""))
+    var model: String = String(os.getenv("GEMINI_MODEL", "gemini-3-flash-preview"))
+    var api_key: String = String(os.getenv("GEMINI_API_KEY", ""))
     var require_tools = True
 
-    var mcp_url = String(os.getenv("MCP_URL", "http://127.0.0.1:8765"))
+    var mcp_url: String = String(os.getenv("MCP_URL", "http://127.0.0.1:8765"))
     if not mcp_url.endswith("/mcp"):
-        mcp_url += "/mcp"
+        mcp_url = mcp_url + "/mcp"
 
     for i in range(len(argv())):
         var arg = String(argv()[i])
