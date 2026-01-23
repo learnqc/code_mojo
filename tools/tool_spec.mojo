@@ -1,8 +1,8 @@
 from collections import List
 
 
-alias MAX_TOOL_PARAMS: Int = 3
-alias TOOL_COUNT: Int = 6
+alias MAX_TOOL_PARAMS: Int = 4
+alias TOOL_COUNT: Int = 10
 
 
 struct ParamSpec(Copyable, ImplicitlyCopyable, Movable):
@@ -76,12 +76,17 @@ fn build_param_array() -> InlineArray[ParamSpec, MAX_TOOL_PARAMS]:
         ParamSpec(),
         ParamSpec(),
         ParamSpec(),
+        ParamSpec(),
     )
     return params^
 
 
 fn tool_specs() -> InlineArray[ToolSpec, TOOL_COUNT]:
     var tools = InlineArray[ToolSpec, TOOL_COUNT](
+        ToolSpec(),
+        ToolSpec(),
+        ToolSpec(),
+        ToolSpec(),
         ToolSpec(),
         ToolSpec(),
         ToolSpec(),
@@ -165,11 +170,17 @@ fn tool_specs() -> InlineArray[ToolSpec, TOOL_COUNT]:
         "Show binary axis labels.",
         True,
     )
+    params[3] = ParamSpec(
+        "origin_bottom",
+        "boolean",
+        "Place origin at bottom-left.",
+        False,
+    )
     tools[4] = ToolSpec(
         "show_grid",
         "Display the state grid with layout options.",
         params,
-        3,
+        4,
     )
 
     params = build_param_array()
@@ -178,6 +189,124 @@ fn tool_specs() -> InlineArray[ToolSpec, TOOL_COUNT]:
         "List available tools and their descriptions.",
         params,
         0,
+    )
+
+    params = build_param_array()
+    params[0] = ParamSpec(
+        "rows",
+        "integer",
+        "Number of grid rows (power of two).",
+        True,
+        minimum=1,
+        has_minimum=True,
+    )
+    params[1] = ParamSpec(
+        "origin_bottom",
+        "boolean",
+        "Place origin at bottom-left.",
+        False,
+    )
+    tools[6] = ToolSpec(
+        "show_grid_rows",
+        "Display the state grid using a fixed row count.",
+        params,
+        2,
+    )
+
+    params = build_param_array()
+    params[0] = ParamSpec(
+        "delay_ms",
+        "integer",
+        "Delay between steps in milliseconds.",
+        False,
+        minimum=0,
+        has_minimum=True,
+    )
+    params[1] = ParamSpec(
+        "step",
+        "boolean",
+        "Advance one step at a time on keypress.",
+        False,
+    )
+    tools[7] = ToolSpec(
+        "animate_table",
+        "Animate the state table after each gate.",
+        params,
+        2,
+    )
+
+    params = build_param_array()
+    params[0] = ParamSpec(
+        "rows",
+        "integer",
+        "Number of grid rows (power of two).",
+        False,
+        minimum=1,
+        has_minimum=True,
+    )
+    params[1] = ParamSpec(
+        "delay_ms",
+        "integer",
+        "Delay between steps in milliseconds.",
+        False,
+        minimum=0,
+        has_minimum=True,
+    )
+    params[2] = ParamSpec(
+        "step",
+        "boolean",
+        "Advance one step at a time on keypress.",
+        False,
+    )
+    params[3] = ParamSpec(
+        "origin_bottom",
+        "boolean",
+        "Place origin at bottom-left.",
+        False,
+    )
+    tools[8] = ToolSpec(
+        "animate_grid",
+        "Animate the state grid after each gate.",
+        params,
+        4,
+    )
+
+    params = build_param_array()
+    params[0] = ParamSpec(
+        "number",
+        "integer",
+        "Number to factor.",
+        True,
+        minimum=2,
+        has_minimum=True,
+    )
+    params[1] = ParamSpec(
+        "exp_bits",
+        "integer",
+        "Override number of exponent qubits.",
+        False,
+        minimum=1,
+        has_minimum=True,
+    )
+    params[2] = ParamSpec(
+        "value_bits",
+        "integer",
+        "Override number of value qubits.",
+        False,
+        minimum=1,
+        has_minimum=True,
+    )
+    params[3] = ParamSpec(
+        "encoding",
+        "string",
+        "Encoding for mod-exp: classical or polynomial.",
+        False,
+    )
+    tools[9] = ToolSpec(
+        "shor_factor",
+        "Factor a number with Shor's order-finding (simulated).",
+        params,
+        4,
     )
 
     return tools^

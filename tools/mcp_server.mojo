@@ -102,6 +102,28 @@ fn parse_bool(value: String, default: Bool) -> Bool:
     return default
 
 
+fn row_bits_from_rows(rows: Int) -> Int:
+    if rows <= 0:
+        return -1
+    var bits = 0
+    var value = rows
+    while value > 1:
+        if value % 2 != 0:
+            return -1
+        value = value // 2
+        bits += 1
+    return bits
+
+
+fn default_col_bits(num_qubits: Int) -> Int:
+    if num_qubits <= 0:
+        return 0
+    var row_bits = num_qubits // 2
+    if num_qubits % 2 == 0:
+        return row_bits
+    return row_bits + 1
+
+
 fn render_circuit(session: Session) -> String:
     if not ensure_circuit(session):
         return "No circuit."
@@ -133,6 +155,7 @@ fn render_state_grid(
     col_bits: Int,
     use_log: Bool,
     show_bin: Bool,
+    origin_bottom: Bool,
 ) raises -> String:
     if not ensure_circuit(session):
         return "No circuit."
@@ -144,7 +167,7 @@ fn render_state_grid(
         "",
         col_bits,
         use_log,
-        True,
+        origin_bottom,
         True,
         show_bin,
         False,
@@ -223,6 +246,7 @@ fn handle_json_rpc(
                 var col_bits = 2
                 var use_log = True
                 var show_bin = True
+                var origin_bottom = False
                 for i in range(len(args)):
                     var (k, v) = args[i]
                     if k == "col_bits":
@@ -231,7 +255,40 @@ fn handle_json_rpc(
                         use_log = parse_bool(String(v), True)
                     if k == "bin":
                         show_bin = parse_bool(String(v), True)
-                content = render_state_grid(session, col_bits, use_log, show_bin)
+                    if k == "origin_bottom":
+                        origin_bottom = parse_bool(String(v), False)
+                content = render_state_grid(
+                    session,
+                    col_bits,
+                    use_log,
+                    show_bin,
+                    origin_bottom,
+                )
+            elif name == "show_grid_rows":
+                var rows = 0
+                var origin_bottom = False
+                for i in range(len(args)):
+                    var (k, v) = args[i]
+                    if k == "rows":
+                        rows = Int(String(v))
+                    if k == "origin_bottom":
+                        origin_bottom = parse_bool(String(v), False)
+                var row_bits = row_bits_from_rows(rows)
+                if row_bits < 0:
+                    raise Error("Rows must be a power of two.")
+                var col_bits = session.circuit.num_qubits - row_bits
+                if col_bits < 0:
+                    raise Error("Too many rows for this circuit.")
+                content = render_state_grid(
+                    session,
+                    col_bits,
+                    True,
+                    True,
+                    origin_bottom,
+                )
+            elif name == "animate_table" or name == "animate_grid":
+                content = "Animation is not supported over MCP."
+                is_error = True
             elif name == "list_tools":
                 content = tools_summary()
             else:
