@@ -125,7 +125,7 @@ struct OpenAIProvider:
             headers=headers,
             method="POST",
         )
-        var raw = ""
+        var raw: String
         try:
             var resp = urllib.urlopen(req, timeout=60)
             raw = String(resp.read().decode("utf-8"))

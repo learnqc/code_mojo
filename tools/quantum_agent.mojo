@@ -215,7 +215,7 @@ fn execute_tool(
         var rows_val = get_arg(args, "rows")
         if not rows_val:
             return ("Missing rows.", True)
-        var rows = 0
+        var rows: Int
         try:
             rows = require_int_flexible(rows_val.value())
         except:
@@ -242,7 +242,7 @@ fn execute_tool(
     if name == "animate_table":
         if not ensure_circuit(session):
             return ("No circuit.", False)
-        var delay_ms = 250
+        var delay_ms = 50
         var delay_val = get_arg(args, "delay_ms")
         if delay_val:
             try:
@@ -268,7 +268,7 @@ fn execute_tool(
     if name == "animate_grid":
         if not ensure_circuit(session):
             return ("No circuit.", False)
-        var delay_ms = 250
+        var delay_ms = 50
         var delay_val = get_arg(args, "delay_ms")
         if delay_val:
             try:
@@ -282,7 +282,7 @@ fn execute_tool(
         var col_bits = default_col_bits(session.circuit.num_qubits)
         var rows_val = get_arg(args, "rows")
         if rows_val:
-            var rows = 0
+            var rows: Int
             try:
                 rows = require_int_flexible(rows_val.value())
             except:
@@ -323,7 +323,7 @@ fn execute_tool(
             number_val = get_arg(args, "n")
         if not number_val:
             return ("Missing number.", True)
-        var modulus = 0
+        var modulus: Int
         try:
             modulus = require_int_flexible(number_val.value())
         except:
@@ -331,7 +331,7 @@ fn execute_tool(
         if modulus <= 1:
             return ("Number must be >= 2.", True)
         var value_bits = bit_length(modulus)
-        var exp_bits = value_bits * 2
+        var exp_bits = value_bits * 1
         var exp_val = get_arg(args, "exp_bits")
         if exp_val:
             try:
@@ -389,6 +389,8 @@ fn execute_tool(
                         + String(q)
                         + " (a="
                         + String(chosen_a)
+                        + ", order="
+                        + String(r.value())
                         + ", exp_bits="
                         + String(exp_bits)
                         + ", value_bits="

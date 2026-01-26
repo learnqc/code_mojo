@@ -1,5 +1,7 @@
 from collections import List
+from collections import List
 from python import Python, PythonObject
+from tools.cli_input import read_line_with_history
 
 
 fn ensure_ascii(label: String, value: String) raises -> Bool:
@@ -129,15 +131,14 @@ fn main() raises:
         return
 
     var sys = Python.import_module("sys")
-    var stdin = sys.stdin
     print("MCP CLI ready. Type 'help' for commands.")
+    var history = List[String]()
 
     while True:
-        print("> ", end="")
-        var line_obj = stdin.readline()
-        if line_obj is None:
+        var line_opt = read_line_with_history("> ", history)
+        if not line_opt:
             break
-        var line = String(String(line_obj).strip())
+        var line = String(String(line_opt.value()).strip())
         if line == "":
             continue
         if line == "quit" or line == "exit":

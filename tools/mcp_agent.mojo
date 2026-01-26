@@ -1,4 +1,5 @@
 from collections import List
+from collections import List
 from python import Python, PythonObject
 
 from tools.openai_provider import (
@@ -13,6 +14,7 @@ from tools.openai_provider import (
     get_openai_tool_call_name,
     parse_openai_args,
 )
+from tools.cli_input import read_line_with_history
 
 
 fn py_list_len(obj: PythonObject) raises -> Int:
@@ -174,15 +176,14 @@ fn main() raises:
     var provider = OpenAIProvider(base_url, model, api_key)
 
     var sys = Python.import_module("sys")
-    var stdin = sys.stdin
     print("MCP OpenAI agent ready. Type 'quit' or 'exit' to leave.")
+    var history = List[String]()
 
     while True:
-        print("> ", end="")
-        var line_obj = stdin.readline()
-        if line_obj is None:
+        var line_opt = read_line_with_history("> ", history)
+        if not line_opt:
             break
-        var line = String(String(line_obj).strip())
+        var line = String(String(line_opt.value()).strip())
         if line == "":
             continue
         if line == "quit" or line == "exit":
