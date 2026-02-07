@@ -1,4 +1,10 @@
-from butterfly.core.quantum_circuit import QuantumCircuit, QuantumRegister, ClassicalTransform
+from butterfly.core.quantum_circuit import (
+    QuantumCircuit,
+    QuantumRegister,
+    ClassicalTransform,
+    ClassicalReplacementKind,
+    replace_quantum_with_classical,
+)
 from butterfly.core.circuit import GateTransformation
 from butterfly.core.types import pi, FloatType, Amplitude
 from butterfly.core.gates import P, X
@@ -112,6 +118,20 @@ fn grover_iterate_circuit(oracle: Variant[QuantumCircuit, ClassicalTransform], n
 
     return qc^
 
+
+fn grover_iterate_circuit_classical_diffuser(
+    oracle: Variant[QuantumCircuit, ClassicalTransform],
+    num_qubits: Int,
+) raises -> QuantumCircuit:
+    var qc = grover_iterate_circuit(oracle, num_qubits)
+    _ = replace_quantum_with_classical(
+        qc,
+        List[ClassicalReplacementKind](
+            ClassicalReplacementKind.GROVER_DIFFUSER,
+        ),
+    )
+    return qc^
+
 fn grover_circuit(
     items: List[Int],
     num_qubits: Int,
@@ -155,6 +175,21 @@ fn append_grover_to_register(
     """
 
     step = grover_iterate_circuit(oracle, register.length)
+
+    for _ in range(iterations):
+        _ = qc.append_circuit(step, register)
+
+
+fn append_grover_to_register_classical_diffuser(
+    mut qc: QuantumCircuit,
+    register: QuantumRegister,
+    oracle: Oracle,
+    iterations: Int,
+) raises:
+    """
+    Append Grover iterations with the diffuser replaced by a classical transform.
+    """
+    step = grover_iterate_circuit_classical_diffuser(oracle, register.length)
 
     for _ in range(iterations):
         _ = qc.append_circuit(step, register)
