@@ -5,8 +5,10 @@ from butterfly.core.circuit import (
     MeasurementTransformation,
     SwapTransformation,
     QubitReversalTransformation,
+    GateTransformation,
     Transformation,
 )
+from butterfly.core.gates import GateKind
 from butterfly.core.state import (
     apply_bit_reverse,
     apply_permute_qubits,
@@ -14,6 +16,11 @@ from butterfly.core.state import (
     apply_measure,
 )
 from butterfly.core.state import QuantumState
+from butterfly.core.types import pi
+from butterfly.algos.grover_classical import (
+    apply_grover_diffuser,
+    apply_grover_inversion_0,
+)
 from collections import List
 
 alias QuantumRegister = Register
@@ -48,10 +55,12 @@ struct ClassicalReplacementKind(Copyable, Movable, ImplicitlyCopyable):
 
     alias SWAP = ClassicalReplacementKind(0)
     alias QUBIT_REVERSAL = ClassicalReplacementKind(1)
+    alias GROVER_DIFFUSER = ClassicalReplacementKind(2)
+    alias GROVER_INVERSION_0 = ClassicalReplacementKind(3)
 
 
 fn is_valid_classical_replacement_kind(value: Int) -> Bool:
-    return value >= ClassicalReplacementKind.SWAP.value and value <= ClassicalReplacementKind.QUBIT_REVERSAL.value
+    return value >= ClassicalReplacementKind.SWAP.value and value <= ClassicalReplacementKind.GROVER_INVERSION_0.value
 
 
 fn classical_replacement_kind_name(kind: ClassicalReplacementKind) -> String:
@@ -59,6 +68,10 @@ fn classical_replacement_kind_name(kind: ClassicalReplacementKind) -> String:
         return "SWAP"
     if kind == ClassicalReplacementKind.QUBIT_REVERSAL:
         return "QUBIT_REVERSAL"
+    if kind == ClassicalReplacementKind.GROVER_DIFFUSER:
+        return "GROVER_DIFFUSER"
+    if kind == ClassicalReplacementKind.GROVER_INVERSION_0:
+        return "GROVER_INVERSION_0"
     return "UNKNOWN"
 
 
@@ -236,6 +249,10 @@ fn classical_rule_for_kind(
         return swap_replacement_rule()
     if kind == ClassicalReplacementKind.QUBIT_REVERSAL:
         return qrev_replacement_rule()
+    if kind == ClassicalReplacementKind.GROVER_DIFFUSER:
+        return grover_diffuser_replacement_rule()
+    if kind == ClassicalReplacementKind.GROVER_INVERSION_0:
+        return grover_inversion_0_replacement_rule()
     raise Error(
         "Unknown classical replacement kind: " + String(kind.value)
     )
@@ -276,3 +293,203 @@ fn qrev_replacement_rule() -> ClassicalReplacementRule:
         return 1
 
     return ClassicalReplacementRule("QUBIT_REVERSAL", apply)
+
+
+fn grover_diffuser_replacement_rule() -> ClassicalReplacementRule:
+    @always_inline
+    fn is_simple_gate(
+        tr: QuantumTransformation,
+        kind: GateKind,
+        target: Int,
+    ) -> Bool:
+        if not tr.isa[GateTransformation]():
+            return False
+        var gate_tr = tr[GateTransformation].copy()
+        if len(gate_tr.controls) != 0:
+            return False
+        return gate_tr.gate_info.kind == kind and gate_tr.target == target
+
+    @always_inline
+    fn controls_match(
+        controls: List[Int],
+        base: Int,
+        count: Int,
+    ) -> Bool:
+        if len(controls) != count:
+            return False
+        for i in range(count):
+            if controls[i] != base + i:
+                return False
+        return True
+
+    @always_inline
+    fn is_mcp_pi(
+        tr: QuantumTransformation,
+        base: Int,
+        n: Int,
+    ) -> Bool:
+        if not tr.isa[GateTransformation]():
+            return False
+        var gate_tr = tr[GateTransformation].copy()
+        if gate_tr.gate_info.kind != GateKind.P:
+            return False
+        if gate_tr.gate_info.arg is None:
+            return False
+        if gate_tr.gate_info.arg.value() != pi:
+            return False
+        if gate_tr.target != base + n - 1:
+            return False
+        return controls_match(gate_tr.controls, base, n - 1)
+
+    @always_inline
+    fn apply(
+        trs: List[QuantumTransformation],
+        idx: Int,
+        mut out: List[QuantumTransformation],
+    ) -> Int:
+        if idx >= len(trs):
+            return 0
+        var first = trs[idx]
+        if not first.isa[GateTransformation]():
+            return 0
+        var first_gate = first[GateTransformation].copy()
+        if len(first_gate.controls) != 0:
+            return 0
+        if first_gate.gate_info.kind != GateKind.H:
+            return 0
+        var base = first_gate.target
+        var n = 0
+        while idx + n < len(trs):
+            if not is_simple_gate(trs[idx + n], GateKind.H, base + n):
+                break
+            n += 1
+        if n <= 0:
+            return 0
+        var last_index = idx + 4 * n
+        if last_index >= len(trs):
+            return 0
+
+        # X(all)
+        for j in range(n):
+            if not is_simple_gate(trs[idx + n + j], GateKind.X, base + j):
+                return 0
+        # MCP(pi)
+        if not is_mcp_pi(trs[idx + 2 * n], base, n):
+            return 0
+        # X(all)
+        for j in range(n):
+            if not is_simple_gate(
+                trs[idx + 2 * n + 1 + j], GateKind.X, base + j
+            ):
+                return 0
+        # H(all)
+        for j in range(n):
+            if not is_simple_gate(
+                trs[idx + 3 * n + 1 + j], GateKind.H, base + j
+            ):
+                return 0
+
+        var targets = List[Int](capacity=n)
+        for j in range(n):
+            targets.append(base + j)
+        out.append(
+            ClassicalTransform("GROVER_DIFFUSER", targets, apply_grover_diffuser)
+        )
+        return 4 * n + 1
+
+    return ClassicalReplacementRule("GROVER_DIFFUSER", apply)
+
+
+fn grover_inversion_0_replacement_rule() -> ClassicalReplacementRule:
+    @always_inline
+    fn is_simple_gate(
+        tr: QuantumTransformation,
+        kind: GateKind,
+        target: Int,
+    ) -> Bool:
+        if not tr.isa[GateTransformation]():
+            return False
+        var gate_tr = tr[GateTransformation].copy()
+        if len(gate_tr.controls) != 0:
+            return False
+        return gate_tr.gate_info.kind == kind and gate_tr.target == target
+
+    @always_inline
+    fn controls_match(
+        controls: List[Int],
+        base: Int,
+        count: Int,
+    ) -> Bool:
+        if len(controls) != count:
+            return False
+        for i in range(count):
+            if controls[i] != base + i:
+                return False
+        return True
+
+    @always_inline
+    fn is_mcp_pi(
+        tr: QuantumTransformation,
+        base: Int,
+        n: Int,
+    ) -> Bool:
+        if not tr.isa[GateTransformation]():
+            return False
+        var gate_tr = tr[GateTransformation].copy()
+        if gate_tr.gate_info.kind != GateKind.P:
+            return False
+        if gate_tr.gate_info.arg is None:
+            return False
+        if gate_tr.gate_info.arg.value() != pi:
+            return False
+        if gate_tr.target != base + n - 1:
+            return False
+        return controls_match(gate_tr.controls, base, n - 1)
+
+    @always_inline
+    fn apply(
+        trs: List[QuantumTransformation],
+        idx: Int,
+        mut out: List[QuantumTransformation],
+    ) -> Int:
+        if idx >= len(trs):
+            return 0
+        var first = trs[idx]
+        if not first.isa[GateTransformation]():
+            return 0
+        var first_gate = first[GateTransformation].copy()
+        if len(first_gate.controls) != 0:
+            return 0
+        if first_gate.gate_info.kind != GateKind.X:
+            return 0
+        var base = first_gate.target
+        var n = 0
+        while idx + n < len(trs):
+            if not is_simple_gate(trs[idx + n], GateKind.X, base + n):
+                break
+            n += 1
+        if n <= 0:
+            return 0
+        var last_index = idx + 2 * n
+        if last_index >= len(trs):
+            return 0
+
+        if not is_mcp_pi(trs[idx + n], base, n):
+            return 0
+        for j in range(n):
+            if not is_simple_gate(
+                trs[idx + n + 1 + j], GateKind.X, base + j
+            ):
+                return 0
+
+        var targets = List[Int](capacity=n)
+        for j in range(n):
+            targets.append(base + j)
+        out.append(
+            ClassicalTransform(
+                "GROVER_INVERSION_0", targets, apply_grover_inversion_0
+            )
+        )
+        return 2 * n + 1
+
+    return ClassicalReplacementRule("GROVER_INVERSION_0", apply)

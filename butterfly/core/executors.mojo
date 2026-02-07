@@ -146,8 +146,16 @@ fn validate_circuit(state: QuantumState, circuit: QuantumCircuit) raises:
             validate_gate_transformation(gate_tr, nbits)
         elif tr.isa[ClassicalTransformation[QuantumState]]():
             var classical_tr = tr[ClassicalTransformation[QuantumState]].copy()
+            var all_qubit_targets = True
             for t in classical_tr.targets:
-                validate_qubit_index(t, nbits, "Target")
+                if t < 0:
+                    raise Error("Target out of bounds: " + String(t))
+                if t >= nbits:
+                    all_qubit_targets = False
+                    break
+            if all_qubit_targets:
+                for t in classical_tr.targets:
+                    validate_qubit_index(t, nbits, "Target")
         elif tr.isa[SwapTransformation]():
             var swap_tr = tr[SwapTransformation].copy()
             validate_qubit_index(swap_tr.a, nbits, "Target")
