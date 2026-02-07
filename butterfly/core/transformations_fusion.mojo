@@ -104,7 +104,7 @@ fn matmul_4x4(a: List[Amplitude], b: List[Amplitude]) -> List[Amplitude]:
 
 fn gate_bounds(
     target: Int,
-    control_kind: Int,
+    control_kind: ControlKind,
     control: Int,
 ) -> Tuple[Int, Int]:
     var low = target
@@ -338,7 +338,7 @@ fn flush_active[StateType: AnyType](
     mut active_count: Int,
     active_gate: Gate,
     active_target: Int,
-    active_control_kind: Int,
+    active_control_kind: ControlKind,
     active_control: Int,
     active_gate_info: GateInfo,
     active_is_phase: Bool,
@@ -395,7 +395,7 @@ fn flush_pair[StateType: AnyType](
     active_pair_low: Int,
     active_gate_info: GateInfo,
     active_target: Int,
-    active_control_kind: Int,
+    active_control_kind: ControlKind,
     active_control: Int,
 ) raises:
     if mode == 0:
@@ -434,7 +434,7 @@ fn fuse_same_target_gates[StateType: AnyType](
     var active_target = 0
     var active_control_kind = ControlKind.NO_CONTROL
     var active_control = 0
-    var active_gate_info = GateInfo(0)
+    var active_gate_info = GateInfo(GateKind.H)
     var active_is_phase = False
     var active_phase_sum = FloatType(0)
 
@@ -545,7 +545,7 @@ fn fuse_contiguous_target_pairs[StateType: AnyType](
     var active_matrix = identity_matrix4x4()
     var active_pair_low = 0
     var active_pair_high = 0
-    var active_gate_info = GateInfo(0)
+    var active_gate_info = GateInfo(GateKind.H)
     var active_target = 0
 
     for tr in transformations:
@@ -691,7 +691,7 @@ fn fuse_contiguous_target_pairs_specialized[StateType: AnyType](
     var active_matrix = identity_matrix4x4()
     var active_pair_low = 0
     var active_pair_high = 0
-    var active_gate_info = GateInfo(0)
+    var active_gate_info = GateInfo(GateKind.H)
     var active_target = 0
     var active_control_kind = ControlKind.NO_CONTROL
     var active_control = 0

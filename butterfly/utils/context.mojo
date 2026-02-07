@@ -9,15 +9,59 @@ alias SIMD_USE_SPECIALIZED_CX_DEFAULT = True
 alias SIMD_USE_SPECIALIZED_RY_DEFAULT = True
 alias SIMD_USE_SPECIALIZED_CRY_DEFAULT = True
 
-struct ExecutionStrategy:
-    alias SCALAR = 0
-    alias SCALAR_PARALLEL = 1
-    alias SIMD = 2
-    alias SIMD_PARALLEL = 3
-    alias GRID = 4
-    alias GRID_PARALLEL = 5
-    alias GRID_FUSED = 6
-    alias GRID_PARALLEL_FUSED = 7
+struct ExecutionStrategy(Copyable, Movable, ImplicitlyCopyable):
+    var value: Int
+
+    fn __init__(out self, value: Int):
+        self.value = value
+
+    fn __eq__(self, other: Self) -> Bool:
+        return self.value == other.value
+
+    fn __ne__(self, other: Self) -> Bool:
+        return self.value != other.value
+
+    fn __str__(self) -> String:
+        return execution_strategy_name(self)
+
+    @staticmethod
+    fn from_int(value: Int) raises -> ExecutionStrategy:
+        if not is_valid_execution_strategy(value):
+            raise Error("Unknown execution strategy: " + String(value))
+        return ExecutionStrategy(value)
+
+    alias SCALAR = ExecutionStrategy(0)
+    alias SCALAR_PARALLEL = ExecutionStrategy(1)
+    alias SIMD = ExecutionStrategy(2)
+    alias SIMD_PARALLEL = ExecutionStrategy(3)
+    alias GRID = ExecutionStrategy(4)
+    alias GRID_PARALLEL = ExecutionStrategy(5)
+    alias GRID_FUSED = ExecutionStrategy(6)
+    alias GRID_PARALLEL_FUSED = ExecutionStrategy(7)
+
+
+fn is_valid_execution_strategy(value: Int) -> Bool:
+    return value >= ExecutionStrategy.SCALAR.value and value <= ExecutionStrategy.GRID_PARALLEL_FUSED.value
+
+
+fn execution_strategy_name(strategy: ExecutionStrategy) -> String:
+    if strategy == ExecutionStrategy.SCALAR:
+        return "SCALAR"
+    if strategy == ExecutionStrategy.SCALAR_PARALLEL:
+        return "SCALAR_PARALLEL"
+    if strategy == ExecutionStrategy.SIMD:
+        return "SIMD"
+    if strategy == ExecutionStrategy.SIMD_PARALLEL:
+        return "SIMD_PARALLEL"
+    if strategy == ExecutionStrategy.GRID:
+        return "GRID"
+    if strategy == ExecutionStrategy.GRID_PARALLEL:
+        return "GRID_PARALLEL"
+    if strategy == ExecutionStrategy.GRID_FUSED:
+        return "GRID_FUSED"
+    if strategy == ExecutionStrategy.GRID_PARALLEL_FUSED:
+        return "GRID_PARALLEL_FUSED"
+    return "UNKNOWN"
 
 
 struct ExecContext(Copyable, Movable):
@@ -40,7 +84,10 @@ struct ExecContext(Copyable, Movable):
     var simd_use_specialized_ry: Bool
     var simd_use_specialized_cry: Bool
     var grid_use_parallel: Bool
-    var execution_strategy: Int
+    var grid_col_bits_min: Int
+    var grid_col_bits_slack: Int
+    var validate_circuit: Bool
+    var execution_strategy: ExecutionStrategy
     
     fn __init__(out self):
         # threads < 0 means "force sequential"
@@ -63,6 +110,9 @@ struct ExecContext(Copyable, Movable):
         self.simd_use_specialized_ry = SIMD_USE_SPECIALIZED_RY_DEFAULT
         self.simd_use_specialized_cry = SIMD_USE_SPECIALIZED_CRY_DEFAULT
         self.grid_use_parallel = True
+        self.grid_col_bits_min = 3
+        self.grid_col_bits_slack = 3
+        self.validate_circuit = True
         self.execution_strategy = ExecutionStrategy.SIMD
 
     @staticmethod
@@ -134,10 +184,23 @@ struct ExecContext(Copyable, Movable):
             "grid_use_parallel",
             ctx.grid_use_parallel,
         )
-        ctx.execution_strategy = cfg.get_int(
-            "execution_strategy",
-            ctx.execution_strategy,
+        ctx.grid_col_bits_min = cfg.get_int(
+            "grid_col_bits_min",
+            ctx.grid_col_bits_min,
         )
+        ctx.grid_col_bits_slack = cfg.get_int(
+            "grid_col_bits_slack",
+            ctx.grid_col_bits_slack,
+        )
+        ctx.validate_circuit = cfg.get_bool(
+            "validate_circuit",
+            ctx.validate_circuit,
+        )
+        var strategy_value = cfg.get_int(
+            "execution_strategy",
+            ctx.execution_strategy.value,
+        )
+        ctx.execution_strategy = ExecutionStrategy.from_int(strategy_value)
         return ctx^
 
     @staticmethod
@@ -209,8 +272,21 @@ struct ExecContext(Copyable, Movable):
             "grid_use_parallel",
             ctx.grid_use_parallel,
         )
-        ctx.execution_strategy = get_global_config_int(
-            "execution_strategy",
-            ctx.execution_strategy,
+        ctx.grid_col_bits_min = get_global_config_int(
+            "grid_col_bits_min",
+            ctx.grid_col_bits_min,
         )
+        ctx.grid_col_bits_slack = get_global_config_int(
+            "grid_col_bits_slack",
+            ctx.grid_col_bits_slack,
+        )
+        ctx.validate_circuit = get_global_config_bool(
+            "validate_circuit",
+            ctx.validate_circuit,
+        )
+        var strategy_value = get_global_config_int(
+            "execution_strategy",
+            ctx.execution_strategy.value,
+        )
+        ctx.execution_strategy = ExecutionStrategy.from_int(strategy_value)
         return ctx^

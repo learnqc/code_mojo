@@ -3,17 +3,51 @@ from butterfly.core.types import Amplitude, FloatType, Gate
 from utils.variant import Variant
 
 
-struct ControlKind:
-    alias NO_CONTROL = 0
-    alias SINGLE_CONTROL = 1
-    alias MULTI_CONTROL = 2
+struct ControlKind(Copyable, Movable, ImplicitlyCopyable):
+    var value: Int
+
+    fn __init__(out self, value: Int):
+        self.value = value
+
+    fn __eq__(self, other: Self) -> Bool:
+        return self.value == other.value
+
+    fn __ne__(self, other: Self) -> Bool:
+        return self.value != other.value
+
+    fn __str__(self) -> String:
+        return control_kind_name(self)
+
+    @staticmethod
+    fn from_int(value: Int) raises -> ControlKind:
+        if not is_valid_control_kind(value):
+            raise Error("Unknown control kind: " + String(value))
+        return ControlKind(value)
+
+    alias NO_CONTROL = ControlKind(0)
+    alias SINGLE_CONTROL = ControlKind(1)
+    alias MULTI_CONTROL = ControlKind(2)
+
+
+fn is_valid_control_kind(value: Int) -> Bool:
+    return value >= ControlKind.NO_CONTROL.value and value <= ControlKind.MULTI_CONTROL.value
+
+
+fn control_kind_name(kind: ControlKind) -> String:
+    if kind == ControlKind.NO_CONTROL:
+        return "NO_CONTROL"
+    if kind == ControlKind.SINGLE_CONTROL:
+        return "SINGLE_CONTROL"
+    if kind == ControlKind.MULTI_CONTROL:
+        return "MULTI_CONTROL"
+    return "UNKNOWN"
 
 
 struct GateTransformation(Copyable, Movable):
     var controls: List[Int]
     var target: Int
     var gate_info: GateInfo
-    var kind: Int
+    var kind: ControlKind
 
     fn __init__(
         out self,
@@ -499,7 +533,48 @@ struct Circuit[StateType: AnyType](Copyable, Movable):
         """Append a circuit controlled by a single qubit to a specific register."""
         if other.num_qubits != reg.length:
             return False
+        for tr in other.transformations:
+            if tr.isa[MeasurementTransformation[StateType]]():
+                raise Error("Controlled measurement is not supported")
+            if tr.isa[ClassicalTransformation[StateType]]():
+                raise Error("Controlled classical transformations are not supported")
         var offset = reg.start
+
+        @always_inline
+        fn sort_targets(mut targets: List[Int]):
+            var n = len(targets)
+            for i in range(n):
+                for j in range(i + 1, n):
+                    if targets[i] > targets[j]:
+                        var tmp = targets[i]
+                        targets[i] = targets[j]
+                        targets[j] = tmp
+
+        @always_inline
+        fn append_controlled_swap(
+            mut circuit: Circuit[StateType], c: Int, a: Int, b: Int
+        ):
+            if a == b:
+                return
+            var controls = List[Int](capacity=2)
+            controls.append(c)
+            controls.append(b)
+            circuit.transformations.append(
+                GateTransformation(controls, a, X_Gate)
+            )
+            controls = List[Int](capacity=2)
+            controls.append(c)
+            controls.append(a)
+            circuit.transformations.append(
+                GateTransformation(controls, b, X_Gate)
+            )
+            controls = List[Int](capacity=2)
+            controls.append(c)
+            controls.append(b)
+            circuit.transformations.append(
+                GateTransformation(controls, a, X_Gate)
+            )
+
         for tr in other.transformations:
             if tr.isa[GateTransformation]():
                 var gate_tr = tr[GateTransformation].copy()
@@ -539,13 +614,26 @@ struct Circuit[StateType: AnyType](Copyable, Movable):
                     )
                 )
             elif tr.isa[SwapTransformation]():
-                var _swap_tr = tr[SwapTransformation].copy() #TODO
-                # For swap operations, we need to control both the swap itself
-                # This is complex - for now, we'll skip controlled swaps
-                continue
+                var swap_tr = tr[SwapTransformation].copy()
+                append_controlled_swap(
+                    self,
+                    control,
+                    swap_tr.a + offset,
+                    swap_tr.b + offset,
+                )
             elif tr.isa[QubitReversalTransformation]():
-                # Skip controlled qubit reversals for now
-                continue
+                var qrev_tr = tr[QubitReversalTransformation].copy()
+                var targets = qrev_tr.targets.copy()
+                if len(targets) == 0:
+                    targets = List[Int](capacity=other.num_qubits)
+                    for i in range(other.num_qubits):
+                        targets.append(i)
+                sort_targets(targets)
+                var half = len(targets) // 2
+                for i in range(half):
+                    var a = targets[i] + offset
+                    var b = targets[len(targets) - 1 - i] + offset
+                    append_controlled_swap(self, control, a, b)
             elif tr.isa[UnitaryTransformation]():
                 var unitary_tr = tr[UnitaryTransformation].copy()
                 # Convert to controlled unitary
@@ -569,12 +657,8 @@ struct Circuit[StateType: AnyType](Copyable, Movable):
                     c_unitary_tr.m,
                     c_unitary_tr.name,
                 )
-            elif tr.isa[MeasurementTransformation[StateType]]():
-                # Skip measurements in controlled circuits
-                continue
             else:
-                # Skip classical transformations in controlled circuits
-                continue
+                raise Error("Unsupported transformation in controlled circuit")
         return True
 
     fn c_append_circuit_by_name(

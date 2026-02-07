@@ -36,7 +36,7 @@ fn build_circuit(n: Int, v: FloatType, stage: Int) -> QuantumCircuit:
 
 fn apply_strategy(
     input: Tuple[Int, FloatType, Int],
-    strategy: Int,
+    strategy: ExecutionStrategy,
 ) raises -> QuantumState:
     var n = input[0]
     var v = input[1]
@@ -108,12 +108,17 @@ fn apply_grid_parallel_fused(
     return apply_strategy(input, ExecutionStrategy.GRID_PARALLEL_FUSED)
 
 
-fn compare_states(a: QuantumState, b: QuantumState, tolerance: FloatType) raises:
+fn compare_states(a: QuantumState, b: QuantumState, tolerance: Float64) raises:
     if a.size() != b.size():
         raise Error("Verification failed: State sizes differ")
+    var tol = FloatType(tolerance)
     for i in range(a.size()):
-        var re_tol = tolerance * max(1.0, abs(a[i].re), abs(b[i].re))
-        var im_tol = tolerance * max(1.0, abs(a[i].im), abs(b[i].im))
+        var re_scale = max(FloatType(1.0), abs(a[i].re))
+        re_scale = max(re_scale, abs(b[i].re))
+        var im_scale = max(FloatType(1.0), abs(a[i].im))
+        im_scale = max(im_scale, abs(b[i].im))
+        var re_tol = tol * re_scale
+        var im_tol = tol * im_scale
         assert_true(abs(a[i].re - b[i].re) <= re_tol)
         assert_true(abs(a[i].im - b[i].im) <= im_tol)
 

@@ -117,7 +117,7 @@ fn transform_row_fused_hh_simd[
     simd_width: Int
 ](mut state: QuantumState, row: Int, row_size: Int, t1: Int, t2: Int):
     transform_row_fused_hh_ptr[simd_width](
-        state.re.unsafe_ptr(), state.im.unsafe_ptr(), row, row_size, t1, t2
+        state.re_ptr(), state.im_ptr(), row, row_size, t1, t2
     )
 
 
@@ -245,8 +245,8 @@ fn transform_row_fused_hp_simd[
     theta: FloatType,
 ):
     transform_row_fused_hp_ptr[simd_width](
-        state.re.unsafe_ptr(),
-        state.im.unsafe_ptr(),
+        state.re_ptr(),
+        state.im_ptr(),
         row,
         row_size,
         th,
@@ -334,8 +334,8 @@ fn transform_row_fused_st_hp_simd[
     theta: FloatType,
 ):
     transform_row_fused_st_hp_ptr[simd_width](
-        state.re.unsafe_ptr(),
-        state.im.unsafe_ptr(),
+        state.re_ptr(),
+        state.im_ptr(),
         row,
         row_size,
         target,
@@ -446,8 +446,8 @@ fn transform_row_fused_pp_simd[
     theta2: FloatType,
 ):
     transform_row_fused_pp_ptr[simd_width](
-        state.re.unsafe_ptr(),
-        state.im.unsafe_ptr(),
+        state.re_ptr(),
+        state.im_ptr(),
         row,
         row_size,
         t1,
@@ -572,8 +572,8 @@ fn transform_row_fused_shared_c_pp_simd[
     theta2: FloatType,
 ):
     transform_row_fused_shared_c_pp_ptr[simd_width](
-        state.re.unsafe_ptr(),
-        state.im.unsafe_ptr(),
+        state.re_ptr(),
+        state.im_ptr(),
         row,
         row_size,
         control,

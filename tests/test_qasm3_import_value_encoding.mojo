@@ -1,7 +1,7 @@
 from collections import List
 
 from butterfly.algos.value_encoding_circuit import encode_value_circuit
-from butterfly.core.circuit import GateTransformation
+from butterfly.core.circuit import ControlKind, GateTransformation
 from butterfly.core.executors import execute_scalar
 from butterfly.core.gates import GateKind
 from butterfly.core.quantum_circuit import QuantumCircuit
@@ -21,14 +21,14 @@ fn qasm_from_circuit(circuit: QuantumCircuit) raises -> String:
         if not tr.isa[GateTransformation]():
             raise Error("Unsupported transformation for QASM export")
         var gt = tr[GateTransformation].copy()
-        if gt.kind == 0 and gt.gate_info.kind == GateKind.H:
+        if gt.kind == ControlKind.NO_CONTROL and gt.gate_info.kind == GateKind.H:
             lines.append("h q[" + String(gt.target) + "];")
-        elif gt.kind == 0 and gt.gate_info.kind == GateKind.P:
+        elif gt.kind == ControlKind.NO_CONTROL and gt.gate_info.kind == GateKind.P:
             var angle = FloatType(gt.gate_info.arg.value())
             lines.append(
                 "p(" + String(angle) + ") q[" + String(gt.target) + "];"
             )
-        elif gt.kind == 1 and gt.gate_info.kind == GateKind.P:
+        elif gt.kind == ControlKind.SINGLE_CONTROL and gt.gate_info.kind == GateKind.P:
             var angle = FloatType(gt.gate_info.arg.value())
             lines.append(
                 "cp("

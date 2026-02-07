@@ -27,8 +27,8 @@ fn c_transform_row_h_simd[
 ](mut state: QuantumState, row: Int, row_size: Int, control: Int, target: Int):
     """Controlled Hadamard where both bits are within the row index."""
     var offset = row * row_size
-    var re_ptr = state.re.unsafe_ptr() + offset
-    var im_ptr = state.im.unsafe_ptr() + offset
+    var re_ptr = state.re_ptr() + offset
+    var im_ptr = state.im_ptr() + offset
     var c_stride = 1 << control
     var t_stride = 1 << target
 
@@ -80,8 +80,8 @@ fn c_transform_row_p_simd[
 ):
     """Controlled Phase where both bits are within the row index."""
     var offset = row * row_size
-    var re_ptr = state.re.unsafe_ptr() + offset
-    var im_ptr = state.im.unsafe_ptr() + offset
+    var re_ptr = state.re_ptr() + offset
+    var im_ptr = state.im_ptr() + offset
     var stride = 1 << target
     var c_stride = 1 << control
     var cos_t = cos(theta)
@@ -121,8 +121,8 @@ fn transform_row_h_simd[
     simd_width: Int = 8
 ](mut state: QuantumState, row: Int, row_size: Int, stride: Int):
     var offset = row * row_size
-    var re_ptr = state.re.unsafe_ptr() + offset
-    var im_ptr = state.im.unsafe_ptr() + offset
+    var re_ptr = state.re_ptr() + offset
+    var im_ptr = state.im_ptr() + offset
 
     for k in range(0, row_size, 2 * stride):
         if stride >= simd_width:
@@ -157,8 +157,8 @@ fn transform_row_x_simd[
     simd_width: Int = 8
 ](mut state: QuantumState, row: Int, row_size: Int, target: Int):
     var offset = row * row_size
-    var re_ptr = state.re.unsafe_ptr() + offset
-    var im_ptr = state.im.unsafe_ptr() + offset
+    var re_ptr = state.re_ptr() + offset
+    var im_ptr = state.im_ptr() + offset
     var stride = 1 << target
 
     for k in range(0, row_size, 2 * stride):
@@ -194,8 +194,8 @@ fn transform_row_z_simd[
     simd_width: Int = 8
 ](mut state: QuantumState, row: Int, row_size: Int, target: Int):
     var offset = row * row_size
-    var re_ptr = state.re.unsafe_ptr() + offset
-    var im_ptr = state.im.unsafe_ptr() + offset
+    var re_ptr = state.re_ptr() + offset
+    var im_ptr = state.im_ptr() + offset
     var stride = 1 << target
 
     for k in range(0, row_size, 2 * stride):
@@ -222,8 +222,8 @@ fn transform_row_p_simd[
     theta: FloatType,
 ):
     var offset = row * row_size
-    var re_ptr = state.re.unsafe_ptr() + offset
-    var im_ptr = state.im.unsafe_ptr() + offset
+    var re_ptr = state.re_ptr() + offset
+    var im_ptr = state.im_ptr() + offset
     var stride = 1 << target
     var cos_t = cos(theta)
     var sin_t = sin(theta)
@@ -250,8 +250,8 @@ fn transform_row(
 ):
     """Transform a single virtual row using scalar operations."""
     var offset = row * row_size
-    var re_ptr = state.re.unsafe_ptr() + offset
-    var im_ptr = state.im.unsafe_ptr() + offset
+    var re_ptr = state.re_ptr() + offset
+    var im_ptr = state.im_ptr() + offset
 
     # Extract gate components
     var g00_re = gate[0][0].re
@@ -298,8 +298,8 @@ fn transform_row_simd[
 ](mut state: QuantumState, row: Int, row_size: Int, target: Int, gate: Gate):
     """Transform a single virtual row using SIMD operations."""
     var offset = row * row_size
-    var re_ptr = state.re.unsafe_ptr() + offset
-    var im_ptr = state.im.unsafe_ptr() + offset
+    var re_ptr = state.re_ptr() + offset
+    var im_ptr = state.im_ptr() + offset
 
     # Extract gate components
     var g00_re = gate[0][0].re
@@ -930,8 +930,8 @@ fn transform_grid[
         alias chunk_size = simd_width
 
         if with_simd and row_size >= chunk_size:
-            var re_ptr = state.re.unsafe_ptr()
-            var im_ptr = state.im.unsafe_ptr()
+            var re_ptr = state.re_ptr()
+            var im_ptr = state.im_ptr()
 
             # Calculate number of L2 tiles (min tile size is chunk_size)
             var tile_size = max(tile_cols, chunk_size)
@@ -1087,8 +1087,8 @@ fn c_transform_grid[
             @parameter
             fn process_column_simd(chunk_idx: Int):
                 # var col_base = chunk_idx * chunk_size
-                # var re_ptr = state.re.unsafe_ptr()
-                # var im_ptr = state.im.unsafe_ptr()
+                # var re_ptr = state.re_ptr()
+                # var im_ptr = state.im_ptr()
                 if gate_info.kind == GateKind.P:
                     pass
                     # c_transform_simd(state, control, stride, gate_info.gate)

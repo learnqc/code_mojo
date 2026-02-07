@@ -11,8 +11,8 @@ fn transform_fused_hh_sparse[
 ](mut state: QuantumState, t1: Int, t2: Int):
     """Specialized global sparse kernel for H + H fusion."""
     var size = state.size()
-    var ptr_re = state.re.unsafe_ptr()
-    var ptr_im = state.im.unsafe_ptr()
+    var ptr_re = state.re_ptr()
+    var ptr_im = state.im_ptr()
 
     var high_pos = t1
     var low_pos = t2
@@ -69,8 +69,8 @@ fn transform_fused_hp_sparse[
 ](mut state: QuantumState, th: Int, tp: Int, theta: FloatType):
     """Specialized global sparse kernel for H + P fusion."""
     var size = state.size()
-    var ptr_re = state.re.unsafe_ptr()
-    var ptr_im = state.im.unsafe_ptr()
+    var ptr_re = state.re_ptr()
+    var ptr_im = state.im_ptr()
 
     var stride_h = 1 << th
     var stride_p = 1 << tp
@@ -131,8 +131,8 @@ fn transform_fused_pp_sparse[
 ):
     """Specialized global sparse kernel for P + P fusion."""
     var size = state.size()
-    var ptr_re = state.re.unsafe_ptr()
-    var ptr_im = state.im.unsafe_ptr()
+    var ptr_re = state.re_ptr()
+    var ptr_im = state.im_ptr()
 
     var high_pos = t1
     var low_pos = t2
@@ -192,8 +192,8 @@ fn transform_fused_shared_c_pp_sparse[
 ):
     """Specialized global sparse kernel for CP + CP sharing a control bit."""
     var size = state.size()
-    var ptr_re = state.re.unsafe_ptr()
-    var ptr_im = state.im.unsafe_ptr()
+    var ptr_re = state.re_ptr()
+    var ptr_im = state.im_ptr()
 
     var b1 = control
     var b2 = t1

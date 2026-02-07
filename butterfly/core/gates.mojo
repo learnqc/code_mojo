@@ -60,16 +60,62 @@ fn U2(phi: FloatType, lam: FloatType) -> Gate:
 fn U1(lam: FloatType) -> Gate:
     return U3(0, 0, lam)
 
-struct GateKind:
-    alias H = 0
-    alias P = 1
-    alias X = 2
-    alias Y = 3
-    alias Z = 4
-    alias RX = 5
-    alias RY = 6
-    alias RZ = 7
-    alias CUSTOM = 8
+struct GateKind(Copyable, Movable, ImplicitlyCopyable):
+    var value: Int
+
+    fn __init__(out self, value: Int):
+        self.value = value
+
+    fn __eq__(self, other: Self) -> Bool:
+        return self.value == other.value
+
+    fn __ne__(self, other: Self) -> Bool:
+        return self.value != other.value
+
+    fn __str__(self) -> String:
+        return gate_kind_name(self)
+
+    @staticmethod
+    fn from_int(value: Int) raises -> GateKind:
+        if not is_valid_gate_kind(value):
+            raise Error("Unknown gate kind: " + String(value))
+        return GateKind(value)
+
+    alias H = GateKind(0)
+    alias P = GateKind(1)
+    alias X = GateKind(2)
+    alias Y = GateKind(3)
+    alias Z = GateKind(4)
+    alias RX = GateKind(5)
+    alias RY = GateKind(6)
+    alias RZ = GateKind(7)
+    alias CUSTOM = GateKind(8)
+
+
+fn is_valid_gate_kind(value: Int) -> Bool:
+    return value >= GateKind.H.value and value <= GateKind.CUSTOM.value
+
+
+fn gate_kind_name(kind: GateKind) -> String:
+    if kind == GateKind.H:
+        return "H"
+    if kind == GateKind.P:
+        return "P"
+    if kind == GateKind.X:
+        return "X"
+    if kind == GateKind.Y:
+        return "Y"
+    if kind == GateKind.Z:
+        return "Z"
+    if kind == GateKind.RX:
+        return "RX"
+    if kind == GateKind.RY:
+        return "RY"
+    if kind == GateKind.RZ:
+        return "RZ"
+    if kind == GateKind.CUSTOM:
+        return "CUSTOM"
+    return "UNKNOWN"
 
 
 alias gate_names:InlineArray[String, 9] = ["H", "P", "X", "Y", "Z", "RX", "RY", "RZ", "CUSTOM"]
@@ -89,7 +135,7 @@ alias gate_types: InlineArray[Variant[Gate, fn(FloatType) -> Gate], 9] = [
 ]
 
 struct GateInfo(ImplicitlyCopyable, Copyable, Movable):
-    var kind: Int
+    var kind: GateKind
     var name: String
     var gate: Gate
     var arg: Optional[FloatType]
@@ -97,12 +143,12 @@ struct GateInfo(ImplicitlyCopyable, Copyable, Movable):
 
     fn __init__(
         out self,
-        kind: Int,
+        kind: GateKind,
         arg: Optional[FloatType] = None,
     ):
         self.kind = kind
-        self.name = gate_names[kind]
-        var gate_type = gate_types[kind]
+        self.name = gate_names[kind.value]
+        var gate_type = gate_types[kind.value]
         if gate_type.isa[Gate]():
             self.gate = gate_type[Gate]
             self.arg = None
@@ -113,7 +159,7 @@ struct GateInfo(ImplicitlyCopyable, Copyable, Movable):
 
     fn __init__(
         out self,
-        kind: Int,
+        kind: GateKind,
         gate: Gate,
         name: String = "CUSTOM",
     ):

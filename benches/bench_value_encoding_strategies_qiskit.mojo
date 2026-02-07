@@ -21,7 +21,7 @@ fn build_circuit(n: Int, v: FloatType) -> QuantumCircuit:
 
 fn apply_strategy(
     input: Tuple[Int, FloatType],
-    strategy: Int,
+    strategy: ExecutionStrategy,
     fused: Bool,
 ) raises -> QuantumState:
     var n = input[0]

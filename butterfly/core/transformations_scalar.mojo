@@ -65,7 +65,7 @@ fn transform_scalar(
     mut state: QuantumState,
     target: Int,
     gate: Gate,
-    gate_kind: Int = -1,
+    gate_kind: GateKind = GateKind.CUSTOM,
     gate_arg: FloatType = 0,
     ctx: ExecContext = ExecContext(),
 ):
@@ -123,7 +123,7 @@ fn c_transform_scalar(
     control: Int,
     target: Int,
     gate: Gate,
-    gate_kind: Int = -1,
+    gate_kind: GateKind = GateKind.CUSTOM,
     gate_arg: FloatType = 0,
     ctx: ExecContext = ExecContext(),
 ):

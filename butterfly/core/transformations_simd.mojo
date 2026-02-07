@@ -10,7 +10,7 @@ fn transform_simd(
     mut state: QuantumState,
     target: Int,
     gate: Gate,
-    gate_kind: Int = -1,
+    gate_kind: GateKind = GateKind.CUSTOM,
     gate_arg: FloatType = 0,
     ctx: ExecContext = ExecContext(),
 ):
@@ -374,7 +374,7 @@ fn c_transform_simd(
     control: Int,
     target: Int,
     gate: Gate,
-    gate_kind: Int = -1,
+    gate_kind: GateKind = GateKind.CUSTOM,
     gate_arg: FloatType = 0,
     ctx: ExecContext = ExecContext(),
 ):

@@ -145,8 +145,8 @@ fn bit_reverse_state(
 
     if ctx.threads >= 0:
         # Optimized Parallel SIMD
-        var ptr_in_re = state.re.unsafe_ptr()
-        var ptr_in_im = state.im.unsafe_ptr()
+        var ptr_in_re = state.re_ptr()
+        var ptr_in_im = state.im_ptr()
         var ptr_out_re = s_re.unsafe_ptr()
         var ptr_out_im = s_im.unsafe_ptr()
 
@@ -187,8 +187,8 @@ fn bit_reverse_state(
     else:
         # Sequential Scalar (Fallback)
         # Using unsafe pointers for performance even in sequential mode
-        var ptr_in_re = state.re.unsafe_ptr()
-        var ptr_in_im = state.im.unsafe_ptr()
+        var ptr_in_re = state.re_ptr()
+        var ptr_in_im = state.im_ptr()
         var ptr_out_re = s_re.unsafe_ptr()
         var ptr_out_im = s_im.unsafe_ptr()
 
